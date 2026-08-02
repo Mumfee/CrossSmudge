@@ -33,6 +33,14 @@
 #include "components/icons/wifi.h"
 #include "fontIds.h"
 
+#include "components/icons/applications.h"
+#include "components/icons/applications24.h"
+#include "components/icons/dice.h"
+#include "components/icons/wordle.h"
+#include "components/icons/lifecounter.h"
+#include "components/icons/rosary.h"
+#include "components/icons/sudoku.h"
+#include "components/icons/twozerofoureight.h"
 // Internal constants
 namespace {
 constexpr int hPaddingInSelection = 8;
@@ -82,6 +90,8 @@ const uint8_t* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
         return Book24Icon;
       case UIIcon::File:
         return File24Icon;
+      case UIIcon::Applications:
+        return App24Icon;
       default:
         return nullptr;
     }
@@ -105,6 +115,20 @@ const uint8_t* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
         return WifiIcon;
       case UIIcon::Hotspot:
         return HotspotIcon;
+      case UIIcon::Applications:
+        return AppIcon;
+      case UIIcon::Dice:
+        return DiceIcon;
+      case UIIcon::Wordle:
+        return WordleIcon;
+      case UIIcon::LifeCounter:
+        return LifeCounterIcon;
+      case UIIcon::Rosary:
+        return RosaryIcon;
+      case UIIcon::Sudoku:
+        return SudokuIcon;
+      case UIIcon::TwoZeroFourEight:
+        return TwoZeroFourEightIcon;
       default:
         return nullptr;
     }

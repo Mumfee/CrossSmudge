@@ -106,7 +106,7 @@ bool resetBookReaderSettings(const std::string& fullPath) {
 }
 
 std::vector<std::string> epubRenderModeOptions() {
-  return {I18N.get(StrId::STR_RENDER_MODE_CROSSINK_DEFAULT), I18N.get(StrId::STR_RENDER_MODE_BALANCED),
+  return {I18N.get(StrId::STR_RENDER_MODE_CROSSINKY_DEFAULT), I18N.get(StrId::STR_RENDER_MODE_BALANCED),
           I18N.get(StrId::STR_RENDER_MODE_LIGHT)};
 }
 
@@ -116,7 +116,7 @@ uint8_t epubRenderModeDisplayIndex(const uint8_t renderMode) {
       return 1;
     case EpubRenderMode::Light:
       return 2;
-    case EpubRenderMode::CrossInkDefault:
+    case EpubRenderMode::CrossSmudgeDefault:
     default:
       return 0;
   }
@@ -130,7 +130,7 @@ uint8_t epubRenderModeForDisplayIndex(const uint8_t displayIndex) {
       return static_cast<uint8_t>(EpubRenderMode::Light);
     case 0:
     default:
-      return static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+      return static_cast<uint8_t>(EpubRenderMode::CrossSmudgeDefault);
   }
 }
 

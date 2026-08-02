@@ -28,7 +28,7 @@ namespace {
 constexpr int kDefaultThumbHeight = 180;
 constexpr char kXLocationsPath[] = "META-INF/x-locations.json";
 constexpr char kXLocationsFormat[] = "x-locations";
-constexpr char kLegacyXLocationsFormat[] = "crossink-locations";
+constexpr char kLegacyXLocationsFormat[] = "crosssmudge-locations";
 constexpr size_t kXLocationsMaxBytes = 64 * 1024;
 constexpr uint32_t kDefaultReferenceCharactersPerPage = 1500;
 

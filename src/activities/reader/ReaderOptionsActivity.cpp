@@ -72,8 +72,8 @@ uint8_t valueOptionCount(const SettingInfo& setting) {
 SettingInfo buildReaderRenderModeSetting() {
   return SettingInfo::Enum(
              StrId::STR_EPUB_RENDER_MODE, &CrossPointSettings::epubRenderMode,
-             {StrId::STR_RENDER_MODE_CROSSINK_DEFAULT, StrId::STR_RENDER_MODE_BALANCED, StrId::STR_RENDER_MODE_LIGHT})
-      .withEnumRawValues({static_cast<uint8_t>(EpubRenderMode::CrossInkDefault),
+             {StrId::STR_RENDER_MODE_CROSSINKY_DEFAULT, StrId::STR_RENDER_MODE_BALANCED, StrId::STR_RENDER_MODE_LIGHT})
+      .withEnumRawValues({static_cast<uint8_t>(EpubRenderMode::CrossSmudgeDefault),
                           static_cast<uint8_t>(EpubRenderMode::Balanced), static_cast<uint8_t>(EpubRenderMode::Light)});
 }
 }  // namespace

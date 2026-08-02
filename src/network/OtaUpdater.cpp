@@ -22,11 +22,11 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback, void*, s
 #include "network/WifiPowerSaveGuard.h"
 
 namespace {
-#ifndef CROSSINK_OTA_RELEASE_URL
-#define CROSSINK_OTA_RELEASE_URL "https://api.github.com/repos/uxjulia/CrossInk/releases/latest"
+#ifndef CROSSINKY_OTA_RELEASE_URL
+#define CROSSINKY_OTA_RELEASE_URL "https://api.github.com/repos/Mumfee/CrossSmudge/releases/latest"
 #endif
 
-constexpr char latestReleaseUrl[] = CROSSINK_OTA_RELEASE_URL;
+constexpr char latestReleaseUrl[] = CROSSINKY_OTA_RELEASE_URL;
 
 #ifdef CROSSPOINT_FIRMWARE_VARIANT
 constexpr char firmwareAssetStem[] = "firmware-" CROSSPOINT_FIRMWARE_VARIANT;
@@ -255,7 +255,7 @@ extern esp_err_t esp_crt_bundle_attach(void* conf);
 }
 
 esp_err_t http_client_set_header_cb(esp_http_client_handle_t http_client) {
-  return esp_http_client_set_header(http_client, "User-Agent", "CrossInk-ESP32-" CROSSINK_VERSION);
+  return esp_http_client_set_header(http_client, "User-Agent", "CrossSmudge-ESP32-" CROSSINKY_VERSION);
 }
 
 size_t totalBytesReceived = 0;
@@ -337,7 +337,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   };
 
   totalBytesReceived = 0;
-  LOG_DBG("OTA", "Checking for update (current: %s)", CROSSINK_VERSION);
+  LOG_DBG("OTA", "Checking for update (current: %s)", CROSSINKY_VERSION);
 
   esp_http_client_handle_t client_handle = esp_http_client_init(&client_config);
   if (!client_handle) {
@@ -345,7 +345,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
     return INTERNAL_UPDATE_ERROR;
   }
 
-  esp_err = esp_http_client_set_header(client_handle, "User-Agent", "CrossInk-ESP32-" CROSSINK_VERSION);
+  esp_err = esp_http_client_set_header(client_handle, "User-Agent", "CrossSmudge-ESP32-" CROSSINKY_VERSION);
   if (esp_err != ESP_OK) {
     LOG_ERR("OTA", "esp_http_client_set_header Failed : %s", esp_err_to_name(esp_err));
     esp_http_client_cleanup(client_handle);
@@ -394,12 +394,12 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
 }
 
 bool OtaUpdater::isUpdateNewer() const {
-  if (!updateAvailable || latestVersion.empty() || latestVersion == CROSSINK_VERSION) {
+  if (!updateAvailable || latestVersion.empty() || latestVersion == CROSSINKY_VERSION) {
     return false;
   }
 
-  const int comparison = compareVersions(latestVersion.c_str(), CROSSINK_VERSION);
-  LOG_DBG("OTA", "Version comparison latest=%s current=%s result=%d", latestVersion.c_str(), CROSSINK_VERSION,
+  const int comparison = compareVersions(latestVersion.c_str(), CROSSINKY_VERSION);
+  LOG_DBG("OTA", "Version comparison latest=%s current=%s result=%d", latestVersion.c_str(), CROSSINKY_VERSION,
           comparison);
   return comparison > 0;
 }

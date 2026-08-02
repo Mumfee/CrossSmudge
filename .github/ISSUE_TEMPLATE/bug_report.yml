@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report this bug! Please fill out the details below. If you have a feature request, please use the [Discussions](https://github.com/uxjulia/CrossInk/discussions/categories/ideas) feature so that issues focuses only on immediate bugs.
+        Thanks for taking the time to report this bug! Please fill out the details below. If you have a feature request, please use the [Discussions](https://github.com/uxjulia/CrossSmudge/discussions/categories/ideas) feature so that issues focuses only on immediate bugs.
 
   - type: dropdown
     id: device-type

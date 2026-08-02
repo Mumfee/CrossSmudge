@@ -57,9 +57,9 @@ jobs:
           fi
           VERSION="${VERSION#v}"
           echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
-          sed -i "s/crossink_version = .*/crossink_version = $VERSION/" platformio.ini
+          sed -i "s/crosssmudge_version = .*/crosssmudge_version = $VERSION/" platformio.ini
 
-      - name: Build CrossInk
+      - name: Build CrossSmudge
         env:
           CROSSPOINT_RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
         run: pio run -e tiny -e xlarge
@@ -76,27 +76,27 @@ jobs:
       - name: Publish catalog to GitHub Pages source
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          CROSSINK_SIGNING_SSH_KEY: ${{ secrets.CROSSINK_SIGNING_SSH_KEY }}
+          CROSSINKY_SIGNING_SSH_KEY: ${{ secrets.CROSSINKY_SIGNING_SSH_KEY }}
         run: |
-          if [ -z "$CROSSINK_SIGNING_SSH_KEY" ]; then
-            echo "::error::CROSSINK_SIGNING_SSH_KEY is not set"
+          if [ -z "$CROSSINKY_SIGNING_SSH_KEY" ]; then
+            echo "::error::CROSSINKY_SIGNING_SSH_KEY is not set"
             exit 1
           fi
 
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$CROSSINK_SIGNING_SSH_KEY" > ~/.ssh/crossink_actions_signing
-          chmod 600 ~/.ssh/crossink_actions_signing
-          ssh-keygen -y -f ~/.ssh/crossink_actions_signing > ~/.ssh/crossink_actions_signing.pub
+          printf '%s\n' "$CROSSINKY_SIGNING_SSH_KEY" > ~/.ssh/crosssmudge_actions_signing
+          chmod 600 ~/.ssh/crosssmudge_actions_signing
+          ssh-keygen -y -f ~/.ssh/crosssmudge_actions_signing > ~/.ssh/crosssmudge_actions_signing.pub
 
           git config user.name "uxjulia"
           git config user.email "julia@uxj.io"
           git config gpg.format ssh
-          git config user.signingkey "$HOME/.ssh/crossink_actions_signing.pub"
+          git config user.signingkey "$HOME/.ssh/crosssmudge_actions_signing.pub"
 
           git fetch origin "$DEFAULT_BRANCH"
-          git worktree add ../crossink-pages "origin/$DEFAULT_BRANCH"
-          cp ".pio/build/catalog" "../crossink-pages/docs/catalog"
-          cd ../crossink-pages
+          git worktree add ../crosssmudge-pages "origin/$DEFAULT_BRANCH"
+          cp ".pio/build/catalog" "../crosssmudge-pages/docs/catalog"
+          cd ../crosssmudge-pages
           if git diff --quiet -- docs/catalog; then
             echo "docs/catalog is already current"
             exit 0

@@ -9,7 +9,7 @@ There are three ways to install fonts:
 
 ### Option 1: Download from device (recommended)
 
-1. Connect your CrossInk reader to Wi-Fi
+1. Connect your CrossSmudge reader to Wi-Fi
 2. Go to **Settings > Reader > Font Options > Manage Fonts**
 3. Browse available font families and tap to download
 4. Downloaded fonts appear immediately in **Settings > Reader > Font Family**
@@ -50,12 +50,12 @@ There are three ways to install fonts:
                ├── Merriweather_12.cpfont
                └── ...
 
-3. Insert the SD card and power on your CrossInk reader
+3. Insert the SD card and power on your CrossSmudge reader
 
 ## Available Pre-Built Fonts
 
 The current list of pre-built fonts is maintained in the
-[crossink-fonts repository](https://github.com/uxjulia/crossink-fonts). Device-initiated downloads use the versioned font manifest published for the current `.cpfont` format.
+[crosssmudge-fonts repository](https://github.com/uxjulia/crosssmudge-fonts). Device-initiated downloads use the versioned font manifest published for the current `.cpfont` format.
 
 ## Converting Custom Fonts
 

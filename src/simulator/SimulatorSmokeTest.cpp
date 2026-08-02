@@ -68,10 +68,10 @@ class SimulatorSmokeTest {
   std::vector<ScriptAction> inputScript;
   size_t scriptIndex = 0;
 
-  static bool enabled() { return std::getenv("CROSSINK_SIMULATOR_SMOKE_TEST") != nullptr; }
+  static bool enabled() { return std::getenv("CROSSINKY_SIMULATOR_SMOKE_TEST") != nullptr; }
 
   static int pageTurnCount() {
-    const char* raw = std::getenv("CROSSINK_SIMULATOR_SMOKE_PAGE_TURNS");
+    const char* raw = std::getenv("CROSSINKY_SIMULATOR_SMOKE_PAGE_TURNS");
     if (raw == nullptr || raw[0] == '\0') {
       return 2;
     }
@@ -79,7 +79,7 @@ class SimulatorSmokeTest {
   }
 
   static void applyRequestedTheme() {
-    const char* raw = std::getenv("CROSSINK_SIMULATOR_SMOKE_THEME");
+    const char* raw = std::getenv("CROSSINKY_SIMULATOR_SMOKE_THEME");
     if (raw == nullptr || raw[0] == '\0') {
       return;
     }
@@ -178,9 +178,9 @@ class SimulatorSmokeTest {
         break;
 
       case SmokeStep::Sleep: {
-        const char* bookPath = std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK");
+        const char* bookPath = std::getenv("CROSSINKY_SIMULATOR_SMOKE_BOOK");
         if (bookPath == nullptr || bookPath[0] == '\0') {
-          LOG_INF("SMOKE", "Skipping Reader step; CROSSINK_SIMULATOR_SMOKE_BOOK is not set");
+          LOG_INF("SMOKE", "Skipping Reader step; CROSSINKY_SIMULATOR_SMOKE_BOOK is not set");
           step = SmokeStep::Reader;
           break;
         }

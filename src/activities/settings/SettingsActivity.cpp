@@ -103,7 +103,7 @@ std::string formatCompactDuration(const uint32_t seconds) {
 
 void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, const int pageHeight,
                              const ThemeMetrics& metrics) {
-  const std::string label = "CrossInk " CROSSINK_VERSION;
+  const std::string label = "CrossSmudge " CROSSINKY_VERSION;
   const int maxWidth = pageWidth - systemVersionFooterSideMargin * 2;
   const int bottomLineY =
       pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - systemVersionFooterBottomInset;
@@ -939,7 +939,7 @@ void SettingsActivity::render(RenderLock&&) {
       },
       true, nullptr, [&settings](int i) { return settings[i].type == SettingType::SECTION_HEADER; });
 
-  // Draw CrossInk version label at the bottom of the System tab
+  // Draw CrossSmudge version label at the bottom of the System tab
   if (selectedCategoryIndex == 3) {
     drawSystemVersionFooter(renderer, pageWidth, pageHeight, metrics);
   }

@@ -445,7 +445,7 @@ class CrossPointSettings {
   char deviceName[21] = "";
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.
   uint8_t quickResumeSleepScreen = QUICK_RESUME_NEVER;
-#ifdef CROSSINK_ENABLE_READING_STATS_TOGGLE
+#ifdef CROSSINKY_ENABLE_READING_STATS_TOGGLE
   // Debug/test builds can disable stat writes so navigation tests do not affect personal reading stats.
   uint8_t trackReadingStats = 1;
 #endif
@@ -486,7 +486,7 @@ class CrossPointSettings {
     return hideClock == HIDE_CLOCK_NEVER || hideClock == HIDE_CLOCK_IN_READER;
   }
   bool shouldTrackReadingStats() const {
-#ifdef CROSSINK_ENABLE_READING_STATS_TOGGLE
+#ifdef CROSSINKY_ENABLE_READING_STATS_TOGGLE
     return trackReadingStats != 0;
 #else
     return true;

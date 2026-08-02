@@ -3,11 +3,11 @@ title: Home
 nav_order: 1
 ---
 
-# CrossInk
+# CrossSmudge
 
-Welcome to CrossInk, a personal fork of CrossPoint Reader.
+Welcome to CrossSmudge, a personal fork of CrossPoint Reader.
 
-[View on GitHub](https://github.com/uxjulia/CrossInk)
+[View on GitHub](https://github.com/uxjulia/CrossSmudge)
 
 ## User Docs
 

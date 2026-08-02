@@ -30,7 +30,9 @@ bool ensureMutex() {
 
   mutex = nullptr;
   if (!gMutex.compare_exchange_strong(mutex, created, std::memory_order_release, std::memory_order_acquire)) {
-    vSemaphoreDelete(created);
+    #ifndef SIMULATOR
+        vSemaphoreDelete(created);
+    #endif
   }
   return true;
 }

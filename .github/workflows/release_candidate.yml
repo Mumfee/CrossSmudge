@@ -75,7 +75,7 @@ jobs:
         run: |
           VERSION="${RC_BRANCH_RAW}-RC"
           escaped_version=$(printf '%s\n' "$VERSION" | sed 's/[&|]/\\&/g')
-          sed -i "s|^crossink_version = .*|crossink_version = ${escaped_version}|" platformio.ini
+          sed -i "s|^crosssmudge_version = .*|crosssmudge_version = ${escaped_version}|" platformio.ini
 
       - name: Build CrossPoint
         shell: bash

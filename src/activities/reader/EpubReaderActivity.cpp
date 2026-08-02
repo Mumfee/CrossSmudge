@@ -101,7 +101,7 @@ std::string confirmationHeading(const StrId actionLabelId) {
 }
 
 EpubRenderMode normalizeRenderMode(const uint8_t rawMode) {
-  return isValidEpubRenderMode(rawMode) ? static_cast<EpubRenderMode>(rawMode) : EpubRenderMode::CrossInkDefault;
+  return isValidEpubRenderMode(rawMode) ? static_cast<EpubRenderMode>(rawMode) : EpubRenderMode::CrossSmudgeDefault;
 }
 
 uint8_t normalizeRenderModeRaw(const uint8_t rawMode) { return static_cast<uint8_t>(normalizeRenderMode(rawMode)); }
@@ -112,7 +112,7 @@ const char* sectionCacheSuffixForRenderMode(const EpubRenderMode renderMode) {
       return BALANCED_SECTION_CACHE_SUFFIX;
     case EpubRenderMode::Light:
       return LIGHT_SECTION_CACHE_SUFFIX;
-    case EpubRenderMode::CrossInkDefault:
+    case EpubRenderMode::CrossSmudgeDefault:
     default:
       return "";
   }
@@ -148,7 +148,7 @@ const char* labelForRenderModeToast(const EpubRenderMode renderMode) {
       return tr(STR_BALANCED_MODE);
     case EpubRenderMode::Light:
       return tr(STR_LIGHT_MODE);
-    case EpubRenderMode::CrossInkDefault:
+    case EpubRenderMode::CrossSmudgeDefault:
     default:
       return "";
   }
@@ -162,10 +162,10 @@ std::array<EpubRenderMode, 3> fallbackModesForSelection(const EpubRenderMode sel
     case EpubRenderMode::Light:
       count = 1;
       return {EpubRenderMode::Light, EpubRenderMode::Light, EpubRenderMode::Light};
-    case EpubRenderMode::CrossInkDefault:
+    case EpubRenderMode::CrossSmudgeDefault:
     default:
       count = 3;
-      return {EpubRenderMode::CrossInkDefault, EpubRenderMode::Balanced, EpubRenderMode::Light};
+      return {EpubRenderMode::CrossSmudgeDefault, EpubRenderMode::Balanced, EpubRenderMode::Light};
   }
 }
 
@@ -184,7 +184,7 @@ const char* sectionBuildLabelForRenderMode(const EpubRenderMode renderMode) {
       return "balanced";
     case EpubRenderMode::Light:
       return "light";
-    case EpubRenderMode::CrossInkDefault:
+    case EpubRenderMode::CrossSmudgeDefault:
     default:
       return "primary";
   }
@@ -902,7 +902,7 @@ struct BookReaderSettingsData {
   uint16_t autoPageTurnSeconds = DEFAULT_AUTO_PAGE_TURN_INTERVAL_S;
   bool hasCustomReaderSettings = false;
   bool hasRenderModeOverride = false;
-  uint8_t renderMode = static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+  uint8_t renderMode = static_cast<uint8_t>(EpubRenderMode::CrossSmudgeDefault);
   EpubReaderActivity::ReaderSettingsSnapshot readerSettings;
 };
 
@@ -969,7 +969,7 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
 
   uint8_t flags = 0;
   uint16_t seconds = 0;
-  uint8_t renderMode = static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+  uint8_t renderMode = static_cast<uint8_t>(EpubRenderMode::CrossSmudgeDefault);
   EpubReaderActivity::ReaderSettingsSnapshot snapshot;
   bool ok = readU8(file, flags) && readU16(file, seconds);
   if (ok) {
@@ -1117,7 +1117,7 @@ uint8_t EpubReaderActivity::loadBookRenderMode(const std::string& filePath) {
   epub.setupCacheDir();
   const BookReaderSettingsData data = loadBookReaderSettingsFile(epub.getCachePath());
   return data.hasRenderModeOverride ? normalizeRenderModeRaw(data.renderMode)
-                                    : static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+                                    : static_cast<uint8_t>(EpubRenderMode::CrossSmudgeDefault);
 }
 
 bool EpubReaderActivity::saveBookRenderMode(const std::string& filePath, const uint8_t renderMode) {
@@ -1635,7 +1635,7 @@ void EpubReaderActivity::loadBookReaderSettings() {
     applyReaderSettings(data.readerSettings);
   }
   SETTINGS.epubRenderMode = data.hasRenderModeOverride ? normalizeRenderModeRaw(data.renderMode)
-                                                       : static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+                                                       : static_cast<uint8_t>(EpubRenderMode::CrossSmudgeDefault);
   sdFontSystem.ensureLoaded(renderer);
 }
 
@@ -3522,7 +3522,7 @@ void EpubReaderActivity::showTiltPageTurnFeedback(bool enabled) {
 }
 
 void EpubReaderActivity::showRenderModeToast(const uint8_t renderMode) {
-  if (normalizeRenderMode(renderMode) == EpubRenderMode::CrossInkDefault) {
+  if (normalizeRenderMode(renderMode) == EpubRenderMode::CrossSmudgeDefault) {
     return;
   }
   renderModeToastMode = normalizeRenderModeRaw(renderMode);
@@ -3954,7 +3954,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     if (!buildingFootnotePreview && safeModeBuildSucceeded && !safeModeToastShown) {
       showSafeModeToast();
     } else if (!buildingFootnotePreview && renderModeChangedDuringLoad &&
-               usedRenderMode != EpubRenderMode::CrossInkDefault && !renderModeToastShown) {
+               usedRenderMode != EpubRenderMode::CrossSmudgeDefault && !renderModeToastShown) {
       showRenderModeToast(static_cast<uint8_t>(usedRenderMode));
     }
 
@@ -4704,7 +4704,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   }
   SETTINGS.epubRenderMode = readerSettings.hasRenderModeOverride
                                 ? normalizeRenderModeRaw(readerSettings.renderMode)
-                                : static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+                                : static_cast<uint8_t>(EpubRenderMode::CrossSmudgeDefault);
   sdFontSystem.ensureLoaded(renderer);
 
   // Load CSS when embeddedStyle is enabled, as createSectionFile may need it to rebuild the cache.

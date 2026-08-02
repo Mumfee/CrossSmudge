@@ -128,7 +128,14 @@ enum UIIcon {
   Library,
   Wifi,
   Hotspot,
-  Chart
+  Chart,
+  Applications,
+  Dice,
+  Wordle,
+  LifeCounter,
+  Rosary,
+  Sudoku,
+  TwoZeroFourEight,
 };
 
 enum class KeyboardKeyType { Normal, Shift, Mode, Space, Del, Ok, Disabled };

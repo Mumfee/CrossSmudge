@@ -17,7 +17,7 @@ build
 *.local*
 fs_/
 
-# scratchpad used as release notes for next crossink version
+# scratchpad used as release notes for next crosssmudge version
 release.md
 *.cpfont
 lib/EpdFont/scripts/downloaded_fonts/

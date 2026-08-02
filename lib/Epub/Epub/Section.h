@@ -46,7 +46,7 @@ class Section {
                          bool hyphenationEnabled, bool embeddedStyle, uint8_t imageRendering, bool bionicReadingEnabled,
                          bool guideReadingEnabled, const std::function<void()>& popupFn = nullptr,
                          bool* imagesWereSuppressed = nullptr, bool* layoutAbortedForLowMemory = nullptr,
-                         EpubRenderMode renderMode = EpubRenderMode::CrossInkDefault,
+                         EpubRenderMode renderMode = EpubRenderMode::CrossSmudgeDefault,
                          SectionBuildOptions buildOptions = {});
 
   std::unique_ptr<Page> loadPageFromSectionFile();

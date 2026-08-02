@@ -5,7 +5,7 @@ nav_order: 6
 
 # Reading Stats Sync
 
-CrossInk can sync all-time reading stats between nearby readers running CrossInk from **File Transfer > Nearby Stats Sync**. The sync is direct reader-to-reader; it does not use a server, account, or one "main" reader. This only works with CrossInk reading stats. This will *NOT* work with any other firmware's reading stats.
+CrossSmudge can sync all-time reading stats between nearby readers running CrossSmudge from **File Transfer > Nearby Stats Sync**. The sync is direct reader-to-reader; it does not use a server, account, or one "main" reader. This only works with CrossSmudge reading stats. This will *NOT* work with any other firmware's reading stats.
 
 ## What Gets Synced
 
@@ -31,7 +31,7 @@ Each device owns one record, and the Reading Stats screen sums all the records i
 5. Future Reading Stats views show this reader's local stats plus the other
    valid files in `/.crosspoint/synced_stats/`.
 
-The sync screen creates `/.crosspoint/synced_stats/` the first time you use it. That folder stores snapshots received from other readers. This reader's own all-time totals stay in `/.crosspoint/global_stats.bin`; CrossInk does not write this reader's own `device_<mac>.bin` file into `synced_stats/`.
+The sync screen creates `/.crosspoint/synced_stats/` the first time you use it. That folder stores snapshots received from other readers. This reader's own all-time totals stay in `/.crosspoint/global_stats.bin`; CrossSmudge does not write this reader's own `device_<mac>.bin` file into `synced_stats/`.
 
 ## SD Card Folder Structure
 
@@ -53,7 +53,7 @@ backup used if the main file is corrupt.
 `synced_stats/` contains one contribution file per other synced reader. Each file is a snapshot from the last time this reader received that device's stats; it is not a live copy of that other reader's current `global_stats.bin`. Files created by nearby sync use the peer reader's hardware MAC address in the file
 name: `device_<mac>.bin`, with no colons or dashes.
 
-When displaying aggregated stats, CrossInk reads every non-folder file in `synced_stats/` that has a valid CrossInk stats payload. The file name does not have to match `device_<mac>.bin` for manual imports. If a manually copied file matches this reader's own `device_<local-mac>.bin`, CrossInk skips it so local stats are not counted twice.
+When displaying aggregated stats, CrossSmudge reads every non-folder file in `synced_stats/` that has a valid CrossSmudge stats payload. The file name does not have to match `device_<mac>.bin` for manual imports. If a manually copied file matches this reader's own `device_<local-mac>.bin`, CrossSmudge skips it so local stats are not counted twice.
 
 ## Manually Removing Synced Stats
 
@@ -78,10 +78,10 @@ Do not delete `/.crosspoint/epub_<hash>/stats.bin` or versioned files such as
 `/.crosspoint/epub_<hash>/stats_v5.bin` unless you also want to remove the
 per-book stats for that book.
 
-If a sync was interrupted, a temporary `*.part` file may be left in `synced_stats/`. CrossInk ignores invalid stats files while aggregating, so it is safe to delete leftover `.part` files.
+If a sync was interrupted, a temporary `*.part` file may be left in `synced_stats/`. CrossSmudge ignores invalid stats files while aggregating, so it is safe to delete leftover `.part` files.
 
 ## Manual Copying Between Devices
 
-You can manually copy a valid stats file into another reader's `/.crosspoint/synced_stats/` folder. A descriptive file name such as `old_reader.bin` can work because CrossInk validates the file contents, not the name.
+You can manually copy a valid stats file into another reader's `/.crosspoint/synced_stats/` folder. A descriptive file name such as `old_reader.bin` can work because CrossSmudge validates the file contents, not the name.
 
-Use normal `device_<mac>.bin` names when possible. Do not copy this reader's own local `global_stats.bin` into `synced_stats/` under a different name; CrossInk will treat it like another reader and the all-time total will be too high.
+Use normal `device_<mac>.bin` names when possible. Do not copy this reader's own local `global_stats.bin` into `synced_stats/` under a different name; CrossSmudge will treat it like another reader and the all-time total will be too high.

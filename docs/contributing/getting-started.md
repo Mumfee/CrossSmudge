@@ -6,7 +6,7 @@ nav_order: 1
 
 # Getting Started
 
-This guide helps you build and run CrossInk locally.
+This guide helps you build and run CrossSmudge locally.
 
 ## Prerequisites
 
@@ -49,8 +49,8 @@ The reported major version must be 21 or newer.
 ## Clone and initialize
 
 ```sh
-git clone --recursive https://github.com/uxjulia/CrossInk
-cd CrossInk
+git clone --recursive https://github.com/uxjulia/CrossSmudge
+cd CrossSmudge
 ```
 
 If you already cloned without submodules:

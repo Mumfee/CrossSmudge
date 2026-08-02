@@ -17,7 +17,7 @@
 namespace {
 constexpr char LOG_TAG[] = "SBACK";
 constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats.bin";
-constexpr char BACKUP_DIR[] = "/.crossink-stats-backup";
+constexpr char BACKUP_DIR[] = "/.crosssmudge-stats-backup";
 constexpr int DEFAULT_BACKUP_KEEP_COUNT = 7;
 
 struct BackupName {

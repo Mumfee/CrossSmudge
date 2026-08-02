@@ -1,3 +1,17 @@
+## [v1.4.0.1.1] - 2026-08-01
+
+### Added
+- CrossSmudge custom branding and ink-spatter splash graphics.
+- Applications menu 
+- Wordle
+- Dice sim
+- 2048
+- Rosary
+- Sudoku
+- Life Counter
+- App setting to re order, or hide/show apps
+- Custom OTA update endpoint pointing to CrossSmudge GitHub releases.
+
 ## [v1.4.0.1] - 2026-07-28
 
 ### Added
@@ -9,8 +23,8 @@
 ### Added
 
 - Dashboard UI theme for the Home screen, showing the current book cover and reading stats.
-- Nearby Position Sync for sending or applying the current EPUB position between two CrossInk devices over ESP-NOW.
-- Web EPUB optimizer support for CrossInk location metadata, so optimized EPUBs can keep better progress and stable page numbers.
+- Nearby Position Sync for sending or applying the current EPUB position between two CrossSmudge devices over ESP-NOW.
+- Web EPUB optimizer support for CrossSmudge location metadata, so optimized EPUBs can keep better progress and stable page numbers.
 - Reading Stats support for XTC and XTCH books, including reader menus, Home and sleep screen stats, mark finished, delete stats, and preserving stats when clearing book caches.
 - Web file manager image previews, so PNG, JPEG, BMP, GIF, and WebP files can be viewed inline before downloading.
 
@@ -59,7 +73,7 @@
 - File Browser now indexes large SD-card folders so directories with many books can be browsed without loading every filename into memory at once.
 - EPUB text clipping with saved highlights, clipping lists, and Kindle-style `/My Clippings.txt` export.
 - `Create Clipping` is now available as a reader shortcut for short/long Power, long-press Menu, and long-press Back actions.
-- Per-book EPUB options for font, layout, styling, reading aids, and render modes, including `CrossInk Default`, `Balanced`, and `Light` modes for difficult books.
+- Per-book EPUB options for font, layout, styling, reading aids, and render modes, including `CrossSmudge Default`, `Balanced`, and `Light` modes for difficult books.
 - Arena allocator (`lib/Memory/Arena.h`) for burst-then-discard allocation patterns - reduces heap fragmentation during EPUB parsing and page layout over long reading sessions.
 - Optimized EPUBs now store location metadata at `META-INF/x-locations.json`.
 - X3 SD-card writes now use the RTC for file timestamps when the clock is available.
@@ -106,7 +120,7 @@
 
 ### Changed
 
-- CrossInk settings now save to `/.crosspoint/crossink-settings.json`, with a one-time fallback migration from `/.crosspoint/settings.json`, so switching between firmware builds is less likely to reset preferences.
+- CrossSmudge settings now save to `/.crosspoint/crosssmudge-settings.json`, with a one-time fallback migration from `/.crosspoint/settings.json`, so switching between firmware builds is less likely to reset preferences.
 - The X3 clock visibility setting is now phrased as `Hide Clock`, with existing `Show Clock` preferences migrated to the matching hide behavior.
 
 ### Fixed
@@ -163,7 +177,7 @@
 ### Added
 
 - EPUB reading-position improvements, including bookmark anchors, bookmark preview snippets, and optional chapter/book time-left estimates.
-- Nearby Reading Stats sync with separate totals for this device and all synced CrossInk readers.
+- Nearby Reading Stats sync with separate totals for this device and all synced CrossSmudge readers.
 - Per-server OPDS filename settings so downloaded books can use either Author - Title or Title - Author.
 - EPUB render heap diagnostics that include the largest allocatable block, not just total free heap.
 
@@ -217,7 +231,7 @@
 
 ### Fixed
 
-- Lyra Carousel is now included by activating the build flag `DCROSSINK_ENABLE_LYRA_CAROUSEL=1`
+- Lyra Carousel is now included by activating the build flag `DCROSSINKY_ENABLE_LYRA_CAROUSEL=1`
 
 ---
 

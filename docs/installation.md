@@ -7,7 +7,7 @@ nav_order: 14
 
 ## Web Installer
 
-1. Download the `firmware-*.bin` file for the build variant of your choosing from the [releases page](https://github.com/uxjulia/CrossInk/releases).
+1. Download the `firmware-*.bin` file for the build variant of your choosing from the [releases page](https://github.com/uxjulia/CrossSmudge/releases).
 2. Connect your Xteink X4 or X3 to your computer via USB-C and wake/unlock the device.
 3. Go to <https://crosspointreader.com/#flash-tools> and choose your device.
 4. Select **Custom .bin** from the options.
@@ -25,7 +25,7 @@ Install `esptool`:
 pip3 install esptool
 ```
 
-Download the `firmware-*.bin` file from the [releases page](https://github.com/uxjulia/CrossInk/releases), then connect your device with USB-C.
+Download the `firmware-*.bin` file from the [releases page](https://github.com/uxjulia/CrossSmudge/releases), then connect your device with USB-C.
 
 Find the device port:
 

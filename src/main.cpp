@@ -698,8 +698,10 @@ void setup() {
   // Web Serial sends file data in 256-byte chunks and waits for a 1-byte ACK.
   // HWCDC defaults to a 256-byte RX queue, which is fine for logs but too small
   // for chunked file transfer.
-  logSerial.setRxBufferSize(1024);
-  logSerial.setTxBufferSize(1024);
+  #ifndef SIMULATOR
+   logSerial.setRxBufferSize(1024);
+   logSerial.setTxBufferSize(1024);
+  #endif
   Serial.begin(115200);
 #ifndef SIMULATOR
   logSerial.setTxTimeoutMs(1);  // This is a load-bearing 1. Do not modify.
@@ -740,7 +742,9 @@ void setup() {
   HalSystem::checkPanic();
 
   SETTINGS.loadFromFile();
-  Storage.installDateTimeCallback(&SETTINGS.clockUtcOffsetQ);
+  #ifndef SIMULATOR
+   Storage.installDateTimeCallback(&SETTINGS.clockUtcOffsetQ);
+  #endif
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
@@ -795,7 +799,7 @@ void setup() {
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
-  LOG_DBG("MAIN", "Starting CrossInk version " CROSSINK_VERSION);
+  LOG_DBG("MAIN", "Starting CrossSmudge version " CROSSINKY_VERSION);
 
   // Resolve the single boot-presentation decision. Skipping the splash also
   // skips the panel-clearing pass and the X3 initial-full-sync arming (see

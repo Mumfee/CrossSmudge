@@ -68,16 +68,16 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Run: pio run -e simulator", file=sys.stderr)
         return 2
 
-    with tempfile.TemporaryDirectory(prefix="crossink-sim-smoke-") as temp_dir_name:
+    with tempfile.TemporaryDirectory(prefix="crosssmudge-sim-smoke-") as temp_dir_name:
         temp_root = Path(temp_dir_name)
         simulator_book_path = prepare_fs(temp_root, book)
 
         env = os.environ.copy()
-        env["CROSSINK_SIMULATOR_SMOKE_TEST"] = "1"
-        env["CROSSINK_SIMULATOR_SMOKE_BOOK"] = simulator_book_path
-        env["CROSSINK_SIMULATOR_SMOKE_PAGE_TURNS"] = str(args.page_turns)
+        env["CROSSINKY_SIMULATOR_SMOKE_TEST"] = "1"
+        env["CROSSINKY_SIMULATOR_SMOKE_BOOK"] = simulator_book_path
+        env["CROSSINKY_SIMULATOR_SMOKE_PAGE_TURNS"] = str(args.page_turns)
         if args.theme:
-            env["CROSSINK_SIMULATOR_SMOKE_THEME"] = str(THEMES[args.theme])
+            env["CROSSINKY_SIMULATOR_SMOKE_THEME"] = str(THEMES[args.theme])
         if args.headless:
             env.setdefault("SDL_VIDEODRIVER", "dummy")
 

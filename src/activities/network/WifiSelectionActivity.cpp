@@ -409,9 +409,13 @@ void WifiSelectionActivity::attemptConnection() {
   // Abort any in-progress SDK auto-connect before our explicit begin().
   // Do not erase the AP config or power-cycle the radio; some routers fail the
   // next WPA handshake after that heavier reset.
-  if (!WiFi.disconnect(false, false, 1000)) {
+  #ifdef SIMULATOR
+    WiFi.disconnect(false, false);
+  #else
+    if (!WiFi.disconnect(false, false, 1000)) {
     LOG_DBG("WIFI", "Disconnect before begin timed out; continuing with explicit begin");
   }
+  #endif
   delay(100);
 #ifndef SIMULATOR
   sLastStaDisconnectReason = 0;

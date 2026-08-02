@@ -67,7 +67,7 @@ jobs:
   build:
     # Never run untrusted fork PR code on the self-hosted runner.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, crossink-build]
+    runs-on: [self-hosted, linux, crosssmudge-build]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -76,7 +76,7 @@ jobs:
       - name: Verify PlatformIO Core
         run: pio --version
 
-      - name: Build CrossInk tiny
+      - name: Build CrossSmudge tiny
         run: |
           set -euo pipefail
           pio run -e tiny | tee pio.log

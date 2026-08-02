@@ -1,4 +1,4 @@
-/* Shared chrome for all CrossInk web portal pages.
+/* Shared chrome for all CrossSmudge web portal pages.
    Page-specific rules live in each page's own inline <style>. */
 :root {
   --font-color: #1f2933;
@@ -50,7 +50,7 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
-.crossink-header {
+.crosssmudge-header {
   font-family: serif;
 }
 h1 {

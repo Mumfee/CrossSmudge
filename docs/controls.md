@@ -78,6 +78,6 @@ Available actions include:
 
 ## Footnote Shortcut
 
-When a shortcut is mapped to Footnotes, the shortcut opens the footnotes submenu while reading. If the current page has only one footnote, CrossInk opens that referenced page directly.
+When a shortcut is mapped to Footnotes, the shortcut opens the footnotes submenu while reading. If the current page has only one footnote, CrossSmudge opens that referenced page directly.
 
 The **Quick-return from Footnotes** setting controls whether the Power button acts like Back after opening a footnote page, making it faster to return to the original reading position.

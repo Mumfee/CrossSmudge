@@ -6,7 +6,7 @@ nav_order: 4
 
 # Testing and Debugging
 
-CrossInk runs on real hardware, so debugging usually combines local build checks, simulator checks, and on-device logs.
+CrossSmudge runs on real hardware, so debugging usually combines local build checks, simulator checks, and on-device logs.
 
 ## Local checks
 

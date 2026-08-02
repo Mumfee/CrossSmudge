@@ -22,10 +22,10 @@ JSZIP = os.path.join(ROOT, "src", "network", "html", "js", "jszip.min.js")
 
 # slug -> (route, title, active, extra <head> markup)
 PAGES = {
-    "home":     ("/",         "CrossInk",                   "home",     ""),
-    "files":    ("/files",    "Files - CrossInk",           "files",    '  <script src="/js/jszip.min.js"></script>'),
-    "settings": ("/settings", "Settings - CrossInk Reader", "settings", ""),
-    "fonts":    ("/fonts",    "Fonts - CrossInk",           "fonts",    ""),
+    "home":     ("/",         "CrossSmudge",                   "home",     ""),
+    "files":    ("/files",    "Files - CrossSmudge",           "files",    '  <script src="/js/jszip.min.js"></script>'),
+    "settings": ("/settings", "Settings - CrossSmudge Reader", "settings", ""),
+    "fonts":    ("/fonts",    "Fonts - CrossSmudge",           "fonts",    ""),
 }
 ROUTE_TO_SLUG = {route: slug for slug, (route, *_rest) in PAGES.items()}
 
@@ -80,7 +80,7 @@ MOCK_API = {
         {"key": "quickResumeSleepScreen", "name": "Quick Resume on Timeout",
          "category": "Reading", "type": "toggle", "value": 0},
         {"key": "deviceName", "name": "Device Name", "category": "Network", "type": "string",
-         "value": "CrossInk-01"},
+         "value": "CrossSmudge-01"},
     ],
 }
 
@@ -128,7 +128,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    print(f"CrossInk web preview: http://localhost:{port}  (Ctrl+C to stop)")
+    print(f"CrossSmudge web preview: http://localhost:{port}  (Ctrl+C to stop)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

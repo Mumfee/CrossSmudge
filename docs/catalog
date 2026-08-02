@@ -8,8 +8,8 @@
       "version": "1.4.0.1",
       "variant": "tiny",
       "released_at": "2026-07-29T00:31:00Z",
-      "notes": "CrossInk 1.4.0.1 stable firmware",
-      "firmware_url": "https://github.com/uxjulia/CrossInk/releases/download/v1.4.0.1/firmware-tiny-v1.4.0.1.bin",
+      "notes": "CrossSmudge 1.4.0.1 stable firmware",
+      "firmware_url": "https://github.com/uxjulia/CrossSmudge/releases/download/v1.4.0.1/firmware-tiny-v1.4.0.1.bin",
       "firmware_sha256": "fd102112686f4b2866fb71ae911c7092629dce7c767a06757abdab1d48b41819",
       "size": 5501440,
       "supported_devices": [
@@ -24,8 +24,8 @@
       "version": "1.4.0.1",
       "variant": "xlarge",
       "released_at": "2026-07-29T00:31:00Z",
-      "notes": "CrossInk 1.4.0.1 stable firmware",
-      "firmware_url": "https://github.com/uxjulia/CrossInk/releases/download/v1.4.0.1/firmware-xlarge-v1.4.0.1.bin",
+      "notes": "CrossSmudge 1.4.0.1 stable firmware",
+      "firmware_url": "https://github.com/uxjulia/CrossSmudge/releases/download/v1.4.0.1/firmware-xlarge-v1.4.0.1.bin",
       "firmware_sha256": "2d3ffd5f10462fe44d7756db6a3f6767667c42c0421db771d62cbe14c68b15cd",
       "size": 5364384,
       "supported_devices": [

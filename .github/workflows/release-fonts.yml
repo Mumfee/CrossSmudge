@@ -2,7 +2,7 @@ name: Build & Publish SD Card Fonts
 
 # Fonts change rarely — run manually when font sources or the conversion
 # pipeline are updated.  Publishes .cpfont files + fonts.json manifest to S3
-# for device downloads, and as GitHub Release assets on the crossink-fonts repo
+# for device downloads, and as GitHub Release assets on the crosssmudge-fonts repo
 # so font releases don't clutter the firmware releases page.
 #
 # Requires a repository secret FONTS_REPO_TOKEN — a fine-grained PAT (or
@@ -17,10 +17,10 @@ permissions:
   id-token: write
 
 env:
-  FONTS_REPO: uxjulia/crossink-fonts
-  FONT_S3_BUCKET: crossink-fonts
+  FONTS_REPO: uxjulia/crosssmudge-fonts
+  FONT_S3_BUCKET: crosssmudge-fonts
   FONT_S3_REGION: us-east-1
-  FONT_S3_BASE_URL: http://crossink-fonts.s3.us-east-1.amazonaws.com
+  FONT_S3_BASE_URL: http://crosssmudge-fonts.s3.us-east-1.amazonaws.com
 
 jobs:
   build-fonts:

@@ -27,7 +27,7 @@ int KOReaderSyncClient::lastHttpCode = 0;
 int KOReaderSyncClient::lastTransportError = 0;
 
 namespace {
-constexpr char DEVICE_ID[] = "crossink-device";
+constexpr char DEVICE_ID[] = "crosssmudge-device";
 
 std::string formatHttpStatusMessage(int httpCode) {
   char buffer[96];
