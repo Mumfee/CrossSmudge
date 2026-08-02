@@ -1,6 +1,32 @@
-> **This is a personal fork of [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader)** with a focus on improved fonts and minimal reading stats.
+# CrossSmudge ✒️
 
-## What's different in this fork
+**CrossSmudge** is a custom firmware fork of **[CrossInk](https://github.com/uxjulia/crossink)** (which is derived from **[CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader)**). 
+
+This fork maintains the high-legibility typography, custom reader features, and e-ink optimizations from CrossInk while layering in custom branding, expanded applications (games & utilities), app management, and a dedicated OTA release pipeline.
+
+---
+
+## What's New in CrossSmudge 🎮✨
+
+Beyond all standard reading features and font optimizations, **CrossSmudge** adds a whole suite of built-in applications, customization tools, and system tweaks:
+
+### 🚀 Applications & Utilities
+* **Applications Menu:** A dedicated launcher for quickly accessing on-device tools and mini-games.
+* **Wordle:** Full-featured daily word-guessing game adapted for low-power e-ink screens.
+* **2048:** Classic sliding-tile puzzle with persistent state saving and confirmation reset modals.
+* **Sudoku:** Grid-based logic puzzle system optimized for e-ink contrast.
+* **Rosary App:** Dedicated step-by-step prayer companion featuring high-contrast bead tracking and custom scaled bitmap graphics.
+* **Dice Simulator:** Instant multi-dice roller utility for tabletop gaming and quick decisions.
+* **Life Counter:** Digital tracker for Magic: The Gathering and other tabletop games.
+
+### ⚙️ System & Customization
+* **CrossSmudge Branding:** Custom splash graphics, ink-spatter visuals, and tailored UI themes.
+* **App Settings Manager:** Easily re-order, hide, or reveal applications in your main menu.
+* **Custom OTA Updates:** Built-in Over-The-Air firmware update manager pointed directly to [CrossSmudge GitHub Releases](https://github.com/Mumfee/CrossSmudge/releases).
+
+---
+
+## What's different in this fork(CrossInk Section)
 
 My goal with this fork was to maintain the core Crosspoint firmware while integrating my preferred typography and some lightweight reading statistics. I’ve focused on keeping the underlying system stable while layering in a few "nice-to-have" features and UI refinements along the way.
 
