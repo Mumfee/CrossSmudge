@@ -50,13 +50,20 @@ public:
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       const auto& app = visibleApps[selectedIndex];
 
-      if (app.name != "App Settings") {
+      bool isSetting = app.name == "App Settings";
+
+      if (!isSetting) {
         SmudgeSettings::getInstance().recordAppLaunch(app.name);
       }
 
       startActivityForResult(
           app.factory(),
-          [this](const ActivityResult&) {
+          [this, isSetting](const ActivityResult&) {
+            if (!isSetting) {
+              renderer.clearScreen();
+              renderer.displayBuffer(HalDisplay::RefreshMode::FULL_REFRESH);
+            }
+
             refreshMenuList();
             requestUpdate();
           }

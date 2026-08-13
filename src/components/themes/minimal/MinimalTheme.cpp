@@ -408,24 +408,58 @@ void drawBookCover(const GfxRenderer& renderer, const Rect& coverRect, const Rec
 
 void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
                               const bool readerContext) const {
-  (void)subtitle;
+  if (readerContext) {
+    (void)subtitle;
+    subtitle = nullptr;
+  }
 
   renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
+
   const bool showBatteryPercentage =
       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
+  // Position icon at right edge, drawBatteryRight will place text to the left
   const int batteryX = rect.x + rect.width - 12 - MinimalMetrics::values.batteryWidth;
   const int batteryY = rect.y + homeHeaderTopInset;
   drawBatteryRight(renderer,
                    Rect{batteryX, batteryY, MinimalMetrics::values.batteryWidth, MinimalMetrics::values.batteryHeight},
                    showBatteryPercentage);
 
+  int maxTitleWidth = title != nullptr ? renderer.getTextWidth(UI_12_FONT_ID, title, EpdFontFamily::BOLD) : 0;
+  int maxSubtitleWidth =
+      subtitle != nullptr ? renderer.getTextWidth(SMALL_FONT_ID, subtitle, EpdFontFamily::REGULAR) : 0;
+
+  // Available space is the distance between the side paddings, and a side padding between title and subtitle.
+  const int availableSpace = rect.width - MinimalMetrics::values.contentSidePadding * 3;
+
+  if (maxTitleWidth + maxSubtitleWidth > availableSpace) {
+    if ((maxTitleWidth > availableSpace / 2) && (maxSubtitleWidth > availableSpace / 2)) {
+      // Both are wider than half the space, truncate both.
+      maxTitleWidth = availableSpace / 2;
+      maxSubtitleWidth = availableSpace / 2;
+    } else {
+      // Truncate the longest one
+      if (maxTitleWidth > maxSubtitleWidth) {
+        maxTitleWidth = availableSpace - maxSubtitleWidth;
+      } else {
+        maxSubtitleWidth = availableSpace - maxTitleWidth;
+      }
+    }
+  }
+
   if (title) {
-    constexpr int titleInsetX = 12;
-    const int maxTitleWidth = batteryX - rect.x - titleInsetX - MinimalMetrics::values.contentSidePadding;
     auto truncatedTitle = renderer.truncatedText(UI_12_FONT_ID, title, maxTitleWidth, EpdFontFamily::BOLD);
-    renderer.drawText(UI_12_FONT_ID, rect.x + titleInsetX, rect.y + MinimalMetrics::values.batteryBarHeight + 3,
-                      truncatedTitle.c_str(), true, EpdFontFamily::BOLD);
+    renderer.drawText(UI_12_FONT_ID, rect.x + MinimalMetrics::values.contentSidePadding,
+                      rect.y + MinimalMetrics::values.batteryBarHeight + 3, truncatedTitle.c_str(), true,
+                      EpdFontFamily::BOLD);
     renderer.drawLine(rect.x, rect.y + rect.height - 3, rect.x + rect.width - 1, rect.y + rect.height - 3, 3, true);
+  }
+
+  if (subtitle) {
+    auto truncatedSubtitle = renderer.truncatedText(SMALL_FONT_ID, subtitle, maxSubtitleWidth, EpdFontFamily::REGULAR);
+    int truncatedSubtitleWidth = renderer.getTextWidth(SMALL_FONT_ID, truncatedSubtitle.c_str());
+    renderer.drawText(SMALL_FONT_ID,
+                      rect.x + rect.width - MinimalMetrics::values.contentSidePadding - truncatedSubtitleWidth,
+                      rect.y + MinimalMetrics::values.batteryBarHeight + 3, truncatedSubtitle.c_str(), true);
   }
 
   drawTopStatusBarClock(renderer, rect.y, nullptr, readerContext,

@@ -144,7 +144,7 @@ enum UIIcon {
   Rosary,
   Sudoku,
   TwoZeroFourEight,
-  Blackjack
+  Blackjack,
 };
 
 // Default theme implementation (Classic Theme)

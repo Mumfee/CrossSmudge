@@ -243,7 +243,7 @@ private:
 
       for (size_t k = 0; k + 1 < nodeX.size(); k += 2) {
         for (int x = nodeX[k]; x <= nodeX[k + 1]; ++x) {
-          if ((x + y) % 2 == 0) {
+          if (x % 2 == 0 && y % 2 == 0) {  // 25% density (lighter gray)
             renderer.drawPixel(x, y);
           }
         }

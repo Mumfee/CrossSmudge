@@ -116,9 +116,9 @@ const freeink::Icon* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
       case UIIcon::Sudoku:
         return reinterpret_cast<const freeink::Icon*>(SudokuIcon);
       case UIIcon::TwoZeroFourEight:
-        return reinterpret_cast<const freeink::Icon*>(TwoZeroFourEightIcon);
+        return TwoZeroFourEightIcon;
       case UIIcon::Blackjack:
-        return reinterpret_cast<const freeink::Icon*>(BlackjackIcon);
+        return BlackjackIcon;
       default:
         return nullptr;
     }
