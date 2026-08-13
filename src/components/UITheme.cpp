@@ -2,6 +2,7 @@
 
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <HalStorage.h>
 #include <Logging.h>
 
@@ -91,6 +92,29 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       currentMetrics = &BaseMetrics::values;
       break;
   }
+  metricsValid = false;
+}
+
+const ThemeMetrics& UITheme::getMetrics() const {
+#if CROSSSMUDGE_APP_CAP_TOUCH
+  // hasTouch() can flip once touch init completes after static construction, so the
+  // cached copy is refreshed when the flag differs instead of copying the struct per call.
+  const bool touch = gpio.hasTouch();
+  if (!metricsValid || touch != metricsForTouch) {
+    adjustedMetrics = *currentMetrics;
+    if (touch) {
+      adjustedMetrics.buttonHintsHeight = 0;
+    }
+    metricsForTouch = touch;
+    metricsValid = true;
+  }
+#else
+  if (!metricsValid) {
+    adjustedMetrics = *currentMetrics;
+    metricsValid = true;
+  }
+#endif
+  return adjustedMetrics;
 }
 
 int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,
@@ -109,8 +133,7 @@ int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader
     reservedHeight += metrics.verticalSpacing + metrics.buttonHintsHeight;
   }
   const int availableHeight = renderer.getScreenHeight() - reservedHeight - extraReservedHeight;
-  int rowHeight = hasSubtitle ? metrics.listWithSubtitleRowHeight : metrics.listRowHeight;
-  return availableHeight / rowHeight;
+  return UITheme::getInstance().getTheme().getListPageItems(availableHeight, hasSubtitle);
 }
 
 // Screen area excluding the button hints
@@ -217,24 +240,17 @@ UIIcon UITheme::getFileIcon(const std::string& filename) {
 
 int UITheme::getStatusBarHeight() {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
-
-  // Add status bar margin
-  const bool showStatusBar = SETTINGS.statusBarChapterPageCount || SETTINGS.stablePageNumbers ||
-                             SETTINGS.statusBarBookProgressPercentage ||
-                             SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE ||
-                             SETTINGS.statusBarTimeLeft != CrossPointSettings::STATUS_BAR_TIME_LEFT::TIME_LEFT_HIDE ||
-                             SETTINGS.statusBarBattery;
-  const bool showProgressBar =
-      SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
-  return (showStatusBar ? (metrics.statusBarVerticalMargin) : 0) +
-         (showProgressBar ? (((SETTINGS.statusBarProgressBarThickness + 1) * 2) + metrics.progressBarMarginTop) : 0);
+  const auto statusBar = SETTINGS.statusBarSpec();
+  // Reserve the clock lane independently of the current board so orientation
+  // and layout do not change when the same settings are used on another device.
+  return (statusBar.textLaneVisible(true) ? metrics.statusBarVerticalMargin : 0) +
+         (statusBar.showsProgressBar() ? statusBar.progressBarHeightPx + metrics.progressBarMarginTop : 0);
 }
 
 int UITheme::getProgressBarHeight() {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
-  const bool showProgressBar =
-      SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
-  return (showProgressBar ? (((SETTINGS.statusBarProgressBarThickness + 1) * 2) + metrics.progressBarMarginTop) : 0);
+  const auto statusBar = SETTINGS.statusBarSpec();
+  return statusBar.showsProgressBar() ? statusBar.progressBarHeightPx + metrics.progressBarMarginTop : 0;
 }
 
 // Centered text implementation that takes the safe area into account

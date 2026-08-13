@@ -1,0 +1,6 @@
+# Touch-only header controls. Regenerate with:
+# python3 freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
+#   --manifest src/components/icons/touchHeaderIcons.manifest \
+#   --svgdir freeink-sdk/libs/assets/Icons/lucide/icons --sizes 32 \
+#   --out src/components/icons/touchHeaderIcons.h
+back = chevron-left

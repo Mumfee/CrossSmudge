@@ -9,6 +9,7 @@
 #include <string>
 
 #include "activities/Activity.h"
+#include "activities/ScreenTransitionRefresh.h"
 #include "activities/reader/GlobalReadingStats.h"
 
 class NearbyStatsSyncActivity final : public Activity {
@@ -41,6 +42,7 @@ class NearbyStatsSyncActivity final : public Activity {
   static constexpr size_t MAX_SYNC_EVENTS = 8;
 
   State state_ = State::STARTING;
+  ScreenTransitionRefresh screenTransitionRefresh_;
   SemaphoreHandle_t eventMutex_ = nullptr;
   std::array<SyncEvent, MAX_SYNC_EVENTS> events_ = {};
   uint8_t eventHead_ = 0;

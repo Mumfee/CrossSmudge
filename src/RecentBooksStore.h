@@ -6,10 +6,14 @@
 #include <vector>
 
 struct RecentBook {
+  // Unknown failures stay retryable; Missing is set only after EPUB metadata has no cover image.
+  enum class CoverState : uint8_t { Unknown = 0, Missing = 1 };
+
   std::string path;
   std::string title;
   std::string author;
   std::string coverBmpPath;
+  CoverState coverState = CoverState::Unknown;
 
   bool operator==(const RecentBook& other) const { return path == other.path; }
 };
@@ -40,13 +44,14 @@ class RecentBooksStore : public PersistableStore<RecentBooksStore> {
   // Add a new book to the front, or refresh an existing entry and promote it
   // to the front.
   void addOrUpdateBook(const std::string& path, const std::string& title, const std::string& author,
-                       const std::string& coverBmpPath);
+                       const std::string& coverBmpPath,
+                       RecentBook::CoverState coverState = RecentBook::CoverState::Unknown);
 
   // updateBook updates metadata for an existing book only and must not change
   // recent-books ordering. Use addOrUpdateBook when the touched book should
   // become most recent. Returns false if the book does not exist.
   [[nodiscard]] bool updateBook(const std::string& path, const std::string& title, const std::string& author,
-                                const std::string& coverBmpPath);
+                                const std::string& coverBmpPath, RecentBook::CoverState coverState);
 
   // Remove the entry whose path matches (used when a book is removed from recents or finished/read).
   // Returns true if an entry was found and removed (no-op + false otherwise).

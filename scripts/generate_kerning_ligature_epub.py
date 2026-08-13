@@ -205,7 +205,7 @@ def create_cover_image():
     _draw_text_centered(draw, subtitle_y, "A Typographer\u2019s Compendium",
                         font_subtitle, text_color, width)
 
-    _draw_text_centered(draw, height - 70, "CROSSPOINT TEST FIXTURES",
+    _draw_text_centered(draw, height - 70, "CROSSSMUDGE TEST FIXTURES",
                         font_author, text_color, width)
 
     buf = io.BytesIO()

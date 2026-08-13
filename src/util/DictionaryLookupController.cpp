@@ -1,0 +1,444 @@
+#include "DictionaryLookupController.h"
+
+#include <GfxRenderer.h>
+#include <HalDisplay.h>
+#include <I18n.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#include "../activities/Activity.h"
+#include "../activities/reader/DictionarySuggestionsActivity.h"
+#include "CrossPointSettings.h"
+#include "DictionaryLookupWorker.h"
+#include "MappedInputManager.h"
+#include "Memory.h"
+#include "MemoryBudget.h"
+#include "components/TouchHeaderBackButton.h"
+#include "components/UITheme.h"
+#include "components/UIThemeTokens.h"
+#include "components/UiAppHelpers.h"
+#include "fontIds.h"
+#include "util/Dictionary.h"
+
+DictionaryLookupController::DictionaryLookupController(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                                       Activity& owner, const std::string& cachePath)
+    : renderer(renderer),
+      mappedInput(mappedInput),
+      owner(owner),
+      cachePath(cachePath)
+#if CROSSSMUDGE_APP_CAP_TOUCH
+      ,
+      altFormUiTarget(makeUiTarget(renderer)),
+      altFormUiApp(altFormUiTarget, altFormUiTarget.deviceContext())
+#endif
+{
+}
+
+DictionaryLookupController::~DictionaryLookupController() { onExit(); }
+
+namespace {
+constexpr int kDictionarySwitchTouchHeight = 56;
+
+Rect dictionarySwitchTouchRect(const GfxRenderer& renderer) {
+  const int buttonHintsHeight = UITheme::getInstance().getMetrics().buttonHintsHeight;
+  return Rect{0, renderer.getScreenHeight() - buttonHintsHeight - kDictionarySwitchTouchHeight,
+              renderer.getScreenWidth(), kDictionarySwitchTouchHeight};
+}
+
+void logDictionaryLookupTaskEnd() {
+  MemoryBudget::logHeapShape("dict.lookup_done");
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+  LOG_DBG("HEAP", "stage=dict.lookup_stack highWater=%u", static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+#endif
+}
+
+}  // namespace
+
+void DictionaryLookupController::startLookup(const std::string& word, bool recordHistory) {
+  MemoryBudget::logHeapShape("dict.lookup_start");
+  lookupWord = word;
+  foundWord.clear();
+  foundLocation = DictLocation{};
+  lookupProgress = 0;
+  lookupDone = false;
+  lookupCancelled = false;
+  lookupCancelRequested = false;
+  lookupReadError = false;
+  lookupMatchedStem = false;
+  recordHistory_ = recordHistory;
+  state = LookupState::LookingUp;
+  // CLEANUP: on Auto-only commit, delete only this line (gate below stays — it's the Auto check)
+  if (lookupToastEnabled_ && shouldShowPopup()) {
+    // Toast overlay: draw popup directly over whatever the user is currently viewing.
+    // RenderLock serializes against the render task — without it, a prior requestUpdate()
+    // (e.g. from navigation) may still be mid-refresh, and concurrent framebuffer / SPI
+    // access from two tasks crashes the e-ink driver.
+    RenderLock lock;
+    GUI.drawPopup(renderer, tr(STR_DICT_LOOKING_UP));
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  } else if (!lookupToastEnabled_) {
+    owner.requestUpdate();
+  }
+  if (!DictionaryLookupWorker::instance().start(*this)) {
+    showMemoryErrorAndReset();
+  }
+}
+
+void DictionaryLookupController::startLookupAsSuggestion(const std::string& word) {
+  nextIsSuggestion = true;
+  startLookup(word);
+}
+
+void DictionaryLookupController::setNotFound() {
+  state = LookupState::NotFound;
+  owner.requestUpdate();
+}
+
+void DictionaryLookupController::onExit() {
+  lookupCancelRequested = true;
+  DictionaryLookupWorker::instance().waitForOwner(*this);
+}
+
+DictionaryLookupController::LookupEvent DictionaryLookupController::handleInput() {
+  if (state == LookupState::LookingUp) {
+    if (lookupDone) {
+      state = LookupState::Idle;
+      if (lookupCancelled) {
+        nextIsSuggestion = false;
+        return LookupEvent::Cancelled;
+      }
+
+      if (foundLocation.found) {
+        foundWord = std::move(foundLocation.headword);
+        foundStatus =
+            nextIsSuggestion ? FoundStatus::Suggestion : (lookupMatchedStem ? FoundStatus::Stem : FoundStatus::Direct);
+        nextIsSuggestion = false;
+        return LookupEvent::FoundDefinition;
+      }
+
+      if (lookupReadError) {
+        showReadError();
+        return LookupEvent::None;
+      }
+
+      // Try alt forms
+      if (Dictionary::hasAltForms(cachePath.c_str())) {
+        altFormWord = lookupWord;
+        state = LookupState::AltFormPrompt;
+#if CROSSSMUDGE_APP_CAP_TOUCH
+        altFormUiReady = false;
+        altFormUiApp.setTheme(uiThemeTokens(altFormUiTarget));
+        altFormUiApp.setScreen(&DictionaryLookupController::altFormPromptScreen, this);
+#endif
+        owner.requestUpdate();
+        return LookupEvent::None;
+      }
+
+      handleLookupFailed();
+      return LookupEvent::None;
+    }
+
+    // Task still running — check for cancel
+    if (!lookupCancelRequested && mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      lookupCancelRequested = true;
+      owner.requestUpdate();
+    }
+    return LookupEvent::None;
+  }
+
+  if (state == LookupState::AltFormPrompt) {
+#if CROSSSMUDGE_APP_CAP_TOUCH
+    freeink::ui::ActionId touchAction = freeink::ui::NO_ACTION;
+    const bool headerTapped = TouchHeaderBackButton::wasTapped(mappedInput, renderer);
+    if (altFormUiReady && mappedInput.hasTouch()) {
+      const auto event = altFormUiApp.route(touchSnapshotFrom(mappedInput));
+      if (altFormUiApp.invalidated()) owner.requestUpdate();
+      touchAction = event.action;
+    }
+#endif
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)
+#if CROSSSMUDGE_APP_CAP_TOUCH
+        || touchAction == ACTION_ALT_FORM_YES
+#endif
+    ) {
+      state = LookupState::Idle;
+      std::string canonical = Dictionary::resolveAltForm(altFormWord, cachePath.c_str());
+      if (!canonical.empty()) {
+        auto loc = Dictionary::locate(canonical, {}, cachePath.c_str());
+        if (loc.found) {
+          foundWord = std::move(loc.headword);
+          foundLocation = std::move(loc);
+          foundStatus = nextIsSuggestion ? FoundStatus::Suggestion : FoundStatus::AltForm;
+          nextIsSuggestion = false;
+          return LookupEvent::FoundDefinition;
+        }
+      }
+      handleLookupFailed();
+      return LookupEvent::None;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)
+#if CROSSSMUDGE_APP_CAP_TOUCH
+        || headerTapped || touchAction == ACTION_ALT_FORM_NO
+#endif
+    ) {
+      state = LookupState::Idle;
+      nextIsSuggestion = false;
+      return LookupEvent::Cancelled;
+    }
+    return LookupEvent::None;
+  }
+
+  if (state == LookupState::NotFound || state == LookupState::ReadError) {
+#if CROSSSMUDGE_APP_CAP_TOUCH
+    int touchX = 0;
+    int touchY = 0;
+    const Rect switchRect = dictionarySwitchTouchRect(renderer);
+    if (mappedInput.hasTouch() && mappedInput.wasScreenTapped(touchX, touchY) && touchX >= switchRect.x &&
+        touchX < switchRect.x + switchRect.width && touchY >= switchRect.y &&
+        touchY < switchRect.y + switchRect.height) {
+      state = LookupState::Idle;
+      return LookupEvent::SwitchDictionary;
+    }
+#endif
+    if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+      state = LookupState::Idle;
+      return LookupEvent::SwitchDictionary;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      state = LookupState::Idle;
+      return LookupEvent::NotFoundDismissedDone;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      state = LookupState::Idle;
+      return LookupEvent::NotFoundDismissedBack;
+    }
+    return LookupEvent::None;
+  }
+
+  return LookupEvent::None;
+}
+
+#if CROSSSMUDGE_APP_CAP_TOUCH
+void DictionaryLookupController::altFormPromptScreen(AltFormUiApp::ScreenType& screen, void* user) {
+  static_cast<DictionaryLookupController*>(user)->buildAltFormPromptScreen(screen);
+}
+
+void DictionaryLookupController::buildAltFormPromptScreen(AltFormUiApp::ScreenType& screen) {
+  const freeink::ui::FooterAction actions[] = {
+      {tr(STR_NO), ACTION_ALT_FORM_NO},
+      {tr(STR_YES), ACTION_ALT_FORM_YES},
+  };
+  freeink::ui::FooterProps footer;
+  footer.actions = actions;
+  footer.count = 2;
+  footer.buttonBorderEdges = freeink::ui::EdgesAll;
+  screen.footer(footer);
+}
+#endif
+
+bool DictionaryLookupController::render() {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+
+  if (state == LookupState::LookingUp) {
+    // Popup is drawn inline as a toast in startLookup(); nothing to do from the render task.
+    // Returning false lets the activity's normal render run (e.g. on cancel, the page repaints
+    // which naturally wipes the toast overlay).
+    return false;
+  }
+
+  if (state == LookupState::AltFormPrompt) {
+    const int pageWidth = renderer.getScreenWidth();
+    const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+#if CROSSSMUDGE_APP_CAP_TOUCH
+    if (mappedInput.hasTouchHardware()) {
+      TouchHeaderBackButton::draw(renderer, altFormUiTarget, header, tr(STR_DICT_SEARCH_ALT_FORMS), true);
+    } else
+#endif
+    {
+      GUI.drawHeader(renderer, header, tr(STR_DICT_SEARCH_ALT_FORMS));
+    }
+    const int y = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing +
+                  renderer.getLineHeight(UI_10_FONT_ID);
+    renderer.drawCenteredText(UI_10_FONT_ID, y, altFormWord.c_str());
+#if CROSSSMUDGE_APP_CAP_TOUCH
+    if (mappedInput.hasTouch()) {
+      altFormUiReady = false;
+      altFormUiApp.render();
+      altFormUiReady = true;
+    } else
+#endif
+    {
+      const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_CONFIRM), "", "");
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    }
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    return true;
+  }
+
+  if (state == LookupState::NotFound || state == LookupState::ReadError) {
+    const char* message = state == LookupState::ReadError ? tr(STR_DICT_READ_FAILED) : tr(STR_DICT_NOT_FOUND);
+    GUI.drawPopup(renderer, message);
+#if CROSSSMUDGE_APP_CAP_TOUCH
+    if (mappedInput.hasTouch()) {
+      const Rect switchRect = dictionarySwitchTouchRect(renderer);
+      renderer.drawLine(switchRect.x, switchRect.y, switchRect.x + switchRect.width, switchRect.y, true);
+      const char* label = tr(STR_SWITCH_DICTIONARY);
+      const int labelX =
+          switchRect.x + (switchRect.width - renderer.getTextWidth(UI_10_FONT_ID, label, EpdFontFamily::BOLD)) / 2;
+      const int labelY = switchRect.y + (switchRect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
+      renderer.drawText(UI_10_FONT_ID, labelX, labelY, label, true, EpdFontFamily::BOLD);
+    }
+#endif
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_DONE), tr(STR_DICT_SWITCH), "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    return true;
+  }
+
+  return false;
+}
+
+const char* DictionaryLookupController::getFailureMessage() const {
+  if (state == LookupState::ReadError) return tr(STR_DICT_READ_FAILED);
+  if (state == LookupState::NotFound) return tr(STR_DICT_NOT_FOUND);
+  return "";
+}
+
+bool DictionaryLookupController::dismissFailureForDictionarySwitch() {
+  if (!hasFailureFeedback()) return false;
+  state = LookupState::Idle;
+  return true;
+}
+
+bool DictionaryLookupController::handleMultiSelect(WordSelectNavigator& navigator) {
+  std::string msPhrase;
+  const auto msAction = navigator.handleMultiSelectInput(mappedInput, msPhrase);
+  if (msAction == WordSelectNavigator::MultiSelectAction::None) return false;
+  switch (msAction) {
+    case WordSelectNavigator::MultiSelectAction::PhraseReady:
+      lookupOrPopup(msPhrase);
+      return true;
+    case WordSelectNavigator::MultiSelectAction::ExitedMultiSelect:
+    case WordSelectNavigator::MultiSelectAction::EnteredMultiSelect:
+      owner.requestUpdate();
+      return true;
+    default:
+      return true;
+  }
+}
+
+bool DictionaryLookupController::handleConfirmLookup(const WordSelectNavigator& navigator) {
+  if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm)) return false;
+  const auto* sel = navigator.getSelected();
+  if (!sel) return true;  // consumed input even if nothing selected
+  lookupOrPopup(navigator.getLookup(*sel));
+  return true;
+}
+
+void DictionaryLookupController::lookupOrPopup(const std::string& rawWord) {
+  std::string cleaned = Dictionary::cleanWord(rawWord);
+  if (cleaned.empty()) {
+    showNoWordPopup();
+  } else {
+    startLookup(cleaned);
+  }
+}
+
+void DictionaryLookupController::showMemoryErrorAndReset() {
+  {
+    RenderLock lock;
+    GUI.drawPopup(renderer, tr(STR_MEMORY_ERROR));
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  }
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
+  state = LookupState::Idle;
+  owner.requestUpdate();
+}
+
+void DictionaryLookupController::showNoWordPopup() {
+  {
+    // Serialize with render task — see comment in startLookup() for the race this prevents.
+    RenderLock lock;
+    GUI.drawPopup(renderer, tr(STR_DICT_NO_WORD));
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  }
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
+  owner.requestUpdate();
+}
+
+void DictionaryLookupController::handleLookupFailed() {
+  auto similar = Dictionary::findSimilar(lookupWord, 6, cachePath.c_str());
+  if (!similar.empty()) {
+    auto sugActivity = makeUniqueNoThrow<DictionarySuggestionsActivity>(renderer, mappedInput, std::move(similar));
+    if (!sugActivity) {
+      LOG_ERR("DICT", "OOM: DictionarySuggestionsActivity");
+      nextIsSuggestion = false;
+      showMemoryErrorAndReset();
+      return;
+    }
+    fullScreenChildWasShown_ = true;
+    owner.startActivityForResult(std::move(sugActivity), [this](const ActivityResult& result) {
+      if (result.isCancelled) {
+        setNotFound();
+        return;
+      }
+      const auto& wr = std::get<WordResult>(result.data);
+      startLookupAsSuggestion(wr.word);
+    });
+    return;
+  }
+  nextIsSuggestion = false;
+  setNotFound();
+  // Record after setNotFound() so the popup's requestUpdate() has kicked the render task —
+  // the SD write below overlaps the e-ink refresh on the main task.
+  LookupHistory::addWordIf(cachePath, lookupWord, LookupHistory::Status::NotFound, recordHistory_);
+}
+
+void DictionaryLookupController::showReadError() {
+  nextIsSuggestion = false;
+  state = LookupState::ReadError;
+  owner.requestUpdate();
+}
+
+void DictionaryLookupController::progressCallback(void* ctx, int percent) {
+  auto* self = static_cast<DictionaryLookupController*>(ctx);
+  self->lookupProgress = percent;
+  // Intentionally no requestUpdate() here — popup is a single static frame.
+}
+
+bool DictionaryLookupController::cancelCallback(void* ctx) {
+  return static_cast<DictionaryLookupController*>(ctx)->lookupCancelRequested;
+}
+
+void DictionaryLookupController::runLookup() {
+  DictLookupCallbacks cbs;
+  cbs.ctx = this;
+  cbs.onProgress = &DictionaryLookupController::progressCallback;
+  cbs.shouldCancel = &DictionaryLookupController::cancelCallback;
+  const std::string dictionaryPath = Dictionary::readDictPath(cachePath.c_str());
+  if (!dictionaryPath.empty() && dictionaryPath != preparedQuickIndexPath &&
+      Dictionary::prepareQuickIndex(cbs, cachePath.c_str())) {
+    preparedQuickIndexPath = dictionaryPath;
+  }
+  if (lookupCancelRequested) {
+    lookupCancelled = true;
+    lookupDone = true;
+    logDictionaryLookupTaskEnd();
+    return;
+  }
+  foundLocation = Dictionary::locateWithStemVariants(lookupWord, &lookupMatchedStem, cbs, cachePath.c_str());
+  lookupReadError = foundLocation.readError;
+  lookupCancelled = lookupCancelRequested.load();
+  lookupDone = true;
+  logDictionaryLookupTaskEnd();
+  // Don't call requestUpdate(true) here - it triggers an unnecessary e-ink refresh
+  // of the word select activity before transitioning to the definition activity.
+  // The main loop polls lookupDone every ~10ms, so response time is still fast.
+}
+
+bool DictionaryLookupController::shouldShowPopup() {
+  if (csptEntryCountCached == UINT32_MAX) {
+    csptEntryCountCached = Dictionary::readCsptEntryCount(cachePath.c_str());
+  }
+  return csptEntryCountCached == 0 || csptEntryCountCached > AUTO_POPUP_CSPT_ENTRY_THRESHOLD;
+}

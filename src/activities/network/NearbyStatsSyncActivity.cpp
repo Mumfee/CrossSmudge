@@ -1,5 +1,7 @@
 #include "NearbyStatsSyncActivity.h"
 
+#include "components/TouchHeaderBackButton.h"
+
 #ifdef SIMULATOR
 
 #include <GfxRenderer.h>
@@ -22,7 +24,9 @@ void NearbyStatsSyncActivity::onEnter() {
 void NearbyStatsSyncActivity::onExit() { Activity::onExit(); }
 
 void NearbyStatsSyncActivity::loop() {
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) exitViaBack();
+  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer) ||
+      mappedInput.wasPressed(MappedInputManager::Button::Back))
+    exitViaBack();
 }
 
 void NearbyStatsSyncActivity::render(RenderLock&&) {
@@ -31,12 +35,17 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_NEARBY_STATS_SYNC));
+  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_STATS_SYNC), false);
+  } else {
+    GUI.drawHeader(renderer, header, tr(STR_NEARBY_STATS_SYNC));
+  }
   renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_NEARBY_STATS_SIMULATOR_UNAVAILABLE), true,
                             EpdFontFamily::BOLD);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  renderer.displayBuffer();
+  renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
 }
 
 void NearbyStatsSyncActivity::enqueueEspNowPacket(const uint8_t*, const uint8_t*, int) {}
@@ -223,7 +232,8 @@ void NearbyStatsSyncActivity::onExit() {
 void NearbyStatsSyncActivity::loop() {
   processEvents();
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer) ||
+      mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     exitViaBack();
     return;
   }
@@ -567,7 +577,12 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_NEARBY_STATS_SYNC));
+  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_STATS_SYNC), false);
+  } else {
+    GUI.drawHeader(renderer, header, tr(STR_NEARBY_STATS_SYNC));
+  }
 
   const int centerY = pageHeight / 2 - 20;
   std::string primary;
@@ -611,7 +626,7 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
     renderReady(primary, detailPrimary, detailSecondary);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_NEARBY_STATS_SYNC_BUTTON), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    renderer.displayBuffer();
+    renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
     return;
   }
 
@@ -627,21 +642,27 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
   }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  renderer.displayBuffer();
+  renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
 }
 
 void NearbyStatsSyncActivity::renderReady(const std::string& primary, const std::string& detailPrimary,
                                           const std::string& detailSecondary) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentTop =
+      metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   int y = contentTop + 70;
 
   renderer.drawCenteredText(UI_10_FONT_ID, y, primary.c_str(), true, EpdFontFamily::BOLD);
   y += lineHeight + metrics.verticalSpacing;
   if (!detailPrimary.empty()) {
-    renderer.drawCenteredText(SMALL_FONT_ID, y, detailPrimary.c_str(), true);
-    y += renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
+    const auto detailLines = renderer.wrappedText(SMALL_FONT_ID, detailPrimary.c_str(),
+                                                  renderer.getScreenWidth() - metrics.contentSidePadding * 2, 3);
+    for (const auto& line : detailLines) {
+      renderer.drawCenteredText(SMALL_FONT_ID, y, line.c_str(), true);
+      y += renderer.getLineHeight(SMALL_FONT_ID);
+    }
+    y += metrics.verticalSpacing;
   }
   if (!detailSecondary.empty()) {
     renderer.drawCenteredText(SMALL_FONT_ID, y, detailSecondary.c_str(), true);

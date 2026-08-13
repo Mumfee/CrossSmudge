@@ -1,26 +1,22 @@
 #pragma once
+#include <ArduinoJson.h>
+#include <Epub/ReaderRenderSpec.h>
 #include <HalStorage.h>
+#include <PersistableStore.h>
 
 #include <cstddef>
 #include <cstdint>
 #include <iosfwd>
 #include <mutex>
 
-class CrossPointSettings {
+class CrossPointSettings : public PersistableStore<CrossPointSettings> {
  private:
   mutable std::mutex _mutex;
 
-  // Private constructor for singleton
   CrossPointSettings() = default;
-
-  // Static instance
-  static CrossPointSettings instance;
+  friend class PersistableStore<CrossPointSettings>;
 
  public:
-  // Delete copy constructor and assignment
-  CrossPointSettings(const CrossPointSettings&) = delete;
-  CrossPointSettings& operator=(const CrossPointSettings&) = delete;
-
   // Access the settings mutex for protecting multi-field reads/writes from other cores.
   // Callers must not re-enter SETTINGS methods that lock _mutex while holding it.
   std::mutex& getMutex() const { return _mutex; }
@@ -84,6 +80,25 @@ class CrossPointSettings {
     XTC_STATUS_BAR_MODE_COUNT
   };
   enum HIDE_CLOCK_MODE { HIDE_CLOCK_NEVER = 0, HIDE_CLOCK_IN_READER = 1, HIDE_CLOCK_ALWAYS = 2, HIDE_CLOCK_MODE_COUNT };
+  // Persisted date-format values mirror HalClock::DateFormat.
+  enum DATE_FORMAT {
+    DATE_FORMAT_MONTH_DAY_YEAR_LONG = 0,
+    DATE_FORMAT_DAY_MONTH_YEAR_LONG = 1,
+    DATE_FORMAT_MONTH_DAY_YEAR_NUMERIC = 2,
+    DATE_FORMAT_DAY_MONTH_YEAR_NUMERIC = 3,
+    DATE_FORMAT_YEAR_MONTH_DAY_NUMERIC = 4,
+    DATE_FORMAT_MONTH_DAY_NUMERIC = 5,
+    DATE_FORMAT_DAY_MONTH_NUMERIC = 6,
+    DATE_FORMAT_MONTH_DAY_LONG = 7,
+    DATE_FORMAT_DAY_MONTH_LONG = 8,
+    DATE_FORMAT_COUNT
+  };
+  enum DATE_SEPARATOR {
+    DATE_SEPARATOR_PERIOD = 0,
+    DATE_SEPARATOR_HYPHEN = 1,
+    DATE_SEPARATOR_SLASH = 2,
+    DATE_SEPARATOR_COUNT
+  };
 
   enum ORIENTATION {
     PORTRAIT = 0,       // 480x800 logical coordinates (current default)
@@ -143,22 +158,12 @@ class CrossPointSettings {
   enum FONT_FAMILY { LEXENDDECA = 0, BITTER = 1, FONT_FAMILY_COUNT };
   static constexpr uint8_t BUILTIN_FONT_COUNT = FONT_FAMILY_COUNT;
   // Font size options
-  enum FONT_SIZE {
-    TINY = 0,
-    SMALL = 1,
-    MEDIUM = 2,
-    LARGE = 3,
-    EXTRA_LARGE = 4,
-    TEENSY = 5,
-    HUGE_SIZE = 6,
-    ITTY_BITTY = 7,
-    FONT_SIZE_COUNT
-  };
+  enum FONT_SIZE { TINY = 0, SMALL = 1, MEDIUM = 2, LARGE = 3, FONT_SIZE_COUNT };
   enum SD_FONT_SIZE_RANGE {
     SD_FONT_RANGE_TEENSY = 0,
     SD_FONT_RANGE_TINY = 1,
     SD_FONT_RANGE_XLARGE = 2,
-    SD_FONT_RANGE_NO_EMOJI = 3,
+    SD_FONT_RANGE_NO_EMOJI_LEGACY = 3,
     SD_FONT_RANGE_ALL = 4,
     SD_FONT_SIZE_RANGE_COUNT
   };
@@ -223,6 +228,7 @@ class CrossPointSettings {
     JOIN_NETWORK = 19,
     CREATE_HOTSPOT = 20,
     CREATE_CLIPPING = 21,
+    LOOKUP_WORD = 22,
     SHORT_PWRBTN_COUNT
   };
 
@@ -253,6 +259,9 @@ class CrossPointSettings {
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
+  enum TOUCH_READER_CONTROLS { TOUCH_READER_OFF = 0, TOUCH_READER_ON = 1, TOUCH_READER_CONTROLS_COUNT };
+
+  enum INDEXING_METHOD { INDEXING_INCREMENTAL = 0, INDEXING_FULL_SECTION = 1, INDEXING_METHOD_COUNT };
 
   enum TILT_PAGE_TURN { TILT_OFF = 0, TILT_ON = 1, TILT_PAGE_TURN_COUNT };
   enum TILT_PAGE_TURN_DIRECTION {
@@ -286,6 +295,7 @@ class CrossPointSettings {
     LONG_MENU_JOIN_NETWORK = 18,
     LONG_MENU_CREATE_HOTSPOT = 19,
     LONG_MENU_CREATE_CLIPPING = 20,
+    LONG_MENU_LOOKUP_WORD = 21,
     LONG_PRESS_MENU_ACTION_COUNT
   };
 
@@ -301,6 +311,11 @@ class CrossPointSettings {
     QUICK_RESUME_AFTER_TIMEOUT = 1,
     QUICK_RESUME_SLEEP_SCREEN_COUNT
   };
+
+  // UI scale for list-style screens: sizes list fonts and row heights
+  // together so touch targets grow uniformly.
+  enum UI_SCALE { UI_SCALE_SMALL = 0, UI_SCALE_LARGE = 1, UI_SCALE_COUNT };
+  static uint8_t defaultUiScale();
 
   // Sleep screen settings
   uint8_t sleepScreen = DARK;
@@ -319,7 +334,7 @@ class CrossPointSettings {
   uint8_t statusBarTimeLeft = TIME_LEFT_HIDE;
   uint8_t statusBarBattery = 1;
   uint8_t xtcStatusBarMode = XTC_STATUS_BAR_HIDE;
-  // Clock visibility mode (X3 only, requires DS3231 RTC)
+  // Clock visibility mode (requires an RTC-backed clock).
   uint8_t hideClock = HIDE_CLOCK_ALWAYS;
   // Clock UTC offset in quarter-hour steps, biased by 48 so it fits in uint8_t.
   // Value 48 = UTC+0, 0 = UTC-12:00, 104 = UTC+14:00.
@@ -327,6 +342,10 @@ class CrossPointSettings {
   uint8_t clockUtcOffsetQ = 48;
   // Clock display format: 0 = 24-hour, 1 = 12-hour
   uint8_t clockFormat = 0;
+  // Date display format. Values match HalClock::DateFormat; 0 preserves the existing "Jan 01, 2026" default.
+  uint8_t dateFormat = DATE_FORMAT_MONTH_DAY_YEAR_LONG;
+  // Separator for numeric dates. Text-based date formats do not use it.
+  uint8_t dateSeparator = DATE_SEPARATOR_SLASH;
   // Set once an NTP sync succeeds. Used to skip re-syncing on every WiFi connect.
   // Resetting to 0 (e.g. via the web UI) forces a re-sync on next WiFi connect.
   uint8_t clockHasBeenSynced = 0;
@@ -338,6 +357,10 @@ class CrossPointSettings {
   uint8_t forceParagraphIndents = 0;
   uint8_t textAntiAliasing = 1;
   uint8_t readerDarkMode = 0;
+  // Touch screen reader zones/gestures on boards with a touch controller.
+  uint8_t touchReaderControls = TOUCH_READER_ON;
+  // Disables all touchscreen input while a reader is active. Reader menus temporarily override this.
+  uint8_t disableReaderTouchscreen = 0;
   // Short power button action behaviour
   uint8_t shortPwrBtn = IGNORE;
   // Long power button action behaviour
@@ -367,18 +390,17 @@ class CrossPointSettings {
   uint8_t readerFrontButtonRight = FRONT_HW_RIGHT;
   // Reader font settings
   uint8_t fontFamily = LEXENDDECA;
-  uint8_t fontSize = MEDIUM;
-#if defined(OMIT_EMOJI_FONTS)
-  uint8_t sdFontSizeRange = SD_FONT_RANGE_NO_EMOJI;
-#elif defined(OMIT_TINY_FONT) && defined(OMIT_SMALL_FONT)
-  uint8_t sdFontSizeRange = SD_FONT_RANGE_XLARGE;
-#elif defined(OMIT_MEDIUM_FONT) && defined(OMIT_LARGE_FONT) && defined(OMIT_XLARGE_FONT) && defined(OMIT_HUGE_FONT)
-  uint8_t sdFontSizeRange = SD_FONT_RANGE_TEENSY;
-#else
+  // The physical reader size selected by the user. Built-in and SD-card font
+  // families resolve this to their closest available file.
+  uint8_t readerFontPointSize = 14;
+  // Transient compatibility state for JSON settings written before fontSize
+  // stored a point size. SdCardFontSystem resolves it once the family catalog
+  // is available, then persists readerFontPointSize.
+  uint8_t legacySdFontSizeStep = UINT8_MAX;
   uint8_t sdFontSizeRange = SD_FONT_RANGE_TINY;
-#endif
   uint8_t lineSpacing = NORMAL;  // migration only; new saves use lineHeightPercent
   uint8_t lineHeightPercent = 100;
+  uint8_t wordSpacing = 0;
   uint8_t paragraphAlignment = JUSTIFIED;
   // Auto-sleep timeout setting (default 10 minutes). Legacy sleepTimeout enum values are migration-only.
   uint8_t sleepTimeoutMinutes = 10;
@@ -394,6 +416,10 @@ class CrossPointSettings {
   char opdsServerUrl[128] = "";
   char opdsUsername[64] = "";
   char opdsPassword[64] = "";
+  // OPDS download destination (empty = SD root). Edited from the OPDS server list.
+  char opdsDownloadFolder[64] = "";
+  // Nearby file receive destination (empty = SD root).
+  char nearbyReceiveFolder[64] = "";
   // Hide battery percentage
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   // Long-press page turn button behavior
@@ -402,12 +428,16 @@ class CrossPointSettings {
   uint8_t uiTheme = LYRA;
   // Recent Books screen layout
   uint8_t recentBooksView = RECENT_BOOKS_LIST;
+  // UI scale (list fonts + row heights); touch boards default one step larger
+  uint8_t uiScale = defaultUiScale();
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // Quick-return from footnotes when a footnote shortcut is active.
   uint8_t pwrBtnFootnoteBack = 1;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)
   uint8_t embeddedStyle = 1;
+  // EPUB section indexing policy. The current chapter keeps its active build.
+  uint8_t indexingMethod = INDEXING_FULL_SECTION;
   // Focus Reading - emphasizes the first part of words with bold
   uint8_t bionicReadingEnabled = 0;
   // Guide Dots - places a middle dot between words to guide the eye
@@ -416,6 +446,10 @@ class CrossPointSettings {
   uint8_t epubRenderMode = 0;
   // SD card font family name, including optional range suffix (empty = use built-in fontFamily)
   char sdFontFamilyName[64] = "";
+  // Global dictionary SD-card font (empty = use the reader font).
+  char dictionarySdFontFamilyName[64] = "";
+  // Zero follows the active reader size.
+  uint8_t dictionaryFontPointSize = 0;
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
   // Hide file extensions in the file browser right-side value column (0 = show, 1 = hide)
@@ -426,7 +460,7 @@ class CrossPointSettings {
   uint8_t removeReadBooksFromRecents = 0;
   // Move epub to /Read/ folder on SD card when marked as finished (0 = disabled, 1 = enabled)
   uint8_t moveFinishedToReadFolder = 0;
-  // Automatically write a dated global reading-stats backup on X3 sleep (0 = off, 1 = on).
+  // Automatically write a dated global reading-stats backup before sleep when an RTC is available (0 = off, 1 = on).
   uint8_t autoBackupStats = 1;
   // Idle threshold for reading stats, stored in 10-second units to fit uint8_t.
   uint8_t readingIdleTimeThresholdUnits = 30;
@@ -436,24 +470,32 @@ class CrossPointSettings {
   uint8_t longPressMenuAction = LONG_MENU_OFF;
   // Long-press Back quick action in reader (defaults to the historical file browser shortcut)
   uint8_t longPressBackAction = LONG_MENU_FILE_BROWSER;
-  // Tilt-based page turning (X3 only — requires QMI8658 IMU)
+  // Tilt-based page turning on devices with a supported IMU (X3 and Sticky).
   uint8_t tiltPageTurn = TILT_OFF;
   uint8_t tiltPageTurnDirection = TILT_LEFT_RIGHT;
+  // Frontlight quick-panel state (boards with FREEINK_CAP_FRONTLIGHT, e.g. X4
+  // Pro). Applied at boot, edited only from the frontlight panel; persisted as
+  // category-less entries so they stay out of the Settings screen. Writes are
+  // debounced by the panel (saved once on exit), not per slider tick.
+  uint8_t frontlightBrightness = 60;
+  uint8_t frontlightWarmth = 50;  // 0 = cool .. 100 = warm
+  uint8_t frontlightOn = 0;
+  // When 0 (default), the frontlight always comes up OFF after a wake/boot (brightness
+  // and warmth are still remembered for when it's switched on). When 1, the on/off
+  // state from before sleep is restored too. Shown in Display settings on frontlight boards.
+  uint8_t frontlightRestoreOnWake = 0;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   // Custom KOReader sync device display name. Empty means use the hardware default.
   char deviceName[21] = "";
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.
   uint8_t quickResumeSleepScreen = QUICK_RESUME_NEVER;
-#ifdef CROSSINKY_ENABLE_READING_STATS_TOGGLE
+#ifdef CROSSSMUDGE_ENABLE_READING_STATS_TOGGLE
   // Debug/test builds can disable stat writes so navigation tests do not affect personal reading stats.
   uint8_t trackReadingStats = 1;
 #endif
 
   ~CrossPointSettings() = default;
-
-  // Get singleton instance
-  static CrossPointSettings& getInstance() { return instance; }
 
   static constexpr uint16_t POWER_BUTTON_WAKE_SHORT_MS = 10;
   static constexpr uint16_t POWER_BUTTON_WAKE_LONG_MS = 200;
@@ -462,9 +504,11 @@ class CrossPointSettings {
   static constexpr uint8_t SLEEP_TIMEOUT_NEVER_MINUTES = 31;
   static constexpr uint8_t MAX_SLEEP_TIMEOUT_MINUTES = SLEEP_TIMEOUT_NEVER_MINUTES;
   static constexpr uint8_t SD_FONT_MAX_SIZE_STEPS = 8;
+  static constexpr uint8_t MIN_READER_FONT_POINT_SIZE = 8;
   static constexpr uint8_t MIN_LINE_HEIGHT_PERCENT = 70;
   static constexpr uint8_t MAX_LINE_HEIGHT_PERCENT = 200;
   static constexpr uint8_t LINE_HEIGHT_PERCENT_STEP = 1;
+  static constexpr uint8_t MAX_WORD_SPACING = 4;
   static constexpr uint16_t DEFAULT_READING_IDLE_TIME_THRESHOLD_SECONDS = 5 * 60;
   static constexpr uint16_t MIN_READING_IDLE_TIME_THRESHOLD_SECONDS = 30;
   static constexpr uint16_t MAX_READING_IDLE_TIME_THRESHOLD_SECONDS = 10 * 60;
@@ -486,7 +530,7 @@ class CrossPointSettings {
     return hideClock == HIDE_CLOCK_NEVER || hideClock == HIDE_CLOCK_IN_READER;
   }
   bool shouldTrackReadingStats() const {
-#ifdef CROSSINKY_ENABLE_READING_STATS_TOGGLE
+#ifdef CROSSSMUDGE_ENABLE_READING_STATS_TOGGLE
     return trackReadingStats != 0;
 #else
     return true;
@@ -498,7 +542,7 @@ class CrossPointSettings {
 
   // Callback to resolve SD card font IDs. Set by SdCardFontSystem::begin().
   // Returns font ID or 0 if not found.
-  using SdFontIdResolver = int (*)(void* ctx, const char* familyName, uint8_t fontSize);
+  using SdFontIdResolver = int (*)(void* ctx, const char* familyName, uint8_t pointSize);
   SdFontIdResolver sdFontIdResolver = nullptr;
   void* sdFontResolverCtx = nullptr;
 
@@ -520,6 +564,34 @@ class CrossPointSettings {
 
   bool saveToFile() const;
   bool loadFromFile();
+  static const char* getFilePath() { return "/.crosspoint/crosssmudge-settings.json"; }
+  void toJson(JsonDocument& doc) const;
+  bool fromJson(JsonVariantConst doc);
+
+  struct StatusBarSpec {
+    bool showChapterPageCount = false;
+    bool showBookProgressPercent = false;
+    bool showStablePageNumbers = false;
+    uint8_t titleMode = HIDE_TITLE;
+    uint8_t timeLeftMode = TIME_LEFT_HIDE;
+    bool showBattery = false;
+    bool showBatteryPercent = false;
+    bool showClock = false;
+    uint8_t progressBarMode = HIDE_PROGRESS;
+    uint8_t progressBarHeightPx = 0;
+    uint8_t xtcMode = XTC_STATUS_BAR_HIDE;
+
+    bool textLaneVisible(bool clockAvailable) const {
+      return showChapterPageCount || showBookProgressPercent || showStablePageNumbers || titleMode != HIDE_TITLE ||
+             timeLeftMode != TIME_LEFT_HIDE || showBattery || (showClock && clockAvailable);
+    }
+    bool showsProgressBar() const { return progressBarMode != HIDE_PROGRESS; }
+    bool showsTitle() const { return titleMode != HIDE_TITLE; }
+  };
+
+  StatusBarSpec statusBarSpec() const;
+  ReaderRenderSpec readerRenderSpec(uint16_t viewportWidth, uint16_t viewportHeight,
+                                    EpubRenderMode renderMode = EpubRenderMode::CrossSmudgeDefault) const;
 
   static void validateFrontButtonMapping(CrossPointSettings& settings);
   static void validateReaderFrontButtonMapping(CrossPointSettings& settings);

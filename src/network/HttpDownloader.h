@@ -8,8 +8,8 @@
 
 /**
  * HTTP client utility for fetching content and downloading files.
- * Streams requests through esp_http_client so large downloads do not need to
- * fit in RAM.
+ * Streams requests through the configured HTTP transport so large downloads
+ * do not need to fit in RAM.
  */
 class HttpDownloader {
  public:
@@ -26,18 +26,26 @@ class HttpDownloader {
     ABORTED,
   };
 
+  enum class Transport {
+    ESP_HTTP,
+    WOLFSSL,
+  };
+
   struct DownloadOptions {
     explicit DownloadOptions(bool preservePartial = false, bool resumePartial = false,
-                             CancelCallback shouldCancel = nullptr, size_t bufferSize = 0)
+                             CancelCallback shouldCancel = nullptr, size_t bufferSize = 0,
+                             Transport transport = Transport::ESP_HTTP)
         : preservePartial(preservePartial),
           resumePartial(resumePartial),
           shouldCancel(std::move(shouldCancel)),
-          bufferSize(bufferSize) {}
+          bufferSize(bufferSize),
+          transport(transport) {}
 
     bool preservePartial;
     bool resumePartial;
     CancelCallback shouldCancel;
     size_t bufferSize;
+    Transport transport;
   };
 
   /**
@@ -54,6 +62,13 @@ class HttpDownloader {
    */
   static bool fetchUrl(const std::string& url, const DataCallback& onData, const std::string& username = "",
                        const std::string& password = "");
+
+  /**
+   * Stream a URL with cancellation/progress support and a detailed result.
+   */
+  static DownloadError streamUrl(const std::string& url, const DataCallback& onData,
+                                 ProgressCallback progress = nullptr, const std::string& username = "",
+                                 const std::string& password = "", DownloadOptions options = DownloadOptions());
 
   /**
    * Download a file to the SD card with optional credentials.

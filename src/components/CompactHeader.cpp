@@ -27,7 +27,9 @@ int titleBaselineY(const GfxRenderer& renderer, const ThemeMetrics& metrics) {
 }  // namespace
 
 namespace CompactHeader {
-int headerBottomY(const ThemeMetrics& metrics) { return metrics.topPadding + visibleHeaderHeight(metrics); }
+int height(const ThemeMetrics& metrics) { return visibleHeaderHeight(metrics); }
+
+int headerBottomY(const ThemeMetrics& metrics) { return metrics.topPadding + height(metrics); }
 
 int contentTop(const ThemeMetrics& metrics) { return headerBottomY(metrics) + kHeaderTopGap; }
 

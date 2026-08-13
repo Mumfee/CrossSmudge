@@ -1,0 +1,6 @@
+# Frontlight header controls. Regenerate with:
+# python3 freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
+#   --manifest src/components/icons/frontlightHeaderIcons.manifest \
+#   --svgdir freeink-sdk/libs/assets/Icons/lucide/icons --sizes 28 \
+#   --out src/components/icons/frontlightHeaderIcons.h
+sliders-horizontal = sliders-horizontal

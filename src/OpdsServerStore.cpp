@@ -75,17 +75,17 @@ bool OpdsServerStore::fromJson(JsonVariantConst doc) {
     servers.push_back(std::move(server));
   }
 
-  LOG_DBG("OPS", "Loaded %zu OPDS servers from file", servers.size());
-
   if (needsResave) {
     LOG_DBG("OPS", "Resaving JSON with obfuscated passwords");
-    saveToFile();
+    requestResave();
   }
 
   return true;
 }
 
 bool OpdsServerStore::loadFromFile() {
+  servers.clear();
+  loaded_ = true;
   const bool hasStoreFile = Storage.exists(getFilePath());
   if (PersistableStore<OpdsServerStore>::loadFromFile()) {
     return true;
@@ -100,6 +100,16 @@ bool OpdsServerStore::loadFromFile() {
   }
 
   return false;
+}
+
+void OpdsServerStore::ensureLoaded() const {
+  if (loaded_) return;
+  const_cast<OpdsServerStore*>(this)->loadFromFile();
+}
+
+void OpdsServerStore::release() {
+  std::vector<OpdsServer>().swap(servers);
+  loaded_ = false;
 }
 
 bool OpdsServerStore::migrateFromSettings() {
@@ -130,37 +140,38 @@ bool OpdsServerStore::migrateFromSettings() {
 }
 
 bool OpdsServerStore::addServer(const OpdsServer& server) {
+  ensureLoaded();
   if (servers.size() >= MAX_SERVERS) {
     LOG_DBG("OPS", "Cannot add more servers, limit of %zu reached", MAX_SERVERS);
     return false;
   }
 
   servers.push_back(server);
-  LOG_DBG("OPS", "Added server: %s", server.name.c_str());
   return saveToFile();
 }
 
 bool OpdsServerStore::updateServer(size_t index, const OpdsServer& server) {
+  ensureLoaded();
   if (index >= servers.size()) {
     return false;
   }
 
   servers[index] = server;
-  LOG_DBG("OPS", "Updated server: %s", server.name.c_str());
   return saveToFile();
 }
 
 bool OpdsServerStore::removeServer(size_t index) {
+  ensureLoaded();
   if (index >= servers.size()) {
     return false;
   }
 
-  LOG_DBG("OPS", "Removed server: %s", servers[index].name.c_str());
   servers.erase(servers.begin() + static_cast<ptrdiff_t>(index));
   return saveToFile();
 }
 
 const OpdsServer* OpdsServerStore::getServer(size_t index) const {
+  ensureLoaded();
   if (index >= servers.size()) {
     return nullptr;
   }

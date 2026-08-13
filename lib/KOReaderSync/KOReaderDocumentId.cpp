@@ -27,7 +27,6 @@ std::string KOReaderDocumentId::calculateFromFilename(const std::string& filePat
   md5.calculate();
 
   std::string result = md5.toString().c_str();
-  LOG_DBG("KODoc", "Filename hash: %s (from '%s')", result.c_str(), filename.c_str());
   return result;
 }
 
@@ -49,7 +48,6 @@ std::string KOReaderDocumentId::calculate(const std::string& filePath) {
   }
 
   const size_t fileSize = file.fileSize();
-  LOG_DBG("KODoc", "Calculating hash for file: %s (size: %zu)", filePath.c_str(), fileSize);
 
   // Initialize MD5 builder
   MD5Builder md5;
@@ -87,8 +85,6 @@ std::string KOReaderDocumentId::calculate(const std::string& filePath) {
   // Calculate final hash
   md5.calculate();
   std::string result = md5.toString().c_str();
-
-  LOG_DBG("KODoc", "Hash calculated: %s (from %zu bytes)", result.c_str(), totalBytesRead);
 
   return result;
 }

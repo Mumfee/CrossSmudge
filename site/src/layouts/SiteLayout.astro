@@ -1,0 +1,139 @@
+---
+import '../styles/site.css';
+import '@fontsource-variable/jetbrains-mono';
+import { getDocs } from '../lib/docs';
+
+type Props = {
+  title?: string;
+  description?: string;
+  pageClass?: string;
+};
+
+const docs = await getDocs();
+const { title = 'CrossSmudge', description = 'CrossSmudge firmware documentation', pageClass = '' } = Astro.props;
+const pageTitle = title === 'CrossSmudge' ? title : `${title} | CrossSmudge`;
+const currentDoc = docs.find((doc) => Astro.url.pathname === doc.url);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script is:inline>
+      // Set the theme before paint so there is no flash. Defaults to the OS
+      // preference until the visitor picks one, which is stored in localStorage.
+      (function () {
+        try {
+          var stored = localStorage.getItem('crosssmudge-theme');
+          document.documentElement.dataset.theme =
+            stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        } catch (e) {}
+      })();
+    </script>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..900&display=swap" rel="stylesheet" />
+    <title>{pageTitle}</title>
+  </head>
+  <body class={pageClass}>
+    <header class="site-header">
+      <a class="brand" href="/">
+        <img class="brand-mark" src="/logo.png" alt="" aria-hidden="true" />
+        <span>
+          <strong>CrossSmudge</strong>
+          <small>E-reader Firmware</small>
+        </span>
+      </a>
+      <nav class="top-nav" aria-label="Primary navigation">
+        <a href="/docs.html">Docs</a>
+        <a href="/installation.html">Install</a>
+        <a href="/reader-features.html">Features</a>
+        <a href="https://inky.crosssmudge.dev">Inky</a>
+        <a href="https://github.com/uxjulia/CrossSmudge">GitHub</a>
+        <button type="button" class="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+          <svg
+            class="icon-moon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg
+            class="icon-sun"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="4"></circle>
+            <path
+              d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"
+            ></path>
+          </svg>
+        </button>
+      </nav>
+    </header>
+    <slot name="hero" />
+    <div class="shell">
+      <aside class="docs-sidebar" aria-label="Documentation navigation">
+        <div class="sidebar-title">Documentation</div>
+        <nav>
+          {
+            docs.map((doc) => (
+              <a class:list={['sidebar-link', { active: Astro.url.pathname === doc.url }]} href={doc.url}>
+                {doc.title}
+              </a>
+            ))
+          }
+        </nav>
+      </aside>
+      <main class="content">
+        <details class="mobile-docs-nav">
+          <summary>
+            <span>Docs</span>
+            {currentDoc && <strong>{currentDoc.title}</strong>}
+          </summary>
+          <nav aria-label="Mobile documentation navigation">
+            {
+              docs.map((doc) => (
+                <a class:list={['mobile-docs-link', { active: Astro.url.pathname === doc.url }]} href={doc.url}>
+                  {doc.title}
+                </a>
+              ))
+            }
+          </nav>
+        </details>
+        <slot />
+      </main>
+    </div>
+    <script is:inline>
+      (function () {
+        var btn = document.querySelector('.theme-toggle');
+        if (!btn) return;
+        var sync = function () {
+          btn.setAttribute('aria-pressed', String(document.documentElement.dataset.theme === 'dark'));
+        };
+        sync();
+        btn.addEventListener('click', function () {
+          var next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+          document.documentElement.dataset.theme = next;
+          try {
+            localStorage.setItem('crosssmudge-theme', next);
+          } catch (e) {}
+          sync();
+        });
+      })();
+    </script>
+  </body>
+</html>

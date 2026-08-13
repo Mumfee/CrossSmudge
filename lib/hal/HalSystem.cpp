@@ -39,6 +39,11 @@ void IRAM_ATTR __wrap_panic_print_backtrace(const void* frame, int core) {
     __real_panic_print_backtrace(frame, core);
     return;
   }
+
+#if !__riscv
+  __real_panic_print_backtrace(frame, core);
+  return;
+#else
   for (size_t i = 0; i < MAX_PANIC_STACK_DEPTH; i++) {
     panicStack[i].sp = 0;
   }
@@ -66,6 +71,7 @@ void IRAM_ATTR __wrap_panic_print_backtrace(const void* frame, int core) {
   }
 
   __real_panic_print_backtrace(frame, core);
+#endif
 }
 }
 
@@ -116,8 +122,8 @@ std::string getPanicInfo(bool full) {
   } else {
     std::string info;
 
-    info += "CrossSmudge version: " CROSSINKY_VERSION;
-    info += "\nCrossSmudge variant: " CROSSINKY_FIRMWARE_VARIANT;
+    info += "CrossSmudge version: " CROSSSMUDGE_VERSION;
+    info += "\nCrossSmudge device type: " CROSSSMUDGE_FIRMWARE_DEVICE_TYPE;
     info += "\n\nPanic reason: " + std::string(panicMessage);
     info += "\n\nLast logs:\n" + getLastLogs();
     info += "\n\nStack memory:\n";
@@ -144,7 +150,8 @@ std::string getPanicInfo(bool full) {
 
 bool isRebootFromPanic() {
   const auto resetReason = esp_reset_reason();
-  return resetReason == ESP_RST_PANIC || resetReason == ESP_RST_CPU_LOCKUP;
+  return resetReason == ESP_RST_PANIC || resetReason == ESP_RST_CPU_LOCKUP || resetReason == ESP_RST_INT_WDT ||
+         resetReason == ESP_RST_TASK_WDT || resetReason == ESP_RST_WDT;
 }
 
 }  // namespace HalSystem

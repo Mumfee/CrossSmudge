@@ -154,6 +154,5 @@ bool ClippingsManager::saveClipping(const std::string& bookTitle, const std::str
     return false;
   }
 
-  LOG_DBG("CLIP", "Saved clipping to %s (%zu bytes)", CLIPPINGS_PATH, textLen);
   return true;
 }

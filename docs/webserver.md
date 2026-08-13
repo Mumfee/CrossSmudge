@@ -23,18 +23,23 @@ networks or in hotspot mode when you control who is connected.
 1. From the Home screen, select **File Transfer**.
 2. Choose one of the available modes:
 
-| Mode | Use when |
-|------|----------|
-| **Join Network** | You want the reader to join an existing Wi-Fi network. |
+| Mode                 | Use when                                                               |
+| -------------------- | ---------------------------------------------------------------------- |
+| **Join Network**     | You want the reader to join an existing Wi-Fi network.                 |
 | **Calibre Wireless** | You want to receive books from the CrossPoint Calibre plugin workflow. |
-| **Create Hotspot** | You want the reader to create its own open Wi-Fi network. |
+| **Create Hotspot**   | You want the reader to create its own open Wi-Fi network.              |
 
 ## Join Network Mode
 
 1. Select **Join Network**.
-2. Pick a 2.4 GHz Wi-Fi network from the scan results.
-3. Enter the password if prompted.
-4. Save credentials if you want the reader to reconnect automatically next time.
+2. If you have saved Wi-Fi credentials, CrossPoint first tries the last
+   connected network, then other visible saved networks in signal-strength
+   order. Press **Back** to cancel or **Confirm** to stop auto-connect and show
+   the network list.
+3. If the network list is shown, pick a 2.4 GHz Wi-Fi network from the scan
+   results.
+4. Enter the password if prompted.
+5. Save credentials if you want the reader to reconnect automatically next time.
 
 After connection, the reader shows:
 
@@ -106,13 +111,12 @@ The default optimization path converts images for e-ink reading, limits them to
 the target device size, saves them as JPEG at 85% quality, and applies basic EPUB
 repairs such as safer SVG handling. Advanced Mode lets you pick the target
 device, JPEG quality, image split or rotation handling, split overlap, and
-whether EPUB sections over 2,000 visible words should be split into smaller
-reader sections.
+whether large EPUB sections should be split into smaller reader sections.
 
 Optimization changes the EPUB file contents before upload. Note: if you use
 hash-based KOReader sync, this will break the syncing because it changes the epub
-and therefore the hash. If optimization fails, the uploader falls back to sending
-the original file.
+and therefore the hash. Use filename based syncing to ensure compatibility.
+If optimization fails, the uploader falls back to sending the original file.
 
 ### Settings
 
@@ -132,15 +136,8 @@ The Fonts page lists installed SD-card font families and lets you upload
 the font family name, filename, and `.cpfont` magic bytes before accepting the
 upload.
 
-Installed fonts appear in **Settings > Reader > Font Family** after the font
-registry refreshes.
-
-## Command Line Use
-
-Power users can use `curl`, WebDAV clients, or WebSocket clients while the web
-server is running.
-
-Endpoint details are documented in [webserver-endpoints.md](./webserver-endpoints.md).
+Installed fonts appear in **Settings > Reader > Font Options > Font Family**
+after the font registry refreshes.
 
 ## Security Notes
 
@@ -158,10 +155,3 @@ Endpoint details are documented in [webserver-endpoints.md](./webserver-endpoint
 3. Move closer to the router if upload progress stalls in Join Network mode.
 4. Upload custom fonts through the Fonts page or copy them to `/.fonts/` or `/fonts/` on the SD card.
 5. Exit File Transfer mode when finished to conserve battery.
-
-## Related Documentation
-
-- [User Guide](../USER_GUIDE.md)
-- [Webserver Endpoints](./webserver-endpoints.md)
-- [SD Card Fonts](./sd-card-fonts.md)
-- [Troubleshooting](./troubleshooting.md)

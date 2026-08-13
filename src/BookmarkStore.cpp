@@ -257,7 +257,6 @@ bool BookmarkStore::loadForBook(const std::string& filePath, const std::string& 
       }
     }
 
-    LOG_DBG("BKS", "No bookmark file for this book");
     return true;
   }
 
@@ -406,7 +405,6 @@ void BookmarkStore::clearAll() {
       LOG_ERR("BKS", "Failed to delete bookmark file");
       return;
     }
-    LOG_DBG("BKS", "Bookmark file deleted");
   }
   bookmarks.clear();
   dirty = false;
@@ -423,7 +421,6 @@ bool BookmarkStore::readFromFile() {
     saveToFile();
     LOG_DBG("BKS", "Migrated bookmark file to version %u", VERSION);
   }
-  LOG_DBG("BKS", "Loaded %u bookmark(s)", static_cast<unsigned>(bookmarks.size()));
   return true;
 }
 
@@ -552,7 +549,6 @@ bool BookmarkStore::writeToFile() const {
   }
 
   f.close();
-  LOG_DBG("BKS", "Saved %u bookmark(s)", count);
   return true;
 }
 
@@ -569,7 +565,6 @@ void BookmarkStore::deleteForFilePath(const std::string& filePath, const std::st
   }
 
   if (deletedAny) {
-    LOG_DBG("BKS", "Deleted bookmark file for: %s", filePath.c_str());
   }
 }
 

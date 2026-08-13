@@ -2,29 +2,26 @@
 
 #include <Logging.h>
 #include <WiFi.h>
-#include <esp_sntp.h>
+#include <esp_netif.h>
+#include <esp_netif_sntp.h>
+#include <lwip/dns.h>
 #include <time.h>
 
 #include <cassert>
 
 HalClock halClock;  // Singleton instance
 
-// DS3231 register layout (BCD encoded):
-//   0x00: Seconds  (bits 6-4 = tens, bits 3-0 = ones)
-//   0x01: Minutes  (bits 6-4 = tens, bits 3-0 = ones)
-//   0x02: Hours    (bit 6 = 12/24 mode, bits 5-4 = tens, bits 3-0 = ones)
-//   0x03: Day      (1-7, not used for display)
-//   0x04: Date     (day of month)
-//   0x05: Month    (bit 7 = century, bits 4-0 = month)
-//   0x06: Year     (00-99, interpreted as 2000-2099)
-
-static uint8_t bcdToDec(uint8_t bcd) { return ((bcd >> 4) * 10) + (bcd & 0x0F); }
-static uint8_t decToBcd(uint8_t dec) { return ((dec / 10) << 4) | (dec % 10); }
-
 namespace {
 constexpr uint16_t kBaseYear = 2000;
 constexpr const char* kMonthNames[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+constexpr char kFullMonthNames[][10] = {"January", "February", "March",     "April",   "May",      "June",
+                                        "July",    "August",   "September", "October", "November", "December"};
+
+esp_err_t clearDnsCache(void*) {
+  dns_clear_cache();
+  return ESP_OK;
+}
 
 bool isLeapYear(const uint16_t year) { return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0; }
 
@@ -72,33 +69,8 @@ void adjustDateByDays(uint16_t& year, uint8_t& month, uint8_t& day, const int da
 }  // namespace
 
 void HalClock::begin() {
-  if (!gpio.deviceIsX3()) {
-    _available = false;
-    return;
-  }
-
-  // I2C is already initialised by HalPowerManager::begin() for X3.
-  // Probe the DS3231 by reading the seconds register.
-  Wire.beginTransmission(I2C_ADDR_DS3231);
-  Wire.write(DS3231_SEC_REG);
-  if (Wire.endTransmission(false) != 0) {
-    LOG_INF("CLK", "DS3231 RTC not found");
-    _available = false;
-    return;
-  }
-  Wire.requestFrom(I2C_ADDR_DS3231, (uint8_t)1);
-  if (Wire.available() < 1) {
-    _available = false;
-    return;
-  }
-  Wire.read();  // discard — just testing connectivity
-
-  _available = true;
-  LOG_INF("CLK", "DS3231 RTC found");
-
-  // Prime the cache with an initial read
-  uint8_t h, m;
-  getTime(h, m);
+  _available = _sdkRtc.begin();
+  LOG_INF("CLK", _available ? "SDK RTC found" : "RTC not found");
 }
 
 bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {
@@ -111,18 +83,8 @@ bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {
     return true;
   }
 
-  // Read 3 bytes starting at register 0x00: seconds, minutes, hours
-  Wire.beginTransmission(I2C_ADDR_DS3231);
-  Wire.write(DS3231_SEC_REG);
-  if (Wire.endTransmission(false) != 0) {
-    if (!_hasCachedTime) return false;
-    _lastPollMs = now;
-    hour = _cachedHour;
-    minute = _cachedMinute;
-    return true;
-  }
-  Wire.requestFrom(I2C_ADDR_DS3231, (uint8_t)3);
-  if (Wire.available() < 3) {
+  Rtc::DateTime dt;
+  if (!_sdkRtc.now(dt)) {
     if (!_hasCachedTime) return false;
     _lastPollMs = now;
     hour = _cachedHour;
@@ -130,24 +92,14 @@ bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {
     return true;
   }
 
-  Wire.read();  // seconds — not needed
-  const uint8_t rawMin = Wire.read();
-  const uint8_t rawHour = Wire.read();
-
-  _cachedMinute = bcdToDec(rawMin & 0x7F);
-  // Handle 12/24h mode: bit 6 high = 12h mode
-  if (rawHour & 0x40) {
-    // 12h mode: bit 5 = PM, bits 4-0 = hours (1-12)
-    uint8_t h12 = bcdToDec(rawHour & 0x1F);
-    bool pm = rawHour & 0x20;
-    if (h12 == 12) h12 = 0;
-    _cachedHour = pm ? (h12 + 12) : h12;
-  } else {
-    // 24h mode: bits 5-0 = hours (0-23)
-    _cachedHour = bcdToDec(rawHour & 0x3F);
-  }
+  _cachedHour = dt.hour;
+  _cachedMinute = dt.minute;
+  _cachedYear = dt.year;
+  _cachedMonth = dt.month;
+  _cachedDay = dt.day;
   _lastPollMs = now;
   _hasCachedTime = true;
+  _hasCachedDate = isValidDate(_cachedYear, _cachedMonth, _cachedDay);
 
   hour = _cachedHour;
   minute = _cachedMinute;
@@ -165,7 +117,6 @@ bool HalClock::formatTime(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHou
   int offsetQuarterHours = static_cast<int>(utcOffsetQuarterHoursBiased) - 48;
   int totalMinutes = static_cast<int>(h) * 60 + static_cast<int>(m) + offsetQuarterHours * 15;
 
-  // Wrap around 24 hours
   totalMinutes = ((totalMinutes % 1440) + 1440) % 1440;
 
   const int hour24 = totalMinutes / 60;
@@ -194,20 +145,8 @@ bool HalClock::getDate(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& ho
     return true;
   }
 
-  Wire.beginTransmission(I2C_ADDR_DS3231);
-  Wire.write(DS3231_SEC_REG);
-  if (Wire.endTransmission(false) != 0) {
-    if (!_hasCachedDate) return false;
-    _lastPollMs = now;
-    year = _cachedYear;
-    month = _cachedMonth;
-    day = _cachedDay;
-    hour = _cachedHour;
-    minute = _cachedMinute;
-    return true;
-  }
-  Wire.requestFrom(I2C_ADDR_DS3231, (uint8_t)7);
-  if (Wire.available() < 7) {
+  Rtc::DateTime dt;
+  if (!_sdkRtc.now(dt)) {
     if (!_hasCachedDate) return false;
     _lastPollMs = now;
     year = _cachedYear;
@@ -218,31 +157,16 @@ bool HalClock::getDate(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& ho
     return true;
   }
 
-  Wire.read();  // seconds
-  const uint8_t rawMin = Wire.read();
-  const uint8_t rawHour = Wire.read();
-  Wire.read();  // weekday
-  const uint8_t rawDay = Wire.read();
-  const uint8_t rawMonth = Wire.read();
-  const uint8_t rawYear = Wire.read();
-
-  _cachedMinute = bcdToDec(rawMin & 0x7F);
-  if (rawHour & 0x40) {
-    uint8_t h12 = bcdToDec(rawHour & 0x1F);
-    const bool pm = rawHour & 0x20;
-    if (h12 == 12) h12 = 0;
-    _cachedHour = pm ? (h12 + 12) : h12;
-  } else {
-    _cachedHour = bcdToDec(rawHour & 0x3F);
-  }
-  _cachedYear = kBaseYear + bcdToDec(rawYear);
-  _cachedMonth = bcdToDec(rawMonth & 0x1F);
-  _cachedDay = bcdToDec(rawDay & 0x3F);
+  _cachedYear = dt.year;
+  _cachedMonth = dt.month;
+  _cachedDay = dt.day;
+  _cachedHour = dt.hour;
+  _cachedMinute = dt.minute;
   _lastPollMs = now;
   _hasCachedTime = true;
   _hasCachedDate = isValidDate(_cachedYear, _cachedMonth, _cachedDay);
-
   if (!_hasCachedDate) return false;
+
   year = _cachedYear;
   month = _cachedMonth;
   day = _cachedDay;
@@ -251,7 +175,8 @@ bool HalClock::getDate(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& ho
   return true;
 }
 
-bool HalClock::formatDate(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased) const {
+bool HalClock::formatDate(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased, const DateFormat dateFormat,
+                          const char numericSeparator) const {
   if (bufSize < 13u) return false;
 
   uint16_t year;
@@ -265,8 +190,40 @@ bool HalClock::formatDate(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHou
   adjustDateByDays(year, month, day, dayDelta);
   if (!isValidDate(year, month, day)) return false;
 
-  snprintf(buf, bufSize, "%s %u, %u", kMonthNames[month - 1], static_cast<unsigned int>(day),
-           static_cast<unsigned int>(year));
+  const unsigned int displayMonth = month;
+  const unsigned int displayDay = day;
+  const unsigned int displayYear = year;
+  const char separator = numericSeparator == '.' || numericSeparator == '-' ? numericSeparator : '/';
+  switch (dateFormat) {
+    case DAY_MONTH_YEAR_LONG:
+      snprintf(buf, bufSize, "%02u %s %u", displayDay, kMonthNames[month - 1], displayYear);
+      break;
+    case MONTH_DAY_YEAR_NUMERIC:
+      snprintf(buf, bufSize, "%02u%c%02u%c%u", displayMonth, separator, displayDay, separator, displayYear);
+      break;
+    case DAY_MONTH_YEAR_NUMERIC:
+      snprintf(buf, bufSize, "%02u%c%02u%c%u", displayDay, separator, displayMonth, separator, displayYear);
+      break;
+    case YEAR_MONTH_DAY_NUMERIC:
+      snprintf(buf, bufSize, "%u%c%02u%c%02u", displayYear, separator, displayMonth, separator, displayDay);
+      break;
+    case MONTH_DAY_NUMERIC:
+      snprintf(buf, bufSize, "%02u%c%02u", displayMonth, separator, displayDay);
+      break;
+    case DAY_MONTH_NUMERIC:
+      snprintf(buf, bufSize, "%02u%c%02u", displayDay, separator, displayMonth);
+      break;
+    case MONTH_DAY_LONG:
+      snprintf(buf, bufSize, "%s %02u", kFullMonthNames[month - 1], displayDay);
+      break;
+    case DAY_MONTH_LONG:
+      snprintf(buf, bufSize, "%02u %s", displayDay, kFullMonthNames[month - 1]);
+      break;
+    case MONTH_DAY_YEAR_LONG:
+    default:
+      snprintf(buf, bufSize, "%s %02u, %u", kMonthNames[month - 1], displayDay, displayYear);
+      break;
+  }
   return true;
 }
 
@@ -277,21 +234,20 @@ bool HalClock::writeDateTimeToRTC(uint16_t year, uint8_t month, uint8_t day, uin
   assert(second < 60);
   assert(isValidDate(year, month, day));
   assert(weekday >= 1 && weekday <= 7);
-  Wire.beginTransmission(I2C_ADDR_DS3231);
-  Wire.write(DS3231_SEC_REG);    // Start at register 0x00
-  Wire.write(decToBcd(second));  // 0x00: Seconds
-  Wire.write(decToBcd(minute));  // 0x01: Minutes
-  Wire.write(decToBcd(hour));    // 0x02: Hours (24h mode, bit 6 = 0)
-  Wire.write(decToBcd(weekday));
-  Wire.write(decToBcd(day));
-  Wire.write(decToBcd(month));
-  Wire.write(decToBcd(static_cast<uint8_t>(year - kBaseYear)));
-  if (Wire.endTransmission() != 0) {
-    LOG_ERR("CLK", "Failed to write date/time to DS3231");
+
+  Rtc::DateTime dt;
+  dt.year = year;
+  dt.month = month;
+  dt.day = day;
+  dt.weekday = weekday;
+  dt.hour = hour;
+  dt.minute = minute;
+  dt.second = second;
+  if (!_sdkRtc.set(dt)) {
+    LOG_ERR("CLK", "Failed to write date/time to SDK RTC");
     return false;
   }
 
-  // Invalidate cache so next read fetches fresh data
   _lastPollMs = 0;
   _cachedHour = hour;
   _cachedMinute = minute;
@@ -306,36 +262,57 @@ bool HalClock::writeDateTimeToRTC(uint16_t year, uint8_t month, uint8_t day, uin
 bool HalClock::syncFromNTP() {
   if (!_available) return false;
 
+  if (!syncSystemTimeFromNTP()) return false;
+
+  time_t now = time(nullptr);
+  struct tm timeinfo;
+  gmtime_r(&now, &timeinfo);
+
+  const uint16_t year = static_cast<uint16_t>(timeinfo.tm_year + 1900);
+  const uint8_t month = static_cast<uint8_t>(timeinfo.tm_mon + 1);
+  const uint8_t day = static_cast<uint8_t>(timeinfo.tm_mday);
+  const uint8_t weekday = static_cast<uint8_t>(timeinfo.tm_wday + 1);
+  if (!writeDateTimeToRTC(year, month, day, weekday, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec)) {
+    return false;
+  }
+
+  LOG_INF("CLK", "RTC set to %04d-%02d-%02d %02d:%02d:%02d UTC", year, month, day, timeinfo.tm_hour, timeinfo.tm_min,
+          timeinfo.tm_sec);
+  return true;
+}
+
+bool HalClock::syncSystemTimeFromNTP() {
   if (WiFi.status() != WL_CONNECTED) {
     LOG_ERR("CLK", "WiFi not connected, cannot sync NTP");
     return false;
   }
 
+  esp_netif_sntp_deinit();
+
   LOG_INF("CLK", "Starting NTP sync...");
-  configTzTime("UTC0", "pool.ntp.org", "time.nist.gov");
-
-  // Wait for SNTP sync to complete (up to 5 seconds)
-  constexpr int maxAttempts = 50;
-  for (int i = 0; i < maxAttempts; i++) {
-    if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
-      time_t now = time(nullptr);
-      struct tm timeinfo;
-      gmtime_r(&now, &timeinfo);
-
-      const uint16_t year = static_cast<uint16_t>(timeinfo.tm_year + 1900);
-      const uint8_t month = static_cast<uint8_t>(timeinfo.tm_mon + 1);
-      const uint8_t day = static_cast<uint8_t>(timeinfo.tm_mday);
-      const uint8_t weekday = static_cast<uint8_t>(timeinfo.tm_wday + 1);
-      if (writeDateTimeToRTC(year, month, day, weekday, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec)) {
-        LOG_INF("CLK", "RTC set to %04d-%02d-%02d %02d:%02d:%02d UTC", year, month, day, timeinfo.tm_hour,
-                timeinfo.tm_min, timeinfo.tm_sec);
-        return true;
-      }
-      return false;
-    }
-    delay(100);
+  // esp-netif owns the small temporary SNTP state/semaphore and routes all
+  // lwIP timer changes through its core-lock-safe execution path.
+  esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+  const esp_err_t initResult = esp_netif_sntp_init(&config);
+  if (initResult != ESP_OK) {
+    LOG_ERR("CLK", "Failed to start NTP sync: %s", esp_err_to_name(initResult));
+    return false;
   }
 
-  LOG_ERR("CLK", "NTP sync timed out");
-  return false;
+  const esp_err_t syncResult = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(5000));
+  // An SNTP timeout can leave its DNS callback pending. Drain that callback
+  // under lwIP's core lock before stopping SNTP; the next hostname lookup may
+  // otherwise invoke it from the application task while clearing the cache.
+  const esp_err_t clearResult = esp_netif_tcpip_exec(clearDnsCache, nullptr);
+  esp_netif_sntp_deinit();
+  if (clearResult != ESP_OK) {
+    LOG_ERR("CLK", "Failed to clear DNS after NTP sync: %s", esp_err_to_name(clearResult));
+    return false;
+  }
+  if (syncResult != ESP_OK) {
+    LOG_ERR("CLK", "NTP sync failed: %s", esp_err_to_name(syncResult));
+    return false;
+  }
+
+  return true;
 }

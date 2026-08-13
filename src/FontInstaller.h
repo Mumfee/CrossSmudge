@@ -45,7 +45,8 @@ class FontInstaller {
   Error deleteFamily(const char* familyName);
 
   /// Re-run registry discovery to pick up new/removed fonts.
-  void refreshRegistry();
+  /// Returns false only when discovery could not complete due to low memory.
+  bool refreshRegistry();
 
   /// Check whether a family name already exists in the registry.
   bool isFamilyInstalled(const char* familyName) const;

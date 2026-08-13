@@ -5,6 +5,7 @@
 #include <string>
 
 #include "activities/Activity.h"
+#include "activities/ScreenTransitionRefresh.h"
 #include "network/CrossPointWebServer.h"
 
 enum class CalibreConnectState { WIFI_SELECTION, SERVER_STARTING, SERVER_RUNNING, ERROR };
@@ -15,6 +16,7 @@ enum class CalibreConnectState { WIFI_SELECTION, SERVER_STARTING, SERVER_RUNNING
  */
 class CalibreConnectActivity final : public Activity {
   CalibreConnectState state = CalibreConnectState::WIFI_SELECTION;
+  ScreenTransitionRefresh screenTransitionRefresh;
 
   std::unique_ptr<CrossPointWebServer> webServer;
   std::string connectedIP;
@@ -27,6 +29,7 @@ class CalibreConnectActivity final : public Activity {
   unsigned long lastCompleteAt = 0;
   unsigned long lastProcessedCompleteAt = 0;  // Track which server value we've already processed
   bool exitRequested = false;
+  bool returnToReader = false;
 
   void renderServerRunning() const;
 
@@ -35,8 +38,8 @@ class CalibreConnectActivity final : public Activity {
   void stopWebServer();
 
  public:
-  explicit CalibreConnectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("CalibreConnect", renderer, mappedInput) {}
+  explicit CalibreConnectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool returnToReader = false)
+      : Activity("CalibreConnect", renderer, mappedInput), returnToReader(returnToReader) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

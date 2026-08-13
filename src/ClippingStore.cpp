@@ -7,13 +7,17 @@
 #include <uzlib.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <functional>
 
 namespace {
-constexpr uint8_t VERSION = 1;
+constexpr uint8_t LEGACY_VERSION = 1;
+constexpr uint8_t TEXT_OFFSET_VERSION = 2;
+constexpr uint8_t VERSION = 3;
 constexpr size_t INITIAL_CLIPPING_RESERVE = 4;
 constexpr char CLIPPINGS_DIR[] = "/.crosspoint/clippings";
+constexpr size_t TEXT_COPY_BUFFER_SIZE = 128;
 
 struct ClippingFileHeader {
   std::string title;
@@ -42,20 +46,39 @@ bool readClippingFileHeader(const std::string& fullPath, const char* name, Clipp
 
   uint8_t version = 0;
   uint16_t count = 0;
-  if (!serialization::tryReadPod(f, version) || version != VERSION || !serialization::tryReadPod(f, count) ||
-      !serialization::tryReadString(f, header.title) || !serialization::tryReadString(f, header.author) ||
-      !serialization::tryReadString(f, header.path)) {
+  if (!serialization::tryReadPod(f, version) ||
+      (version != LEGACY_VERSION && version != TEXT_OFFSET_VERSION && version != VERSION) ||
+      !serialization::tryReadPod(f, count) || !serialization::tryReadString(f, header.title) ||
+      !serialization::tryReadString(f, header.author) || !serialization::tryReadString(f, header.path)) {
     f.close();
     return false;
   }
   f.close();
 
+  if (count > CLIPPING_MAX_PER_BOOK) {
+    return false;
+  }
   header.count = count;
   header.bookType = "epub";
   const std::string nameStr = name ? name : "";
   const size_t underscorePos = nameStr.find('_');
   if (underscorePos != std::string::npos) {
     header.bookType = nameStr.substr(0, underscorePos);
+  }
+  return true;
+}
+
+bool copyBytes(FsFile& in, FsFile& out, uint16_t length) {
+  std::array<uint8_t, TEXT_COPY_BUFFER_SIZE> buffer{};
+  while (length > 0) {
+    const size_t chunk = std::min<size_t>(length, buffer.size());
+    if (in.read(buffer.data(), chunk) != static_cast<int>(chunk)) {
+      return false;
+    }
+    if (out.write(buffer.data(), chunk) != chunk) {
+      return false;
+    }
+    length = static_cast<uint16_t>(length - chunk);
   }
   return true;
 }
@@ -101,7 +124,8 @@ ClippingStore::AddResult ClippingStore::addClipping(const uint16_t spineIndex, c
                                                     const uint16_t endPage, const uint16_t pageCount,
                                                     const uint16_t startWordIndex, const uint16_t endWordIndex,
                                                     const uint16_t wordCount, const char* chapterTitle,
-                                                    const uint16_t paragraphIndex, const std::string& text) {
+                                                    const uint16_t paragraphIndex, const std::string& text,
+                                                    const uint32_t layoutSignature) {
   if (clippings.size() >= CLIPPING_MAX_PER_BOOK) {
     LOG_ERR("CLIP", "Clipping limit (%u) reached", CLIPPING_MAX_PER_BOOK);
     return AddResult::LimitReached;
@@ -117,18 +141,39 @@ ClippingStore::AddResult ClippingStore::addClipping(const uint16_t spineIndex, c
   clipping.wordCount = wordCount;
   clipping.paragraphIndex = paragraphIndex;
   clipping.timestamp = static_cast<uint32_t>(millis() / 1000UL);
+  clipping.layoutSignature = layoutSignature;
   copyBounded(clipping.chapterTitle, sizeof(clipping.chapterTitle), chapterTitle);
-  // Keep the in-app store bounded. The full Kindle-style export is still written separately.
-  clipping.text.assign(text.data(), std::min(text.size(), CLIPPING_TEXT_MAX));
+  clipping.textLength = static_cast<uint16_t>(std::min(text.size(), CLIPPING_TEXT_MAX));
 
   clippings.push_back(std::move(clipping));
   dirty = true;
-  if (!saveToFile()) {
+  if (!writeToFile(&text, clippings.size() - 1)) {
     clippings.pop_back();
     dirty = true;
     return AddResult::SaveFailed;
   }
+  dirty = false;
   return AddResult::Added;
+}
+
+bool ClippingStore::stampMissingLayoutSignature(const uint32_t layoutSignature) {
+  if (layoutSignature == 0) return true;
+
+  bool changed = false;
+  for (Clipping& clipping : clippings) {
+    if (clipping.layoutSignature == 0) {
+      clipping.layoutSignature = layoutSignature;
+      changed = true;
+    }
+  }
+  if (!changed) return true;
+
+  dirty = true;
+  if (writeToFile()) {
+    dirty = false;
+    return true;
+  }
+  return false;
 }
 
 bool ClippingStore::removeClippingAt(const size_t index) {
@@ -148,6 +193,42 @@ bool ClippingStore::hasClippingForPage(const uint16_t spineIndex, const uint16_t
   return std::any_of(clippings.begin(), clippings.end(), [&](const Clipping& clipping) {
     return clipping.spineIndex == spineIndex && page >= clipping.startPage && page <= clipping.endPage;
   });
+}
+
+const Clipping* ClippingStore::clippingAt(const size_t index) const {
+  if (index >= clippings.size()) return nullptr;
+  return &clippings[index];
+}
+
+bool ClippingStore::readClippingText(const size_t index, std::string& out) const {
+  const Clipping* clipping = clippingAt(index);
+  if (!clipping) return false;
+  return readClippingText(*clipping, out);
+}
+
+bool ClippingStore::readClippingText(const Clipping& clipping, std::string& out) const {
+  out.clear();
+  if (clipping.textLength == 0) return true;
+  if (storeFilePath.empty()) return false;
+
+  FsFile f;
+  if (!Storage.openFileForRead("CLIP", storeFilePath, f)) {
+    return false;
+  }
+  if (!f.seek(clipping.textOffset)) {
+    f.close();
+    LOG_ERR("CLIP", "Failed to seek clipping text at %u: %s", clipping.textOffset, storeFilePath.c_str());
+    return false;
+  }
+  out.resize(clipping.textLength);
+  const int expected = static_cast<int>(clipping.textLength);
+  const bool ok = f.read(&out[0], clipping.textLength) == expected;
+  f.close();
+  if (!ok) {
+    out.clear();
+    LOG_ERR("CLIP", "Failed to read clipping text at %u: %s", clipping.textOffset, storeFilePath.c_str());
+  }
+  return ok;
 }
 
 bool ClippingStore::saveToFile() {
@@ -181,9 +262,10 @@ bool ClippingStore::readFromFile(const std::string& path, std::vector<Clipping>&
   std::string title;
   std::string author;
   std::string storedPath;
-  if (!serialization::tryReadPod(f, version) || version != VERSION || !serialization::tryReadPod(f, count) ||
-      !serialization::tryReadString(f, title) || !serialization::tryReadString(f, author) ||
-      !serialization::tryReadString(f, storedPath)) {
+  if (!serialization::tryReadPod(f, version) ||
+      (version != LEGACY_VERSION && version != TEXT_OFFSET_VERSION && version != VERSION) ||
+      !serialization::tryReadPod(f, count) || !serialization::tryReadString(f, title) ||
+      !serialization::tryReadString(f, author) || !serialization::tryReadString(f, storedPath)) {
     f.close();
     LOG_ERR("CLIP", "Failed to read clipping header: %s", path.c_str());
     return false;
@@ -207,6 +289,11 @@ bool ClippingStore::readFromFile(const std::string& path, std::vector<Clipping>&
       LOG_ERR("CLIP", "Clipping file truncated at record %u: %s", i, path.c_str());
       return false;
     }
+    if (version >= VERSION && !serialization::tryReadPod(f, clipping.layoutSignature)) {
+      f.close();
+      LOG_ERR("CLIP", "Clipping file truncated at layout signature, record %u: %s", i, path.c_str());
+      return false;
+    }
     if (f.read(reinterpret_cast<uint8_t*>(clipping.chapterTitle), sizeof(clipping.chapterTitle)) !=
         sizeof(clipping.chapterTitle)) {
       f.close();
@@ -214,13 +301,37 @@ bool ClippingStore::readFromFile(const std::string& path, std::vector<Clipping>&
       return false;
     }
     clipping.chapterTitle[sizeof(clipping.chapterTitle) - 1] = '\0';
-    if (!serialization::tryReadString(f, clipping.text)) {
-      f.close();
-      LOG_ERR("CLIP", "Clipping file truncated at text, record %u: %s", i, path.c_str());
-      return false;
-    }
-    if (clipping.text.size() > CLIPPING_TEXT_MAX) {
-      clipping.text.resize(CLIPPING_TEXT_MAX);
+    if (version == LEGACY_VERSION) {
+      uint32_t textLen = 0;
+      if (!serialization::tryReadPod(f, textLen)) {
+        f.close();
+        LOG_ERR("CLIP", "Clipping file truncated at text length, record %u: %s", i, path.c_str());
+        return false;
+      }
+      clipping.textOffset = static_cast<uint32_t>(f.position());
+      clipping.textLength = static_cast<uint16_t>(std::min<uint32_t>(textLen, CLIPPING_TEXT_MAX));
+      if (textLen > 0 && !f.seekCur(textLen)) {
+        f.close();
+        LOG_ERR("CLIP", "Clipping file truncated at text, record %u: %s", i, path.c_str());
+        return false;
+      }
+    } else {
+      if (!serialization::tryReadPod(f, clipping.textLength)) {
+        f.close();
+        LOG_ERR("CLIP", "Clipping file truncated at text length, record %u: %s", i, path.c_str());
+        return false;
+      }
+      if (clipping.textLength > CLIPPING_TEXT_MAX) {
+        f.close();
+        LOG_ERR("CLIP", "Clipping text length %u exceeds max, record %u: %s", clipping.textLength, i, path.c_str());
+        return false;
+      }
+      clipping.textOffset = static_cast<uint32_t>(f.position());
+      if (clipping.textLength > 0 && !f.seekCur(clipping.textLength)) {
+        f.close();
+        LOG_ERR("CLIP", "Clipping file truncated at text, record %u: %s", i, path.c_str());
+        return false;
+      }
     }
     out.push_back(std::move(clipping));
   }
@@ -229,22 +340,48 @@ bool ClippingStore::readFromFile(const std::string& path, std::vector<Clipping>&
   return true;
 }
 
-bool ClippingStore::writeToFile() const {
+bool ClippingStore::writeToFile(const std::string* replacementText, const size_t replacementIndex) {
   Storage.mkdir("/.crosspoint");
   Storage.mkdir(CLIPPINGS_DIR);
 
-  FsFile f = Storage.open(storeFilePath.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
+  const std::string tmpPath = storeFilePath + ".tmp";
+  const std::string backupPath = storeFilePath + ".bak";
+  if (!Storage.exists(storeFilePath.c_str()) && Storage.exists(backupPath.c_str())) {
+    if (!Storage.rename(backupPath.c_str(), storeFilePath.c_str())) {
+      LOG_ERR("CLIP", "Failed to recover clipping backup: %s", backupPath.c_str());
+      return false;
+    }
+    LOG_INF("CLIP", "Recovered clipping backup: %s", storeFilePath.c_str());
+  }
+  if (Storage.exists(tmpPath.c_str())) Storage.remove(tmpPath.c_str());
+  if (Storage.exists(backupPath.c_str()) && Storage.exists(storeFilePath.c_str())) Storage.remove(backupPath.c_str());
+
+  FsFile source;
+  const bool hasSource = Storage.exists(storeFilePath.c_str());
+  if (hasSource && !Storage.openFileForRead("CLIP", storeFilePath, source)) {
+    LOG_ERR("CLIP", "Failed to open clipping source for rewrite: %s", storeFilePath.c_str());
+    return false;
+  }
+
+  FsFile f = Storage.open(tmpPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
   if (!f) {
-    LOG_ERR("CLIP", "Failed to open clipping file for write: %s", storeFilePath.c_str());
+    if (source) source.close();
+    LOG_ERR("CLIP", "Failed to open clipping temp file for write: %s", tmpPath.c_str());
     return false;
   }
 
   const uint16_t count = static_cast<uint16_t>(std::min<size_t>(clippings.size(), CLIPPING_MAX_PER_BOOK));
+  std::vector<uint32_t> newTextOffsets;
+  newTextOffsets.reserve(count);
+  std::vector<uint16_t> newTextLengths;
+  newTextLengths.reserve(count);
   if (!serialization::tryWritePod(f, VERSION) || !serialization::tryWritePod(f, count) ||
       !serialization::tryWriteString(f, bookTitle) || !serialization::tryWriteString(f, bookAuthor) ||
       !serialization::tryWriteString(f, bookFilePath)) {
-    LOG_ERR("CLIP", "Failed to write clipping header: %s", storeFilePath.c_str());
+    LOG_ERR("CLIP", "Failed to write clipping header: %s", tmpPath.c_str());
     f.close();
+    if (source) source.close();
+    Storage.remove(tmpPath.c_str());
     return false;
   }
 
@@ -255,21 +392,74 @@ bool ClippingStore::writeToFile() const {
         !serialization::tryWritePod(f, clipping.startWordIndex) ||
         !serialization::tryWritePod(f, clipping.endWordIndex) || !serialization::tryWritePod(f, clipping.wordCount) ||
         !serialization::tryWritePod(f, clipping.paragraphIndex) || !serialization::tryWritePod(f, clipping.timestamp) ||
+        !serialization::tryWritePod(f, clipping.layoutSignature) ||
         f.write(reinterpret_cast<const uint8_t*>(clipping.chapterTitle), sizeof(clipping.chapterTitle)) !=
-            sizeof(clipping.chapterTitle) ||
-        !serialization::tryWriteString(f, clipping.text)) {
+            sizeof(clipping.chapterTitle)) {
       LOG_ERR("CLIP", "Failed to write clipping record %u: %s", i, storeFilePath.c_str());
       f.close();
+      if (source) source.close();
+      Storage.remove(tmpPath.c_str());
       return false;
     }
+
+    const bool useReplacement = replacementText && i == replacementIndex;
+    const uint16_t textLen = useReplacement
+                                 ? static_cast<uint16_t>(std::min(replacementText->size(), CLIPPING_TEXT_MAX))
+                                 : clipping.textLength;
+    if (!serialization::tryWritePod(f, textLen)) {
+      LOG_ERR("CLIP", "Failed to write clipping text length %u: %s", i, tmpPath.c_str());
+      f.close();
+      if (source) source.close();
+      Storage.remove(tmpPath.c_str());
+      return false;
+    }
+
+    const uint32_t newTextOffset = static_cast<uint32_t>(f.position());
+    bool wroteText = true;
+    if (textLen > 0 && useReplacement) {
+      wroteText = f.write(reinterpret_cast<const uint8_t*>(replacementText->data()), textLen) == textLen;
+    } else if (textLen > 0) {
+      wroteText = source && source.seek(clipping.textOffset) && copyBytes(source, f, textLen);
+    }
+    if (!wroteText) {
+      LOG_ERR("CLIP", "Failed to write clipping text %u: %s", i, tmpPath.c_str());
+      f.close();
+      if (source) source.close();
+      Storage.remove(tmpPath.c_str());
+      return false;
+    }
+    newTextOffsets.push_back(newTextOffset);
+    newTextLengths.push_back(textLen);
   }
 
   if (!f.sync()) {
-    LOG_ERR("CLIP", "Failed to sync clipping file: %s", storeFilePath.c_str());
+    LOG_ERR("CLIP", "Failed to sync clipping file: %s", tmpPath.c_str());
     f.close();
+    if (source) source.close();
+    Storage.remove(tmpPath.c_str());
     return false;
   }
   f.close();
+  if (source) source.close();
+
+  if (hasSource && !Storage.rename(storeFilePath.c_str(), backupPath.c_str())) {
+    LOG_ERR("CLIP", "Failed to back up clipping file: %s", storeFilePath.c_str());
+    Storage.remove(tmpPath.c_str());
+    return false;
+  }
+  if (!Storage.rename(tmpPath.c_str(), storeFilePath.c_str())) {
+    LOG_ERR("CLIP", "Failed to replace clipping file: %s", storeFilePath.c_str());
+    Storage.remove(tmpPath.c_str());
+    if (hasSource) Storage.rename(backupPath.c_str(), storeFilePath.c_str());
+    return false;
+  }
+  if (hasSource && Storage.exists(backupPath.c_str())) {
+    Storage.remove(backupPath.c_str());
+  }
+  for (uint16_t i = 0; i < count; ++i) {
+    clippings[i].textOffset = newTextOffsets[i];
+    clippings[i].textLength = newTextLengths[i];
+  }
   return true;
 }
 
@@ -326,12 +516,38 @@ bool ClippingStore::migrateForFilePath(const std::string& oldFilePath, const std
   writer.bookFilePath = newFilePath;
   writer.bookTitle = title;
   writer.bookAuthor = author;
-  writer.storeFilePath = storeFilePathForBook(newFilePath, bookType);
+  writer.storeFilePath = oldStorePath;
   writer.clippings = std::move(migratedClippings);
   if (!writer.writeToFile()) {
     return false;
   }
 
-  Storage.remove(oldStorePath.c_str());
+  const std::string newStorePath = storeFilePathForBook(newFilePath, bookType);
+  if (oldStorePath == newStorePath) {
+    return true;
+  }
+
+  const std::string backupPath = newStorePath + ".bak";
+  const bool hasDestination = Storage.exists(newStorePath.c_str());
+  if (hasDestination) {
+    if (Storage.exists(backupPath.c_str()) && !Storage.remove(backupPath.c_str())) {
+      LOG_ERR("CLIP", "Failed to remove stale clipping migration backup: %s", backupPath.c_str());
+      return false;
+    }
+    if (!Storage.rename(newStorePath.c_str(), backupPath.c_str())) {
+      LOG_ERR("CLIP", "Failed to back up destination clippings: %s", newStorePath.c_str());
+      return false;
+    }
+  }
+  if (!Storage.rename(oldStorePath.c_str(), newStorePath.c_str())) {
+    LOG_ERR("CLIP", "Failed to rename migrated clippings: %s -> %s", oldStorePath.c_str(), newStorePath.c_str());
+    if (hasDestination && !Storage.rename(backupPath.c_str(), newStorePath.c_str())) {
+      LOG_ERR("CLIP", "Failed to restore destination clipping backup: %s", backupPath.c_str());
+    }
+    return false;
+  }
+  if (hasDestination && Storage.exists(backupPath.c_str())) {
+    Storage.remove(backupPath.c_str());
+  }
   return true;
 }

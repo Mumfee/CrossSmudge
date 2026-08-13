@@ -1,5 +1,6 @@
 #include "BookStatsView.h"
 
+#include <FreeInkUICore.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <I18n.h>
@@ -10,7 +11,10 @@
 
 #include "MappedInputManager.h"
 #include "components/CompactHeader.h"
+#include "components/TouchHeaderBackButton.h"
+#include "components/TouchRegistry.h"
 #include "components/UITheme.h"
+#include "components/icons/listIcons.h"
 #include "fontIds.h"
 
 namespace {
@@ -131,7 +135,10 @@ const StatsLayout& getStatsLayout(const GfxRenderer& renderer, const bool global
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int availableHeight =
       renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(metrics, showButtonHints);
-  if (statsContentHeight(kDefaultLayout, globalPage, showRtcStats) <= availableHeight) {
+  const bool defaultFitsCurrentPage = statsContentHeight(kDefaultLayout, globalPage, showRtcStats) <= availableHeight;
+  const bool defaultMatchesPerBookCharts =
+      !globalPage || !showRtcStats || statsContentHeight(kDefaultLayout, false, showRtcStats) <= availableHeight;
+  if (defaultFitsCurrentPage && defaultMatchesPerBookCharts) {
     return kDefaultLayout;
   }
   return kCompactLayout;
@@ -146,25 +153,6 @@ const StatsLayout& getNoRtcCombinedLayout(const GfxRenderer& renderer, const boo
     return kDefaultLayout;
   }
   return kCompactLayout;
-}
-
-void formatCompactEstimate(const uint32_t seconds, char* buf, const size_t len) {
-  if (seconds < 60) {
-    snprintf(buf, len, "<1m");
-    return;
-  }
-  const uint32_t minutes = (seconds + 30u) / 60u;
-  if (minutes < 60) {
-    snprintf(buf, len, "%lum", static_cast<unsigned long>(minutes));
-    return;
-  }
-  const uint32_t hours = minutes / 60u;
-  const uint32_t remainder = minutes % 60u;
-  if (remainder == 0) {
-    snprintf(buf, len, "%luh", static_cast<unsigned long>(hours));
-  } else {
-    snprintf(buf, len, "%luh %lum", static_cast<unsigned long>(hours), static_cast<unsigned long>(remainder));
-  }
 }
 
 bool fallbackEstimatedTimeLeft(const BookReadingStats& stats, const float progressPercent, uint32_t& seconds) {
@@ -326,10 +314,10 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
   const bool hasCachedEstimate = cachedEstimatedTimeLeft(stats, cachedEstimateSeconds);
   const bool hasFallbackEstimate = fallbackEstimatedTimeLeft(stats, progressPercent, fallbackEstimateSeconds);
   if (!stats.isCompleted && (hasEstimatedTimeLeft || hasCachedEstimate || hasFallbackEstimate)) {
-    formatCompactEstimate(hasEstimatedTimeLeft ? estimatedTimeLeftSeconds
-                          : hasCachedEstimate  ? cachedEstimateSeconds
-                                               : fallbackEstimateSeconds,
-                          buf, sizeof(buf));
+    formatCompactReadingDuration(hasEstimatedTimeLeft ? estimatedTimeLeftSeconds
+                                 : hasCachedEstimate  ? cachedEstimateSeconds
+                                                      : fallbackEstimateSeconds,
+                                 buf, sizeof(buf));
   } else {
     snprintf(buf, sizeof(buf), "-");
   }
@@ -359,7 +347,10 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
   char dateBuf[24];
   formatReadingStatsShortDate(stats.startDate, dateBuf, sizeof(dateBuf));
   snprintf(startedLabel, sizeof(startedLabel), "%s %s", tr(STR_STATS_STARTED), dateBuf);
-  drawStatCell(renderer, x, halfW, y + layout.topCardTitleH + rowH * 2, rowH, buf, startedLabel);
+  const int startedY = y + layout.topCardTitleH + rowH * 2;
+  TouchRegistry::getInstance().add(Rect(x, startedY, halfW, rowH), BookStatsTouchTarget::StartedDaysStat,
+                                   TouchRegistry::Item);
+  drawStatCell(renderer, x, halfW, startedY, rowH, buf, startedLabel);
 
   ReadingStatsDate finishDisplayDate;
   bool finished = stats.isCompleted;
@@ -433,14 +424,29 @@ void drawGlobalStatsCard(GfxRenderer& renderer, const int x, const int y, const 
 }
 
 void drawDateField(const GfxRenderer& renderer, const int x, const int y, const int w, const char* text,
-                   const bool selected) {
+                   const bool selected, const int touchTarget = -1) {
   const int h = renderer.getLineHeight(UI_12_FONT_ID) + 10;
+  if (touchTarget >= 0) {
+    TouchRegistry::getInstance().add(Rect(x, y, w, h), touchTarget, TouchRegistry::Item);
+  }
   renderer.fillRectDither(x, y, w, h, selected ? Color::LightGray : Color::White);
   renderer.drawRect(x, y, w, h, true);
   if (selected) {
     renderer.drawRect(x + 1, y + 1, w - 2, h - 2, true);
   }
   drawCenteredLabel(renderer, UI_12_FONT_ID, x, w, y + 5, text);
+}
+
+void drawDateAdjustButton(const GfxRenderer& renderer, const int x, const int y, const int size,
+                          const freeink::Icon& icon, const int touchTarget) {
+  TouchRegistry::getInstance().add(Rect(x, y, size, size), touchTarget, TouchRegistry::Item);
+  renderer.drawRect(x, y, size, size, true);
+  const freeink::ui::BitmapRef bitmap{icon.bits, icon.w, icon.h, freeink::ui::BitmapFormat::Mask1, true};
+  freeink::ui::forEachBitmapPixel(
+      freeink::ui::Rect{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(size),
+                        static_cast<int16_t>(size)},
+      bitmap, freeink::ui::BitmapMode::Center,
+      [&renderer](const int16_t px, const int16_t py) { renderer.drawPixel(px, py, true); });
 }
 }  // namespace
 
@@ -452,7 +458,11 @@ void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* map
   const bool showRtcStats = shouldShowRtcBasedStats();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto& layout = getStatsLayout(renderer, false, showButtonHints, showRtcStats);
-  CompactHeader::drawTitle(renderer, tr(STR_READING_STATS), true);
+  if (mappedInput && mappedInput->hasTouchHardware()) {
+    TouchHeaderBackButton::drawCompact(renderer, tr(STR_READING_STATS), true, true);
+  } else {
+    CompactHeader::drawTitle(renderer, tr(STR_READING_STATS), true);
+  }
   const int screenW = renderer.getScreenWidth();
   const int cardX = metrics.contentSidePadding;
   const int cardW = screenW - metrics.contentSidePadding * 2;
@@ -506,7 +516,7 @@ void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* map
   }
 
   if (showButtonHints && mappedInput) {
-    const auto labels = mappedInput->mapLabels(tr(STR_BACK), "", showEditButton ? tr(STR_EDIT) : "",
+    const auto labels = mappedInput->mapLabels(tr(STR_BACK), showEditButton ? tr(STR_EDIT) : "", "",
                                                showMoreButton ? tr(STR_MORE) : "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
@@ -518,7 +528,11 @@ void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mapp
   const bool showRtcStats = shouldShowRtcBasedStats();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto& layout = getStatsLayout(renderer, true, showButtonHints, showRtcStats);
-  CompactHeader::drawTitle(renderer, screenTitle);
+  if (mappedInput && mappedInput->hasTouchHardware()) {
+    TouchHeaderBackButton::drawCompact(renderer, screenTitle, true);
+  } else {
+    CompactHeader::drawTitle(renderer, screenTitle);
+  }
   const int screenW = renderer.getScreenWidth();
   const int cardX = metrics.contentSidePadding;
   const int cardW = screenW - metrics.contentSidePadding * 2;
@@ -562,7 +576,7 @@ void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mapp
   }
 
   if (showButtonHints && mappedInput) {
-    const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_HOME), "", showMoreButton ? tr(STR_MORE) : "");
+    const auto labels = mappedInput->mapLabels(tr(STR_EXIT), "", tr(STR_BACK), showMoreButton ? tr(STR_MORE) : "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }
@@ -575,7 +589,11 @@ void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManage
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto& layout = getNoRtcCombinedLayout(renderer, showButtonHints, allDevicesStats != nullptr);
-  CompactHeader::drawTitle(renderer, tr(STR_READING_STATS));
+  if (mappedInput && mappedInput->hasTouchHardware()) {
+    TouchHeaderBackButton::drawCompact(renderer, tr(STR_READING_STATS), true);
+  } else {
+    CompactHeader::drawTitle(renderer, tr(STR_READING_STATS));
+  }
   const int screenW = renderer.getScreenWidth();
   const int cardX = metrics.contentSidePadding;
   const int cardW = screenW - metrics.contentSidePadding * 2;
@@ -616,7 +634,11 @@ void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManage
 void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const std::string& bookTitle,
                              const BookReadingStats& stats, const int selectedField, const bool showButtonHints) {
   renderer.clearScreen();
-  CompactHeader::drawTitle(renderer, tr(STR_READING_STATS));
+  if (mappedInput && mappedInput->hasTouchHardware()) {
+    TouchHeaderBackButton::drawCompact(renderer, tr(STR_READING_STATS), true);
+  } else {
+    CompactHeader::drawTitle(renderer, tr(STR_READING_STATS));
+  }
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
@@ -638,7 +660,17 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
   const int yearW = 68;
   const int gap = 14;
   const int totalFieldW = monthW + gap + dayW + gap + yearW;
-  const int fieldStartX = cardX + (cardW - totalFieldW) / 2;
+#if CROSSSMUDGE_APP_CAP_TOUCH
+  const bool showTouchControls = mappedInput && mappedInput->hasTouch();
+  constexpr int adjustButtonSize = 60;
+  constexpr int adjustButtonRightPadding = 34;
+  constexpr int adjustButtonGap = 24;
+  const int adjustButtonX = cardX + cardW - adjustButtonRightPadding - adjustButtonSize;
+  const int fieldAreaW = showTouchControls ? adjustButtonX - cardX - adjustButtonGap : cardW;
+#else
+  const int fieldAreaW = cardW;
+#endif
+  const int fieldStartX = cardX + (std::max(totalFieldW, fieldAreaW) - totalFieldW) / 2;
 
   char monthBuf[8];
   char dayBuf[8];
@@ -654,9 +686,11 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
     snprintf(dayBuf, sizeof(dayBuf), "-");
     snprintf(yearBuf, sizeof(yearBuf), "-");
   }
-  drawDateField(renderer, fieldStartX, row1Y, monthW, monthBuf, selectedField == 0);
-  drawDateField(renderer, fieldStartX + monthW + gap, row1Y, dayW, dayBuf, selectedField == 1);
-  drawDateField(renderer, fieldStartX + monthW + gap + dayW + gap, row1Y, yearW, yearBuf, selectedField == 2);
+  drawDateField(renderer, fieldStartX, row1Y, monthW, monthBuf, selectedField == 0, BookStatsTouchTarget::dateField(0));
+  drawDateField(renderer, fieldStartX + monthW + gap, row1Y, dayW, dayBuf, selectedField == 1,
+                BookStatsTouchTarget::dateField(1));
+  drawDateField(renderer, fieldStartX + monthW + gap + dayW + gap, row1Y, yearW, yearBuf, selectedField == 2,
+                BookStatsTouchTarget::dateField(2));
 
   drawCenteredLabel(renderer, UI_10_FONT_ID, cardX, cardW, cardY + 24 + sectionGap, tr(STR_STATS_FINISHED_DATE), true);
   const bool showFinishedFields = stats.isCompleted && stats.finishedDate.isValid();
@@ -669,9 +703,21 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
     snprintf(dayBuf, sizeof(dayBuf), "-");
     snprintf(yearBuf, sizeof(yearBuf), "-");
   }
-  drawDateField(renderer, fieldStartX, row2Y, monthW, monthBuf, selectedField == 3);
-  drawDateField(renderer, fieldStartX + monthW + gap, row2Y, dayW, dayBuf, selectedField == 4);
-  drawDateField(renderer, fieldStartX + monthW + gap + dayW + gap, row2Y, yearW, yearBuf, selectedField == 5);
+  drawDateField(renderer, fieldStartX, row2Y, monthW, monthBuf, selectedField == 3, BookStatsTouchTarget::dateField(3));
+  drawDateField(renderer, fieldStartX + monthW + gap, row2Y, dayW, dayBuf, selectedField == 4,
+                BookStatsTouchTarget::dateField(4));
+  drawDateField(renderer, fieldStartX + monthW + gap + dayW + gap, row2Y, yearW, yearBuf, selectedField == 5,
+                BookStatsTouchTarget::dateField(5));
+
+#if CROSSSMUDGE_APP_CAP_TOUCH
+  if (showTouchControls) {
+    const int fieldH = renderer.getLineHeight(UI_12_FONT_ID) + 10;
+    drawDateAdjustButton(renderer, adjustButtonX, row1Y + (fieldH - adjustButtonSize) / 2, adjustButtonSize,
+                         icon_chevron_up_32, BookStatsTouchTarget::DateAdjustUp);
+    drawDateAdjustButton(renderer, adjustButtonX, row2Y + (fieldH - adjustButtonSize) / 2, adjustButtonSize,
+                         icon_chevron_down_32, BookStatsTouchTarget::DateAdjustDown);
+  }
+#endif
 
   if (showButtonHints && mappedInput) {
     const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_NEXT_FIELD), tr(STR_DIR_UP), tr(STR_DIR_DOWN));

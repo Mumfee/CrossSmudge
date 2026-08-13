@@ -80,6 +80,76 @@ struct PageTurnResult {
   bool fromTilt;
 };
 
+struct TouchPageTurn {
+  bool prev;
+  bool next;
+  bool tapped;
+  int x;
+  int y;
+  unsigned long heldMs;
+};
+
+inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const MappedInputManager& input) {
+#if !CROSSSMUDGE_APP_CAP_TOUCH
+  (void)renderer;
+  (void)input;
+  return {false, false, false, 0, 0, 0};
+#else
+  TouchPageTurn result{false, false, false, 0, 0, 0};
+  if (!SETTINGS.touchReaderControls || !input.hasTouch()) {
+    return result;
+  }
+
+  const int width = renderer.getScreenWidth();
+  if (width <= 0) {
+    return result;
+  }
+
+  const auto swipe = input.wasSwipe();
+  if (swipe != MappedInputManager::SwipeDir::None) {
+    // A horizontal reader swipe turns pages wherever it starts. Edge-only
+    // navigation remains handled by the activities that explicitly use it.
+    result.prev = swipe == MappedInputManager::SwipeDir::Right;
+    result.next = swipe == MappedInputManager::SwipeDir::Left;
+    return result;
+  }
+
+  int x = 0;
+  int y = 0;
+  if (!input.wasScreenTapped(x, y)) {
+    return result;
+  }
+  result.tapped = true;
+  result.x = x;
+  result.y = y;
+  // Reserve the top/bottom gesture bands for vertical edge swipes. If the touch
+  // controller loses part of a short edge swipe, do not reinterpret it as a page tap.
+  if (input.isInVerticalEdgeGestureZone(y)) {
+    return result;
+  }
+
+  const int previousZoneWidth = width / 3;
+  result.prev = x < previousZoneWidth;
+  result.next = x >= previousZoneWidth;
+  result.heldMs = input.getHeldTime();
+  return result;
+#endif
+}
+
+// Reader menu opens on its board-specific vertical swipe anywhere on the open
+// page, or a long press of the capacitive home key (a short home tap still goes home).
+inline bool isTouchMenuGesture(const MappedInputManager& input) {
+  return SETTINGS.touchReaderControls && input.hasTouch() &&
+         (input.wasReaderMenuGesture() || input.wasReaderMenuHold());
+}
+
+// X4 Pro opens the reader menu with an upward swipe. Its top-edge downward
+// swipe is the opposite gesture and dismisses the menu instead of opening the
+// frontlight panel. Other touch boards retain their existing menu behavior.
+inline bool isTouchMenuDismissGesture(const MappedInputManager& input) {
+  return SETTINGS.touchReaderControls && input.hasTouch() && input.hasHomeKey() && input.wasLightPanelGesture();
+}
+
 inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   // Side buttons fire on press only when long-press action is OFF (nothing to detect).
   const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
@@ -105,12 +175,21 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   return {tiltPrev || sidePrev || frontPrev, tiltNext || sideNext || frontNext, fromSide, tiltPrev || tiltNext};
 }
 
-inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh) {
+// One helper, blocking or deferred: the async form starts the refresh and
+// returns so the caller can overlap CPU work with the panel's refresh time.
+// Async callers must not touch the framebuffer until
+// renderer.waitRefreshComplete() and must rebuild the differential baseline
+// before the next page turn (the tiled grayscale cleanup does).
+inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh, bool async = false) {
+  const auto mode = (pagesUntilFullRefresh <= 1) ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH;
+  if (async) {
+    renderer.displayBufferAsync(mode);
+  } else {
+    renderer.displayBuffer(mode);
+  }
   if (pagesUntilFullRefresh <= 1) {
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
     pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
   } else {
-    renderer.displayBuffer();
     pagesUntilFullRefresh--;
   }
 }

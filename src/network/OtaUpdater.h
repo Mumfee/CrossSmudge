@@ -25,6 +25,7 @@ class OtaUpdater {
     OOM_ERROR,
     CANCELLED_ERROR,
     HASH_MISMATCH_ERROR,
+    WRONG_DEVICE_ERROR,
   };
 
   size_t getOtaSize() const { return otaSize; }

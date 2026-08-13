@@ -159,7 +159,7 @@ static void feedChunked(ReleaseJsonParser& p, const char* json, size_t chunkSize
   }
 }
 
-static bool isTinyFirmwareAsset(const char* assetName) { return strcmp(assetName, "firmware-tiny-v2.4.1.bin") == 0; }
+static bool isX3X4FirmwareAsset(const char* assetName) { return strcmp(assetName, "firmware-x3-x4-v2.4.1.bin") == 0; }
 
 // ============================================================================
 // Tests
@@ -394,18 +394,18 @@ void testCustomAssetMatcher() {
   const char* json = R"({
       "tag_name": "v2.4.1",
       "assets": [
-        {"name": "firmware-xlarge-v2.4.1.bin", "browser_download_url": "https://example.com/xlarge.bin", "size": 1234},
-        {"name": "firmware-tiny-v2.4.1.bin", "browser_download_url": "https://example.com/tiny.bin", "size": 4321}
+        {"name": "firmware-sticky-v2.4.1.bin", "browser_download_url": "https://example.com/sticky.bin", "size": 1234},
+        {"name": "firmware-x3-x4-v2.4.1.bin", "browser_download_url": "https://example.com/x3-x4.bin", "size": 4321}
       ]
     })";
 
-  ReleaseJsonParser p(isTinyFirmwareAsset);
+  ReleaseJsonParser p(isX3X4FirmwareAsset);
   p.feed(json, strlen(json));
 
   ASSERT_TRUE(p.foundTag());
   ASSERT_TRUE(p.foundFirmware());
   ASSERT_STREQ(p.getTagName(), "v2.4.1");
-  ASSERT_STREQ(p.getFirmwareUrl(), "https://example.com/tiny.bin");
+  ASSERT_STREQ(p.getFirmwareUrl(), "https://example.com/x3-x4.bin");
   ASSERT_EQ(p.getFirmwareSize(), 4321u);
 
   printf("  passed\n");

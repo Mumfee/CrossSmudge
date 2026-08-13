@@ -11,12 +11,17 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
+#include "components/UIThemeTokens.h"
+#include "components/UiAppHelpers.h"
 #include "fontIds.h"
 
+namespace fui = freeink::ui;
 namespace {
 constexpr uint8_t INVALID_STORED_FONT_SIZE = 0xFF;
 constexpr const char* ELLIPSIS_UTF8 = "\xe2\x80\xa6";
+constexpr fui::ActionId ACTION_ROW = 1;
 
 uint8_t closestSizeIndex(const std::vector<uint8_t>& sizes, const uint8_t targetPointSize) {
   if (sizes.empty()) return 0;
@@ -56,18 +61,8 @@ uint8_t closestBuiltinStoredSize(const uint8_t targetPointSize) {
 }
 
 uint8_t currentFontPointSize(const SdCardFontRegistry* registry) {
-  if (registry && SETTINGS.sdFontFamilyName[0] != '\0') {
-    const SdCardFontFamilyInfo* family = registry->findFamily(SETTINGS.sdFontFamilyName);
-    if (family) {
-      const std::vector<uint8_t> sizes = family->availableSizes();
-      if (!sizes.empty()) {
-        const uint8_t index =
-            SETTINGS.fontSize < sizes.size() ? SETTINGS.fontSize : static_cast<uint8_t>(sizes.size() - 1);
-        return sizes[index];
-      }
-    }
-  }
-  return CrossPointSettings::getReaderFontPointSize(SETTINGS.getEffectiveReaderFontSize());
+  (void)registry;
+  return SETTINGS.readerFontPointSize;
 }
 
 int findCurrentFontIndex(const SdCardFontRegistry* registry, const char* sdFontFamilyName, uint8_t fontFamily) {
@@ -86,14 +81,17 @@ int findCurrentFontIndex(const SdCardFontRegistry* registry, const char* sdFontF
 
 FontSelectionActivity::FontSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                              const SdCardFontRegistry* registry)
-    : Activity("FontSelect", renderer, mappedInput), registry_(registry) {}
+    : Activity("FontSelect", renderer, mappedInput),
+      registry_(registry),
+      uiTarget_(makeUiTarget(renderer)),
+      app_(uiTarget_, uiTarget_.deviceContext()) {}
 
 void FontSelectionActivity::onEnter() {
   Activity::onEnter();
 
   // Get metrics and calculate layout dimensions
   metrics_ = UITheme::getInstance().getMetrics();
-  afterHeader = metrics_.topPadding + metrics_.headerHeight + metrics_.verticalSpacing;
+  afterHeader = metrics_.topPadding + TouchHeaderBackButton::height(metrics_, mappedInput) + metrics_.verticalSpacing;
   bottomReserved = metrics_.buttonHintsHeight + metrics_.verticalSpacing;
   usableHeight = renderer.getScreenHeight() - afterHeader - bottomReserved;
   previewHeight = usableHeight * metrics_.previewHeightPercent / 100;
@@ -117,14 +115,52 @@ void FontSelectionActivity::onEnter() {
 
   selectedIndex_ = findCurrentFontIndex(registry_, SETTINGS.sdFontFamilyName, SETTINGS.fontFamily);
   previewFontIndex_ = selectedIndex_;
+  topIndex_ = 0;
+  visibleRows_ = 1;
+  initialViewportPending_ = true;
+  uiReady_ = false;
+  app_.setTheme(uiThemeTokens(uiTarget_));
+  app_.on(ACTION_ROW, &FontSelectionActivity::onRowEvent, this);
+  app_.setScreen(&FontSelectionActivity::listScreen, this);
 
   requestUpdate();
 }
 
 void FontSelectionActivity::onExit() { Activity::onExit(); }
 
+void FontSelectionActivity::activateSelected() {
+  if (selectedIndex_ == previewFontIndex_) {
+    handleSelection();
+    return;
+  }
+  previewFontIndex_ = selectedIndex_;
+  const auto& font = fonts_[selectedIndex_];
+  if (font.isBuiltin) {
+    SETTINGS.fontFamily = font.settingIndex;
+    SETTINGS.sdFontFamilyName[0] = '\0';
+  } else if (registry_) {
+    const int sdIdx = font.settingIndex - CrossPointSettings::BUILTIN_FONT_COUNT;
+    const auto& families = registry_->getFamilies();
+    if (sdIdx < static_cast<int>(families.size())) {
+      strncpy(SETTINGS.sdFontFamilyName, families[sdIdx].name.c_str(), sizeof(SETTINGS.sdFontFamilyName) - 1);
+      SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
+      sdFontSystem.ensureLoaded(renderer);
+    }
+  }
+  requestUpdate();
+}
+
+void FontSelectionActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<FontSelectionActivity*>(user);
+  if (event.value < 0 || event.value >= static_cast<int16_t>(self->fonts_.size())) return;
+  self->selectedIndex_ = event.value;
+  self->app_.clearTapFlash();
+  self->activateSelected();
+}
+
 void FontSelectionActivity::loop() {
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer) ||
+      mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     mappedInput.suppressNextBackRelease();
     SETTINGS.fontFamily = originalFontFamily_;
     strncpy(SETTINGS.sdFontFamilyName, originalSdFontFamilyName_, sizeof(SETTINGS.sdFontFamilyName) - 1);
@@ -135,51 +171,44 @@ void FontSelectionActivity::loop() {
   }
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    if (selectedIndex_ == previewFontIndex_) {
-      handleSelection();
-    } else {
-      previewFontIndex_ = selectedIndex_;
-      const auto& font = fonts_[selectedIndex_];
-      if (font.isBuiltin) {
-        SETTINGS.fontFamily = font.settingIndex;
-        SETTINGS.sdFontFamilyName[0] = '\0';
-      } else if (registry_) {
-        const int sdIdx = font.settingIndex - CrossPointSettings::BUILTIN_FONT_COUNT;
-        const auto& families = registry_->getFamilies();
-        if (sdIdx < static_cast<int>(families.size())) {
-          strncpy(SETTINGS.sdFontFamilyName, families[sdIdx].name.c_str(), sizeof(SETTINGS.sdFontFamilyName) - 1);
-          SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
-          sdFontSystem.ensureLoaded(renderer);
-        }
-      }
+    activateSelected();
+    return;
+  }
+
+  const int listSize = static_cast<int>(fonts_.size());
+  if (uiReady_) {
+    const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
+    if (snap.touchPressed || snap.touchReleased) {
+      const auto event = app_.route(snap);
+      if (app_.invalidated()) requestUpdate();
+      if (event) return;
+    }
+  }
+
+  const auto swipe = mappedInput.wasSwipe();
+  if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
+    const int next = scrollListBy(topIndex_, swipe == MappedInputManager::SwipeDir::Up ? visibleRows_ : -visibleRows_,
+                                  visibleRows_, listSize);
+    if (next != topIndex_) {
+      topIndex_ = next;
       requestUpdate();
     }
     return;
   }
 
-  const int listSize = static_cast<int>(fonts_.size());
-  const int pageItems =
-      UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false, previewHeight + metrics_.verticalSpacing);
-
-  buttonNavigator_.onNextRelease([this, listSize] {
-    selectedIndex_ = ButtonNavigator::nextIndex(selectedIndex_, listSize);
+  const auto move = [this, listSize](const int next) {
+    selectedIndex_ = next;
+    topIndex_ = followListSelection(selectedIndex_, topIndex_, visibleRows_, listSize);
     requestUpdate();
-  });
-
-  buttonNavigator_.onPreviousRelease([this, listSize] {
-    selectedIndex_ = ButtonNavigator::previousIndex(selectedIndex_, listSize);
-    requestUpdate();
-  });
-
-  buttonNavigator_.onNextContinuous([this, listSize, pageItems] {
-    selectedIndex_ = ButtonNavigator::nextPageIndex(selectedIndex_, listSize, pageItems);
-    requestUpdate();
-  });
-
-  buttonNavigator_.onPreviousContinuous([this, listSize, pageItems] {
-    selectedIndex_ = ButtonNavigator::previousPageIndex(selectedIndex_, listSize, pageItems);
-    requestUpdate();
-  });
+  };
+  buttonNavigator_.onNextRelease(
+      [this, listSize, &move] { move(ButtonNavigator::nextIndex(selectedIndex_, listSize)); });
+  buttonNavigator_.onPreviousRelease(
+      [this, listSize, &move] { move(ButtonNavigator::previousIndex(selectedIndex_, listSize)); });
+  buttonNavigator_.onNextContinuous(
+      [this, listSize, &move] { move(ButtonNavigator::nextPageIndex(selectedIndex_, listSize, visibleRows_)); });
+  buttonNavigator_.onPreviousContinuous(
+      [this, listSize, &move] { move(ButtonNavigator::previousPageIndex(selectedIndex_, listSize, visibleRows_)); });
 }
 
 void FontSelectionActivity::handleSelection() {
@@ -188,13 +217,14 @@ void FontSelectionActivity::handleSelection() {
   if (font.settingIndex < CrossPointSettings::BUILTIN_FONT_COUNT) {
     SETTINGS.fontFamily = font.settingIndex;
     SETTINGS.sdFontFamilyName[0] = '\0';
-    SETTINGS.fontSize = closestBuiltinStoredSize(targetPointSize);
+    SETTINGS.readerFontPointSize = CrossPointSettings::getReaderFontPointSize(
+        static_cast<CrossPointSettings::FONT_SIZE>(closestBuiltinStoredSize(targetPointSize)));
   } else if (registry_) {
     const int sdIdx = font.settingIndex - CrossPointSettings::BUILTIN_FONT_COUNT;
     const auto& families = registry_->getFamilies();
     if (sdIdx < static_cast<int>(families.size())) {
       const std::vector<uint8_t> sizes = families[sdIdx].availableSizes();
-      SETTINGS.fontSize = closestSizeIndex(sizes, targetPointSize);
+      SETTINGS.readerFontPointSize = sizes[closestSizeIndex(sizes, targetPointSize)];
       strncpy(SETTINGS.sdFontFamilyName, families[sdIdx].name.c_str(), sizeof(SETTINGS.sdFontFamilyName) - 1);
       SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
     }
@@ -244,18 +274,60 @@ void FontSelectionActivity::renderPreviewPane(int top, int height, int fontId, c
   }
 }
 
+void FontSelectionActivity::listScreen(UiApp::ScreenType& screen, void* user) {
+  static_cast<FontSelectionActivity*>(user)->buildListScreen(screen);
+}
+
+void FontSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
+  const int listTop = afterHeader + previewHeight + metrics_.verticalSpacing;
+  const int listHeight = usableHeight - previewHeight - metrics_.verticalSpacing;
+  screen.setContentMargin(fui::Insets{static_cast<int16_t>(listTop), 0,
+                                      static_cast<int16_t>(renderer.getScreenHeight() - listTop - listHeight), 0});
+  const int currentFontIndex = findCurrentFontIndex(registry_, originalSdFontFamilyName_, originalFontFamily_);
+  std::vector<fui::ListItem> items;
+  items.reserve(fonts_.size());
+  for (size_t i = 0; i < fonts_.size(); ++i) {
+    fui::ListItem item;
+    item.label = fonts_[i].name.c_str();
+    if (static_cast<int>(i) == previewFontIndex_ && static_cast<int>(i) != currentFontIndex) {
+      item.value = tr(STR_PREVIEW);
+    } else if (static_cast<int>(i) == currentFontIndex) {
+      item.value = tr(STR_SELECTED);
+    }
+    item.actionValue = static_cast<int16_t>(i);
+    items.push_back(item);
+  }
+  fui::ListProps props;
+  props.items = items.data();
+  props.count = static_cast<uint16_t>(items.size());
+  props.selectedIndex = static_cast<int16_t>(selectedIndex_);
+  props.action = ACTION_ROW;
+  props.inputMask = fui::InputTouch;
+  props.valueInset = 8;
+  props.labelText = screen.theme().bodyText;
+  const auto rows = configureUiList(props, screen.theme(), screen.body());
+  visibleRows_ = rows > 0 ? rows : 1;
+  const int fontCount = static_cast<int>(fonts_.size());
+  topIndex_ = initialViewportPending_ ? followListSelection(selectedIndex_, 0, visibleRows_, fontCount)
+                                      : scrollListBy(topIndex_, 0, visibleRows_, fontCount);
+  initialViewportPending_ = false;
+  props.topIndex = static_cast<uint16_t>(topIndex_);
+  screen.list(props);
+}
+
 void FontSelectionActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
-
-  GUI.drawHeader(renderer, Rect{0, metrics_.topPadding, pageWidth, metrics_.headerHeight}, tr(STR_FONT_FAMILY));
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_FONT_FAMILY), false);
+  } else {
+    GUI.drawHeader(renderer, header, tr(STR_FONT_FAMILY));
+  }
 
   const int previewTop = afterHeader;
   const int listTop = previewTop + previewHeight + metrics_.verticalSpacing;
-  const int listHeight = usableHeight - previewHeight - metrics_.verticalSpacing;
-
   const int previewFontId = SETTINGS.getReaderFontId();
   const char* previewFontName = (previewFontIndex_ >= 0 && previewFontIndex_ < static_cast<int>(fonts_.size()))
                                     ? fonts_[previewFontIndex_].name.c_str()
@@ -264,16 +336,9 @@ void FontSelectionActivity::render(RenderLock&&) {
 
   renderer.drawLine(0, listTop - metrics_.verticalSpacing / 2, pageWidth, listTop - metrics_.verticalSpacing / 2);
 
-  const int currentFontIndex = findCurrentFontIndex(registry_, originalSdFontFamilyName_, originalFontFamily_);
-  GUI.drawList(
-      renderer, Rect{0, listTop, pageWidth, listHeight}, static_cast<int>(fonts_.size()), selectedIndex_,
-      [this](int index) { return fonts_[index].name; }, nullptr, nullptr,
-      [this, currentFontIndex](int index) -> std::string {
-        if (index == previewFontIndex_ && index != currentFontIndex) return tr(STR_PREVIEW);
-        if (index == currentFontIndex) return tr(STR_SELECTED);
-        return "";
-      },
-      true);
+  uiReady_ = false;
+  app_.render();
+  uiReady_ = true;
 
   const bool onPreviewed = selectedIndex_ == previewFontIndex_;
   const char* confirmLabel = onPreviewed ? tr(STR_SELECT) : tr(STR_PREVIEW);

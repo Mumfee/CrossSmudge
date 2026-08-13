@@ -52,3 +52,42 @@ TEST(Utf8ComposeNfc, ComposesWithinWord) {
   // "Ti" + e+circ+acute + "ng" -> "Tiếng"
   EXPECT_EQ(utf8ComposeNfc("Ti" + std::string("e") + kCombCirc + kCombAcute + "ng"), "Ti\xE1\xBA\xBFng");
 }
+
+TEST(Utf8CjkWordCharacter, AcceptsLettersAndRejectsStandalonePunctuation) {
+  EXPECT_TRUE(utf8IsCjkWordCharacter(0xAC00));   // 가 (Hangul syllable)
+  EXPECT_TRUE(utf8IsCjkWordCharacter(0x4E00));   // 一 (CJK ideograph)
+  EXPECT_TRUE(utf8IsCjkWordCharacter(0x3042));   // あ (Hiragana)
+  EXPECT_TRUE(utf8IsCjkWordCharacter(0xFF21));   // Ａ (fullwidth Latin uppercase)
+  EXPECT_FALSE(utf8IsCjkWordCharacter(0x3002));  // 。 (ideographic full stop)
+  EXPECT_FALSE(utf8IsCjkWordCharacter(0xFF0C));  // ， (fullwidth comma)
+}
+
+TEST(Utf8LookupWord, RecognizesNonLatinScripts) {
+  EXPECT_TRUE(utf8ContainsLookupCharacter("\xE4\xB8\xAD\xE6\x96\x87"));                          // Chinese
+  EXPECT_TRUE(utf8ContainsLookupCharacter("\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82"));  // Russian
+  EXPECT_TRUE(utf8ContainsLookupCharacter("\xD8\xA7\xD9\x84\xD8\xB9\xD8\xB1\xD8\xA8\xD9\x8A\xD8\xA9"));
+  EXPECT_FALSE(utf8ContainsLookupCharacter("\xE2\x80\x9C\xE2\x80\x9D"));  // smart quotes
+  EXPECT_FALSE(utf8ContainsLookupCharacter("\xF0\x9F\x98\x80"));          // emoji
+}
+
+TEST(Utf8LookupWord, TrimsUnicodePunctuationWithoutDamagingWords) {
+  EXPECT_EQ(utf8CleanLookupWord("\xE2\x80\x9C"
+                                "caf\xC3\xA9"
+                                "\xE2\x80\x9D"),
+            "caf\xC3\xA9");
+  EXPECT_EQ(utf8CleanLookupWord("("
+                                "\xC3\xA9l\xC3\xA8ve"
+                                ")"),
+            "\xC3\xA9l\xC3\xA8ve");
+  EXPECT_EQ(utf8CleanLookupWord("\xC2\xA1hola!"), "hola");
+  EXPECT_EQ(utf8CleanLookupWord("\xE4\xB8\xAD\xE6\x96\x87\xE3\x80\x82"), "\xE4\xB8\xAD\xE6\x96\x87");
+  EXPECT_EQ(utf8CleanLookupWord("\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82!"),
+            "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82");
+  EXPECT_EQ(utf8CleanLookupWord("l'ete"), "l'ete");
+  EXPECT_EQ(utf8CleanLookupWord("mother-in-law"), "mother-in-law");
+  EXPECT_EQ(utf8CleanLookupWord("..."), "");
+}
+
+TEST(Utf8LookupWord, ComposesRetainedCombiningMarks) {
+  EXPECT_EQ(utf8CleanLookupWord("(cafe" + kCombAcute + ")"), "caf\xC3\xA9");
+}

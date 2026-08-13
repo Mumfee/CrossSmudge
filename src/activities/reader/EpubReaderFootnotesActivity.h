@@ -1,7 +1,10 @@
 #pragma once
 
 #include <Epub/FootnoteEntry.h>
+#include <FreeInkApp.h>
+#include <FreeInkUIGfxRenderer.h>
 
+#include <atomic>
 #include <cstring>
 #include <functional>
 #include <vector>
@@ -11,9 +14,8 @@
 
 class EpubReaderFootnotesActivity final : public Activity {
  public:
-  explicit EpubReaderFootnotesActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                       const std::vector<FootnoteEntry>& footnotes)
-      : Activity("EpubReaderFootnotes", renderer, mappedInput), footnotes(footnotes) {}
+  EpubReaderFootnotesActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                              const std::vector<FootnoteEntry>& footnotes);
 
   void onEnter() override;
   void onExit() override;
@@ -25,6 +27,16 @@ class EpubReaderFootnotesActivity final : public Activity {
  private:
   const std::vector<FootnoteEntry>& footnotes;
   int selectedIndex = 0;
-  int scrollOffset = 0;
   ButtonNavigator buttonNavigator;
+  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  freeink::ui::GfxRendererTarget uiTarget;
+  UiApp app;
+  std::atomic<bool> uiReady{false};
+  int visibleRows = 1;
+  int topIndex = 0;
+
+  static void listScreen(UiApp::ScreenType& screen, void* user);
+  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  void buildListScreen(UiApp::ScreenType& screen);
+  void selectFootnote();
 };

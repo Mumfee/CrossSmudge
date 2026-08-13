@@ -1,8 +1,8 @@
 #include "CrossPointState.h"
 
 #include <HalStorage.h>
-#include <JsonSettingsIO.h>
 #include <Logging.h>
+#include <PersistableStore.h>
 #include <Serialization.h>
 
 #include <algorithm>
@@ -14,8 +14,6 @@ constexpr char STATE_FILE_BIN[] = "/.crosspoint/state.bin";
 constexpr char STATE_FILE_JSON[] = "/.crosspoint/state.json";
 constexpr char STATE_FILE_BAK[] = "/.crosspoint/state.bin.bak";
 }  // namespace
-
-CrossPointState CrossPointState::instance;
 
 bool CrossPointState::isRecentSleep(uint16_t idx, uint8_t checkCount) const {
   const uint8_t effectiveCount = std::min(checkCount, recentSleepFill);
@@ -39,18 +37,21 @@ void CrossPointState::clearRecentSleepHistory() {
 }
 
 bool CrossPointState::saveToFile() const {
-  std::lock_guard<std::mutex> lock(_mutex);
-  Storage.mkdir("/.crosspoint");
-  return JsonSettingsIO::saveState(*this, STATE_FILE_JSON);
+  std::lock_guard<std::mutex> storeLock(storeMutex);
+  std::lock_guard<std::mutex> stateLock(_mutex);
+  JsonDocument doc;
+  toJson(doc);
+  return PersistableStoreBase::writeDocToFile(STATE_FILE_JSON, doc);
 }
 
 bool CrossPointState::loadFromFile() {
   // Try JSON first
   if (Storage.exists(STATE_FILE_JSON)) {
-    String json = Storage.readFile(STATE_FILE_JSON);
-    if (!json.isEmpty()) {
-      std::lock_guard<std::mutex> lock(_mutex);
-      return JsonSettingsIO::loadState(*this, json.c_str());
+    std::lock_guard<std::mutex> storeLock(storeMutex);
+    JsonDocument doc;
+    if (PersistableStoreBase::readDocFromFile(STATE_FILE_JSON, doc)) {
+      std::lock_guard<std::mutex> stateLock(_mutex);
+      return fromJson(doc.as<JsonVariantConst>());
     }
   }
 
@@ -69,6 +70,52 @@ bool CrossPointState::loadFromFile() {
   }
 
   return false;
+}
+
+void CrossPointState::toJson(JsonDocument& doc) const {
+  doc["openEpubPath"] = openEpubPath;
+  doc["favoriteSleepImagePath"] = favoriteSleepImagePath;
+  doc["preferredSleepFolderPath"] = preferredSleepFolderPath;
+  JsonArray recentArr = doc["recentSleepImages"].to<JsonArray>();
+  for (int i = 0; i < SLEEP_RECENT_COUNT; i++) recentArr.add(recentSleepImages[i]);
+  doc["recentSleepPos"] = recentSleepPos;
+  doc["recentSleepFill"] = recentSleepFill;
+  doc["readerActivityLoadCount"] = readerActivityLoadCount;
+  doc["lastSleepFromReader"] = lastSleepFromReader;
+  doc["pendingBookmarkSpine"] = pendingBookmarkSpine;
+  doc["pendingBookmarkProgress"] = pendingBookmarkProgress;
+  doc["pendingBookmarkParagraphIndex"] = pendingBookmarkParagraphIndex;
+  doc["pendingClippingIndex"] = pendingClippingIndex;
+  doc["showBootScreen"] = showBootScreen;
+}
+
+bool CrossPointState::fromJson(JsonVariantConst doc) {
+  openEpubPath = doc["openEpubPath"] | "";
+  favoriteSleepImagePath = doc["favoriteSleepImagePath"] | "";
+  preferredSleepFolderPath = doc["preferredSleepFolderPath"] | "";
+  std::fill_n(recentSleepImages, SLEEP_RECENT_COUNT, static_cast<uint16_t>(0));
+  JsonArrayConst recentArr = doc["recentSleepImages"];
+  const int actualCount =
+      recentArr.isNull() ? 0 : std::min(static_cast<int>(recentArr.size()), static_cast<int>(SLEEP_RECENT_COUNT));
+  for (int i = 0; i < actualCount; i++) recentSleepImages[i] = recentArr[i] | static_cast<uint16_t>(0);
+  recentSleepPos = doc["recentSleepPos"] | static_cast<uint8_t>(0);
+  if (recentSleepPos >= SLEEP_RECENT_COUNT) {
+    recentSleepPos = actualCount > 0 ? recentSleepPos % SLEEP_RECENT_COUNT : 0;
+  }
+  recentSleepFill = doc["recentSleepFill"] | static_cast<uint8_t>(0);
+  recentSleepFill = static_cast<uint8_t>(std::min(static_cast<int>(recentSleepFill), actualCount));
+  if (recentSleepFill == 0 && !doc["lastSleepImage"].isNull()) {
+    const uint8_t legacy = doc["lastSleepImage"] | static_cast<uint8_t>(UINT8_MAX);
+    if (legacy != UINT8_MAX) pushRecentSleep(static_cast<uint16_t>(legacy));
+  }
+  readerActivityLoadCount = doc["readerActivityLoadCount"] | static_cast<uint8_t>(0);
+  lastSleepFromReader = doc["lastSleepFromReader"] | false;
+  pendingBookmarkSpine = doc["pendingBookmarkSpine"] | static_cast<uint16_t>(UINT16_MAX);
+  pendingBookmarkProgress = doc["pendingBookmarkProgress"] | static_cast<float>(-1.0f);
+  pendingBookmarkParagraphIndex = doc["pendingBookmarkParagraphIndex"] | static_cast<uint16_t>(UINT16_MAX);
+  pendingClippingIndex = doc["pendingClippingIndex"] | static_cast<uint16_t>(UINT16_MAX);
+  showBootScreen = doc["showBootScreen"] | true;
+  return true;
 }
 
 bool CrossPointState::loadFromBinaryFile() {

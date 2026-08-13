@@ -3,14 +3,14 @@
 This is the canonical repo instruction file.
 `CLAUDE.md` should point here so Codex and Claude read the same guidance.
 
-Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3).
+Project: Open-source e-reader firmware for ESP32-C3 and ESP32-S3 devices.
 
 ## Core Rules
 
 - Role: Senior Embedded Systems Engineer for ESP-IDF / Arduino-ESP32 work.
-- The ESP32-C3 has no PSRAM and about 380 KB usable RAM. Stability beats features.
+- Support both constrained ESP32-C3 devices and PSRAM-equipped ESP32-S3 devices. Keep shared code safe for the C3 unless it is explicitly capability-gated; stability beats features.
 - Cite file paths and line numbers before proposing non-trivial changes.
-- Do not assume ESP-IDF or SDK API availability. Verify in `open-x4-sdk/` or the live code.
+- Do not assume ESP-IDF or SDK API availability. Verify in `freeink-sdk/` or the live code.
 - Do not claim performance or memory wins without explaining the mechanism, such as reduced heap churn, flash vs DRAM placement, or smaller stack use.
 - Justify new heap allocations or explain why stack/static storage is not suitable.
 - Explain fixes in plain language where possible, ideally in terms a Node / React developer would follow.
@@ -20,7 +20,6 @@ Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3).
 
 - Read `.claude/CONTEXT.md` at session start for durable repo-specific gotchas.
 - Keep `.claude/CONTEXT.md` short. Add only reusable findings, not turn-by-turn history.
-- If asked to summarize a session, create `.claude/CONTEXT-YYYY-MM-DD.md` with the relevant findings for that session.
 
 ## Repo Skills
 
@@ -37,10 +36,11 @@ Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3).
 
 ## Hardware Constraints
 
-- MCU: ESP32-C3, single-core RISC-V at 160 MHz.
-- Display: 800x480 e-ink.
-- Single framebuffer only: `800 * 480 / 8 = 48000` bytes.
-- Storage is SD via SdFat. On real hardware, only one reader can hold a file open at a time.
+- ESP32-C3 targets (Xteink X3/X4): single-core RISC-V at 160 MHz, no PSRAM, and about 380 KB usable internal RAM.
+- ESP32-S3R8 targets (Seeed reTerminal Sticky/Xteink X4 Pro): dual-core Xtensa at up to 240 MHz with 8 MB PSRAM. PSRAM is slower than internal DRAM and is not suitable for every DMA, ISR, or latency-sensitive buffer.
+- Current displays use an 800x480 1-bit e-ink framebuffer: `800 * 480 / 8 = 48000` bytes. Use runtime renderer dimensions because orientation and future device profiles may differ.
+- Use one framebuffer only. C3 targets keep it in internal RAM; current S3 targets place it in PSRAM via `FREEINK_FB_PSRAM`.
+- Storage is exposed through SdFat, but the transport is device-specific (SPI SD on X3/X4/Sticky and SDMMC on X4 Pro). On real hardware, only one reader can hold a file open at a time.
 
 ## Resource Rules
 
@@ -55,6 +55,7 @@ Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3).
 9. `new` is not nothrow on ESP32. With exceptions disabled, bare `new` calls `abort()` on allocation failure instead of returning `nullptr`. Use `new (std::nothrow)` or `makeUniqueNoThrow<T>()` from `lib/Memory/Memory.h` for fallible allocations.
 10. Prefer `makeUniqueNoThrow<T>()` / `makeUniqueNoThrow<T[]>()` for owned heap allocations so cleanup is automatic on early returns.
 11. Use raw `malloc` or `new (std::nothrow)` only when a C or SDK API takes ownership; add a short comment explaining that ownership transfer.
+12. Treat PSRAM as a device capability, not a universal assumption. Keep shared paths within C3 limits or gate S3-only allocations behind the relevant board/capability macro, and handle PSRAM allocation failure.
 
 ## HAL And Platform Rules
 
@@ -106,13 +107,15 @@ Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3).
 - Host environment may be macOS, Linux, WSL, or Windows Git Bash. Check `uname -s` before recommending platform-specific shell commands.
 - Logging uses `LOG_INF`, `LOG_DBG`, and `LOG_ERR`.
 - The simulator env in this repo is `simulator`.
-- For simulator work, build from this firmware repo unless the change belongs in `crosspoint-simulator` itself.
+- For simulator work, build from this firmware repo unless the change belongs in `crosssmudge-simulator` itself.
 - Common validation commands:
   - `pio run -e simulator` for simulator-facing UI/reader work.
-  - `pio run -e default` for firmware compile validation.
+  - `pio run -e default` for the ESP32-C3 X3/X4 firmware.
+  - `pio run -e sticky` for the ESP32-S3 Sticky firmware.
+  - `pio run -e x4-pro` for the ESP32-S3 X4 Pro firmware.
   - `pio check -e default --fail-on-defect low --fail-on-defect medium --fail-on-defect high` for static analysis.
   - `find src lib include test -name "*.cpp" -o -name "*.h" | xargs clang-format -i` for formatting touched C++ files.
-- For crash debugging, check serial logs, heap with `ESP.getFreeHeap()`, task stack high-water marks, and whether cache files need clearing.
+- For crash debugging, check serial logs, internal heap with `ESP.getFreeHeap()` and `ESP.getMaxAllocHeap()`, task stack high-water marks, and whether cache files need clearing. On S3 targets, also inspect PSRAM free space and largest allocatable block; abundant PSRAM does not prove that internal-RAM or DMA-capable allocations can succeed.
 - Hardware verification should mention the concrete device path to test, expected UI/log behavior, and any cache reset needed.
 
 ## Generated Files
@@ -131,7 +134,10 @@ Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3).
 ## Git Workflow
 
 - Check `git status --short` before edits and before reporting results. Preserve unrelated user changes.
-- Do not commit unless the user explicitly asks.
+- When resolving merge, rebase, or cherry-pick conflicts, inspect the relevant commit messages for upstream PR references such as `#2608`. Open the PR in its source repository and read its description and changed files before resolving the conflict so the intended behavior is understood.
+- Do not resolve conflicts by automatically keeping CrossSmudge's current implementation or by discarding the upstream change wholesale. Preserve or adapt the upstream intent unless it is already fully implemented, would introduce a regression, or would substantially and unjustifiably change CrossSmudge's UX or behavior. When rejecting an upstream change, state the concrete reason.
+- If a referenced PR cannot be accessed, inspect the source commit diff and nearby history, then report that the PR intent could not be verified instead of guessing.
+- Do not commit unless the user explicitly asks or committing is part of the skill utilized.
 - Before staging, ensure ignored/generated/local files such as `.pio/`, `*.generated.h`, `compile_commands.json`, and `platformio.local.ini` are not included.
 - Branch names should use repo-style prefixes such as `feat/`, `fix/`, `docs/`, `refactor/`, `test/`, or `chore/`.
 - Suggested commit messages should follow `<type>: <short summary>`, using types like `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, or `perf`.
@@ -150,6 +156,7 @@ When new features are added or issues are fixed, make sure to add an entry to `C
 - The release date of each version is displayed.
 
 ### Types of Changelog Changes
+
 - Added - for new features.
 - Changed - for changes in existing functionality.
 - Deprecated - for soon-to-be removed features.

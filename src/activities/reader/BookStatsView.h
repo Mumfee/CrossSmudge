@@ -8,6 +8,16 @@
 class GfxRenderer;
 class MappedInputManager;
 
+namespace BookStatsTouchTarget {
+constexpr int StartedDaysStat = 1;
+constexpr int DateFieldBase = 10;
+constexpr int DateFieldCount = 6;
+constexpr int DateAdjustUp = 20;
+constexpr int DateAdjustDown = 21;
+
+constexpr int dateField(const int index) { return DateFieldBase + index; }
+}  // namespace BookStatsTouchTarget
+
 void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const std::string& bookTitle,
                             const BookReadingStats& stats, float progressPercent, bool hasEstimatedTimeLeft,
                             uint32_t estimatedTimeLeftSeconds, bool showButtonHints, bool showEditButton,

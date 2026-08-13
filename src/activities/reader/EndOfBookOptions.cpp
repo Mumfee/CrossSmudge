@@ -31,7 +31,9 @@ void EndOfBookOptions::loadOnce(const std::string& currentBookPath) {
   isLoaded.store(true, std::memory_order_release);
 }
 
-bool EndOfBookOptions::menuActive() const { return isLoaded.load(std::memory_order_acquire) && !names.empty(); }
+bool EndOfBookOptions::loaded() const { return isLoaded.load(std::memory_order_acquire); }
+
+bool EndOfBookOptions::menuActive() const { return loaded() && !names.empty(); }
 
 std::string EndOfBookOptions::fullPath(const size_t index) const {
   if (index >= names.size()) {

@@ -1,9 +1,13 @@
 #include "CrossPointSettings.h"
 
+#include <BoardConfig.h>
+#include <HalClock.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
-#include <JsonSettingsIO.h>
+#include <I18n.h>
 #include <Logging.h>
+#include <ObfuscationUtils.h>
+#include <PersistableStore.h>
 #include <Serialization.h>
 
 #include <algorithm>
@@ -13,10 +17,8 @@
 #include <string>
 
 #include "I18nKeys.h"
+#include "SettingsList.h"
 #include "fontIds.h"
-
-// Initialize the static instance
-CrossPointSettings CrossPointSettings::instance;
 
 void readAndValidate(FsFile& file, uint8_t& member, const uint8_t maxValue) {
   uint8_t tempValue;
@@ -35,6 +37,10 @@ constexpr char SETTINGS_FILE_BAK[] = "/.crosspoint/settings.bin.bak";
 constexpr char LANG_FILE_BIN[] = "/.crosspoint/language.bin";
 constexpr char LANG_FILE_BAK[] = "/.crosspoint/language.bin.bak";
 constexpr uint8_t INVALID_READER_FONT_SIZE = 0xFF;
+constexpr uint8_t TILT_DIRECTION_SCHEMA_CURRENT = 2;
+// X3 hardware predates this migration by less than a year. Reject the RTC's
+// factory/default year while preserving dates written by released firmware.
+constexpr uint16_t MIN_TRUSTED_MIGRATED_RTC_YEAR = 2025;
 constexpr uint8_t SLEEP_SCREEN_STORAGE_ORDER[] = {
     static_cast<uint8_t>(CrossPointSettings::DARK),
     static_cast<uint8_t>(CrossPointSettings::LIGHT),
@@ -54,22 +60,26 @@ constexpr uint8_t SLEEP_SCREEN_STORAGE_ORDER_COUNT =
 static_assert(SLEEP_SCREEN_STORAGE_ORDER_COUNT == CrossPointSettings::SLEEP_SCREEN_MODE_COUNT,
               "Update sleep screen persisted-value mapping when adding modes");
 constexpr CrossPointSettings::FONT_SIZE READER_FONT_SIZE_STORAGE_ORDER[] = {
-    CrossPointSettings::TINY,      CrossPointSettings::SMALL,       CrossPointSettings::MEDIUM,
-    CrossPointSettings::LARGE,     CrossPointSettings::EXTRA_LARGE, CrossPointSettings::TEENSY,
-    CrossPointSettings::HUGE_SIZE, CrossPointSettings::ITTY_BITTY};
+    CrossPointSettings::TINY,
+    CrossPointSettings::SMALL,
+    CrossPointSettings::MEDIUM,
+    CrossPointSettings::LARGE,
+};
 constexpr CrossPointSettings::FONT_SIZE READER_FONT_SIZE_CYCLE_ORDER[] = {
-    CrossPointSettings::TEENSY,      CrossPointSettings::ITTY_BITTY, CrossPointSettings::TINY,
-    CrossPointSettings::SMALL,       CrossPointSettings::MEDIUM,     CrossPointSettings::LARGE,
-    CrossPointSettings::EXTRA_LARGE, CrossPointSettings::HUGE_SIZE};
+    CrossPointSettings::TINY,
+    CrossPointSettings::SMALL,
+    CrossPointSettings::MEDIUM,
+    CrossPointSettings::LARGE,
+};
 constexpr uint8_t SD_FONT_RANGE_POINT_SIZES[CrossPointSettings::SD_FONT_SIZE_RANGE_COUNT]
                                            [CrossPointSettings::SD_FONT_MAX_SIZE_STEPS] = {
                                                {8, 9, 10, 12},
                                                {10, 12, 14, 16},
-                                               {16, 18, 20},
-                                               {10, 12, 14, 16, 18},
+                                               {14, 16, 18, 20},
+                                               {8, 9, 10, 12, 14, 16, 18, 20},
                                                {8, 9, 10, 12, 14, 16, 18, 20},
 };
-constexpr uint8_t SD_FONT_RANGE_STEP_COUNTS[CrossPointSettings::SD_FONT_SIZE_RANGE_COUNT] = {4, 4, 3, 5, 8};
+constexpr uint8_t SD_FONT_RANGE_STEP_COUNTS[CrossPointSettings::SD_FONT_SIZE_RANGE_COUNT] = {4, 4, 4, 8, 8};
 
 bool isValidDeviceName(const char* name) {
   if (!name) return false;
@@ -77,115 +87,47 @@ bool isValidDeviceName(const char* name) {
   return len >= CrossPointSettings::MIN_DEVICE_NAME_LENGTH && len <= CrossPointSettings::MAX_DEVICE_NAME_LENGTH;
 }
 
+bool restoreLegacyRtcDateSyncState(CrossPointSettings& settings) {
+  if (!settings.clockHasBeenSynced || settings.clockDateHasBeenSynced || !halClock.isAvailable()) return false;
+
+  uint16_t year = 0;
+  uint8_t month = 0;
+  uint8_t day = 0;
+  uint8_t hour = 0;
+  uint8_t minute = 0;
+  if (!halClock.getDateTime(year, month, day, hour, minute) || year < MIN_TRUSTED_MIGRATED_RTC_YEAR) return false;
+
+  settings.clockDateHasBeenSynced = 1;
+  LOG_INF("CPS", "Restored RTC date sync state from valid persisted date: %04u-%02u-%02u", static_cast<unsigned>(year),
+          static_cast<unsigned>(month), static_cast<unsigned>(day));
+  return true;
+}
+
 uint8_t normalizedSdFontRange(uint8_t range) {
+  if (range == CrossPointSettings::SD_FONT_RANGE_NO_EMOJI_LEGACY) {
+    return CrossPointSettings::SD_FONT_RANGE_ALL;
+  }
   return range < CrossPointSettings::SD_FONT_SIZE_RANGE_COUNT ? range : CrossPointSettings::SD_FONT_RANGE_TINY;
 }
 
 bool isReaderFontSizeAvailable(const CrossPointSettings::FONT_SIZE size) {
-  switch (size) {
-    case CrossPointSettings::TEENSY:
-#ifdef OMIT_TEENSY_FONT
-      return false;
-#else
-      return true;
-#endif
-    case CrossPointSettings::ITTY_BITTY:
-#ifdef OMIT_ITTY_BITTY_FONT
-      return false;
-#else
-      return true;
-#endif
-    case CrossPointSettings::TINY:
-#ifdef OMIT_TINY_FONT
-      return false;
-#else
-      return true;
-#endif
-    case CrossPointSettings::SMALL:
-#ifdef OMIT_SMALL_FONT
-      return false;
-#else
-      return true;
-#endif
-    case CrossPointSettings::MEDIUM:
-#ifdef OMIT_MEDIUM_FONT
-      return false;
-#else
-      return true;
-#endif
-    case CrossPointSettings::EXTRA_LARGE:
-#ifdef OMIT_XLARGE_FONT
-      return false;
-#else
-      return true;
-#endif
-    case CrossPointSettings::LARGE:
-#ifdef OMIT_LARGE_FONT
-      return false;
-#else
-      return true;
-#endif
-    case CrossPointSettings::HUGE_SIZE:
-#ifdef OMIT_HUGE_FONT
-      return false;
-#else
-      return true;
-#endif
-    default:
-      return true;
-  }
+  return size < CrossPointSettings::FONT_SIZE_COUNT;
 }
 
 CrossPointSettings::FONT_SIZE firstAvailableReaderFontSize() {
   const auto it =
       std::find_if(std::begin(READER_FONT_SIZE_STORAGE_ORDER), std::end(READER_FONT_SIZE_STORAGE_ORDER),
                    [](const CrossPointSettings::FONT_SIZE size) { return isReaderFontSizeAvailable(size); });
-  return (it != std::end(READER_FONT_SIZE_STORAGE_ORDER)) ? *it : CrossPointSettings::LARGE;
+  return (it != std::end(READER_FONT_SIZE_STORAGE_ORDER)) ? *it : CrossPointSettings::TINY;
 }
 
 int getFallbackReaderFontIdForFamily(const CrossPointSettings::FONT_FAMILY family) {
   switch (family) {
     case CrossPointSettings::BITTER:
-#ifndef OMIT_TINY_FONT
       return BITTER_10_FONT_ID;
-#elif !defined(OMIT_SMALL_FONT)
-      return BITTER_12_FONT_ID;
-#elif !defined(OMIT_MEDIUM_FONT)
-      return BITTER_14_FONT_ID;
-#elif !defined(OMIT_LARGE_FONT)
-      return BITTER_16_FONT_ID;
-#elif !defined(OMIT_XLARGE_FONT)
-      return BITTER_18_FONT_ID;
-#elif !defined(OMIT_HUGE_FONT)
-      return BITTER_20_FONT_ID;
-#elif !defined(OMIT_TEENSY_FONT)
-      return BITTER_8_FONT_ID;
-#elif !defined(OMIT_ITTY_BITTY_FONT)
-      return BITTER_9_FONT_ID;
-#else
-#error "No reader fonts enabled for BITTER"
-#endif
     case CrossPointSettings::LEXENDDECA:
     default:
-#ifndef OMIT_TINY_FONT
       return LEXENDDECA_10_FONT_ID;
-#elif !defined(OMIT_SMALL_FONT)
-      return LEXENDDECA_12_FONT_ID;
-#elif !defined(OMIT_MEDIUM_FONT)
-      return LEXENDDECA_14_FONT_ID;
-#elif !defined(OMIT_LARGE_FONT)
-      return LEXENDDECA_16_FONT_ID;
-#elif !defined(OMIT_XLARGE_FONT)
-      return LEXENDDECA_18_FONT_ID;
-#elif !defined(OMIT_HUGE_FONT)
-      return LEXENDDECA_20_FONT_ID;
-#elif !defined(OMIT_TEENSY_FONT)
-      return LEXENDDECA_8_FONT_ID;
-#elif !defined(OMIT_ITTY_BITTY_FONT)
-      return LEXENDDECA_9_FONT_ID;
-#else
-#error "No reader fonts enabled for LEXENDDECA"
-#endif
   }
 }
 
@@ -220,9 +162,76 @@ void applyLegacyFrontButtonLayout(CrossPointSettings& settings) {
   }
 }
 
+void applyLegacyStatusBarSettings(CrossPointSettings& settings) {
+  switch (static_cast<CrossPointSettings::STATUS_BAR_MODE>(settings.statusBar)) {
+    case CrossPointSettings::NONE:
+      settings.statusBarChapterPageCount = 0;
+      settings.statusBarBookProgressPercentage = 0;
+      settings.statusBarProgressBar = CrossPointSettings::HIDE_PROGRESS;
+      settings.statusBarTitle = CrossPointSettings::HIDE_TITLE;
+      settings.statusBarBattery = 0;
+      break;
+    case CrossPointSettings::NO_PROGRESS:
+      settings.statusBarChapterPageCount = 0;
+      settings.statusBarBookProgressPercentage = 0;
+      settings.statusBarProgressBar = CrossPointSettings::HIDE_PROGRESS;
+      settings.statusBarTitle = CrossPointSettings::CHAPTER_TITLE;
+      settings.statusBarBattery = 1;
+      break;
+    case CrossPointSettings::BOOK_PROGRESS_BAR:
+      settings.statusBarChapterPageCount = 1;
+      settings.statusBarBookProgressPercentage = 0;
+      settings.statusBarProgressBar = CrossPointSettings::BOOK_PROGRESS;
+      settings.statusBarTitle = CrossPointSettings::CHAPTER_TITLE;
+      settings.statusBarBattery = 1;
+      break;
+    case CrossPointSettings::ONLY_BOOK_PROGRESS_BAR:
+      settings.statusBarChapterPageCount = 1;
+      settings.statusBarBookProgressPercentage = 0;
+      settings.statusBarProgressBar = CrossPointSettings::BOOK_PROGRESS;
+      settings.statusBarTitle = CrossPointSettings::HIDE_TITLE;
+      settings.statusBarBattery = 0;
+      break;
+    case CrossPointSettings::CHAPTER_PROGRESS_BAR:
+      settings.statusBarChapterPageCount = 0;
+      settings.statusBarBookProgressPercentage = 1;
+      settings.statusBarProgressBar = CrossPointSettings::CHAPTER_PROGRESS;
+      settings.statusBarTitle = CrossPointSettings::CHAPTER_TITLE;
+      settings.statusBarBattery = 1;
+      break;
+    case CrossPointSettings::FULL:
+    default:
+      settings.statusBarChapterPageCount = 1;
+      settings.statusBarBookProgressPercentage = 1;
+      settings.statusBarProgressBar = CrossPointSettings::HIDE_PROGRESS;
+      settings.statusBarTitle = CrossPointSettings::CHAPTER_TITLE;
+      settings.statusBarBattery = 1;
+      break;
+  }
+}
+
+bool isEnumRawValueAllowed(const SettingInfo& info, const uint8_t value) {
+  if (info.enumRawValues.empty()) return value < settingEnumOptionCount(info);
+  return std::find(info.enumRawValues.begin(), info.enumRawValues.end(), value) != info.enumRawValues.end();
+}
+
+uint8_t defaultEnumRawValue(const SettingInfo& info, const uint8_t fieldDefault) {
+  if (isEnumRawValueAllowed(info, fieldDefault)) return fieldDefault;
+  return info.enumRawValues.empty() ? 0 : info.enumRawValues.front();
+}
+
+bool isSleepScreenSetting(const SettingInfo& info) { return info.key && strcmp(info.key, "sleepScreen") == 0; }
+
+uint8_t migrateTiltDirectionValue(const uint8_t direction) {
+  if (direction == CrossPointSettings::TILT_LEFT_RIGHT) return CrossPointSettings::TILT_LEFT_RIGHT_INVERTED;
+  if (direction == CrossPointSettings::TILT_LEFT_RIGHT_INVERTED) return CrossPointSettings::TILT_LEFT_RIGHT;
+  return direction;
+}
+
 }  // namespace
 
 const char* CrossPointSettings::getDefaultDeviceName() {
+  if (BoardConfig::isSticky()) return "Sticky";
   if (gpio.deviceIsX3()) return "CrossSmudge X3";
   if (gpio.deviceIsX4()) return "CrossSmudge X4";
   return "CrossSmudge";
@@ -263,6 +272,8 @@ void CrossPointSettings::validateReaderFrontButtonMapping(CrossPointSettings& se
     }
   }
 }
+
+uint8_t CrossPointSettings::defaultUiScale() { return UI_SCALE_SMALL; }
 
 uint8_t CrossPointSettings::sleepTimeoutEnumToMinutes(const uint8_t legacyValue) {
   switch (legacyValue) {
@@ -358,10 +369,229 @@ uint16_t CrossPointSettings::getReadingIdleTimeThresholdSeconds() const {
   return readingIdleTimeThresholdSecondsForUnits(readingIdleTimeThresholdUnits);
 }
 
-bool CrossPointSettings::saveToFile() const {
+void CrossPointSettings::toJson(JsonDocument& doc) const {
   std::lock_guard<std::mutex> lock(_mutex);
-  Storage.mkdir("/.crosspoint");
-  return JsonSettingsIO::saveSettings(*this, SETTINGS_FILE_JSON);
+  for (const auto& info : getBaseSettingsList()) {
+    if (!info.key || (!info.valuePtr && !info.stringOffset)) continue;
+    if (info.stringOffset) {
+      const char* value = reinterpret_cast<const char*>(this) + info.stringOffset;
+      if (info.obfuscated) {
+        char key[64];
+        snprintf(key, sizeof(key), "%s_obf", info.key);
+        doc[key] = obfuscation::obfuscateToBase64(value);
+      } else {
+        doc[info.key] = value;
+      }
+    } else {
+      uint8_t value = this->*(info.valuePtr);
+      if (isSleepScreenSetting(info)) value = sleepScreenModeToStorage(value);
+      doc[info.key] = value;
+    }
+  }
+
+  doc["frontButtonBack"] = frontButtonBack;
+  doc["frontButtonConfirm"] = frontButtonConfirm;
+  doc["frontButtonLeft"] = frontButtonLeft;
+  doc["frontButtonRight"] = frontButtonRight;
+  doc["readerFrontButtonsEnabled"] = readerFrontButtonsEnabled;
+  doc["readerFrontButtonBack"] = readerFrontButtonBack;
+  doc["readerFrontButtonConfirm"] = readerFrontButtonConfirm;
+  doc["readerFrontButtonLeft"] = readerFrontButtonLeft;
+  doc["readerFrontButtonRight"] = readerFrontButtonRight;
+  doc["fontFamily"] = fontFamily;
+  if (sdFontFamilyName[0] != '\0') doc["sdFontFamilyName"] = sdFontFamilyName;
+  if (dictionarySdFontFamilyName[0] != '\0') doc["dictionaryFont"] = dictionarySdFontFamilyName;
+  doc["dictionaryFontSize"] = dictionaryFontPointSize;
+  doc["language"] = (language < getLanguageCount()) ? LANGUAGE_CODES[language] : "EN";
+  doc["tiltPageTurnDirectionSchema"] = TILT_DIRECTION_SCHEMA_CURRENT;
+  doc["clockDateHasBeenSynced"] = clockDateHasBeenSynced;
+}
+
+bool CrossPointSettings::fromJson(JsonVariantConst doc) {
+  std::lock_guard<std::mutex> lock(_mutex);
+  bool needsResave = false;
+  auto clamp = [](const uint8_t value, const uint8_t maxValue, const uint8_t fallback) {
+    return value < maxValue ? value : fallback;
+  };
+  const bool migrateLegacyTiltMode = !doc["tiltPageTurn"].isNull() && doc["tiltPageTurnDirection"].isNull();
+  const uint8_t legacyTiltMode = doc["tiltPageTurn"] | static_cast<uint8_t>(TILT_OFF);
+  const bool migrateTiltDirectionSchema =
+      !doc["tiltPageTurnDirection"].isNull() &&
+      ((doc["tiltPageTurnDirectionSchema"] | static_cast<uint8_t>(1)) < TILT_DIRECTION_SCHEMA_CURRENT);
+
+  if (doc["statusBarChapterPageCount"].isNull()) applyLegacyStatusBarSettings(*this);
+
+  for (const auto& info : getBaseSettingsList()) {
+    if (!info.key || (!info.valuePtr && !info.stringOffset)) continue;
+    if (info.stringOffset) {
+      char* destination = reinterpret_cast<char*>(this) + info.stringOffset;
+      if (info.stringMaxLen == 0) {
+        LOG_ERR("CPS", "Misconfigured SettingInfo: stringMaxLen is 0 for key '%s'", info.key);
+        destination[0] = '\0';
+        needsResave = true;
+        continue;
+      }
+      const std::string fieldDefault = destination;
+      std::string value;
+      if (info.obfuscated) {
+        char key[64];
+        snprintf(key, sizeof(key), "%s_obf", info.key);
+        obfuscation::DecodeStatus status = obfuscation::DecodeStatus::INVALID;
+        value = obfuscation::deobfuscateFromBase64(doc[key] | "", info.stringMaxLen - 1, &status);
+        if (status == obfuscation::DecodeStatus::LEGACY && !value.empty()) needsResave = true;
+        if (status == obfuscation::DecodeStatus::TOO_LONG) {
+          LOG_ERR("CPS", "Oversized obfuscated value for key '%s'", info.key);
+          needsResave = true;
+        }
+        if (status == obfuscation::DecodeStatus::INVALID || status == obfuscation::DecodeStatus::EMPTY ||
+            status == obfuscation::DecodeStatus::TOO_LONG || value.empty()) {
+          const char* legacyValue = doc[info.key] | fieldDefault.c_str();
+          if (strlen(legacyValue) >= info.stringMaxLen) {
+            LOG_ERR("CPS", "Oversized plaintext value for key '%s'", info.key);
+            value = fieldDefault;
+            needsResave = true;
+          } else {
+            value = legacyValue;
+            if (value != fieldDefault) needsResave = true;
+          }
+        }
+      } else {
+        value = doc[info.key] | fieldDefault;
+      }
+      strncpy(destination, value.c_str(), info.stringMaxLen - 1);
+      destination[info.stringMaxLen - 1] = '\0';
+      if (strcmp(info.key, "deviceName") == 0 && strlen(destination) < MIN_DEVICE_NAME_LENGTH) {
+        destination[0] = '\0';
+        needsResave = true;
+      }
+      continue;
+    }
+
+    const uint8_t fieldDefault = this->*(info.valuePtr);
+    uint8_t value = doc[info.key] | fieldDefault;
+    if (strcmp(info.key, "sdFontSizeRange") == 0 && value == SD_FONT_RANGE_NO_EMOJI_LEGACY) {
+      value = SD_FONT_RANGE_ALL;
+      needsResave = true;
+    }
+    if (isSleepScreenSetting(info)) {
+      const uint8_t storedDefault = sleepScreenModeToStorage(fieldDefault);
+      const uint8_t storedValue = doc[info.key] | storedDefault;
+      value = sleepScreenStorageToMode(storedValue);
+      if (sleepScreenModeToStorage(value) != storedValue) needsResave = true;
+      this->*(info.valuePtr) = value;
+      continue;
+    }
+    if (strcmp(info.key, "fontSize") == 0 && !doc["fontSize"].isNull() && value < MIN_READER_FONT_POINT_SIZE) {
+      if (doc["sdFontFamilyName"].is<const char*>() && doc["sdFontFamilyName"].as<const char*>()[0] != '\0') {
+        legacySdFontSizeStep = value;
+      } else {
+        value = getReaderFontPointSize(static_cast<FONT_SIZE>(value));
+        needsResave = true;
+      }
+    } else if (info.type == SettingType::ENUM &&
+               !(strcmp(info.key, "fontSize") == 0 && doc["sdFontFamilyName"].is<const char*>() &&
+                 doc["sdFontFamilyName"].as<const char*>()[0] != '\0' && value >= MIN_READER_FONT_POINT_SIZE) &&
+               !isEnumRawValueAllowed(info, value)) {
+      value = defaultEnumRawValue(info, fieldDefault);
+      needsResave = true;
+    } else if (info.type == SettingType::TOGGLE) {
+      value = clamp(value, 2, fieldDefault);
+    } else if (info.type == SettingType::VALUE) {
+      value = std::clamp(value, info.valueRange.min, info.valueRange.max);
+    }
+    this->*(info.valuePtr) = value;
+  }
+
+  if (doc["fileBrowserDisplay"].isNull()) {
+    if (!doc["fileBrowserPreview"].isNull()) {
+      fileBrowserDisplay = clamp(doc["fileBrowserPreview"] | static_cast<uint8_t>(FILE_BROWSER_DISPLAY_1_LINE),
+                                 FILE_BROWSER_DISPLAY_COUNT, FILE_BROWSER_DISPLAY_1_LINE);
+      needsResave = true;
+    } else if (uiTheme == MINIMAL) {
+      fileBrowserDisplay = FILE_BROWSER_DISPLAY_2_LINES;
+      needsResave = true;
+    }
+  }
+
+  if (migrateLegacyTiltMode) {
+    if (legacyTiltMode == 1 || legacyTiltMode == 2) {
+      tiltPageTurn = TILT_ON;
+      tiltPageTurnDirection = legacyTiltMode == 2 ? TILT_LEFT_RIGHT : TILT_LEFT_RIGHT_INVERTED;
+      needsResave = true;
+    } else {
+      tiltPageTurn = TILT_OFF;
+    }
+  } else if (migrateTiltDirectionSchema) {
+    tiltPageTurnDirection = migrateTiltDirectionValue(tiltPageTurnDirection);
+    needsResave = true;
+  }
+  if (!doc["tiltPageTurnDirection"].isNull() && doc["tiltPageTurnDirectionSchema"].isNull()) needsResave = true;
+
+  if (doc["hideClock"].isNull() && !doc["statusBarClock"].isNull()) {
+    constexpr uint8_t LEGACY_SHOW_CLOCK_NEVER = 0;
+    const uint8_t legacyShowClock =
+        clamp(doc["statusBarClock"] | LEGACY_SHOW_CLOCK_NEVER, HIDE_CLOCK_MODE_COUNT, LEGACY_SHOW_CLOCK_NEVER);
+    hideClock = legacyShowClock == LEGACY_SHOW_CLOCK_NEVER ? HIDE_CLOCK_ALWAYS : HIDE_CLOCK_NEVER;
+    needsResave = true;
+  }
+  if (doc["sleepTimeoutMinutes"].isNull() && !doc["sleepTimeout"].isNull()) {
+    const uint8_t legacyValue =
+        clamp(doc["sleepTimeout"] | static_cast<uint8_t>(SLEEP_10_MIN), SLEEP_TIMEOUT_COUNT, SLEEP_10_MIN);
+    sleepTimeoutMinutes = sleepTimeoutEnumToMinutes(legacyValue);
+    needsResave = true;
+  }
+
+  frontButtonBack =
+      clamp(doc["frontButtonBack"] | static_cast<uint8_t>(FRONT_HW_BACK), FRONT_BUTTON_HARDWARE_COUNT, FRONT_HW_BACK);
+  frontButtonConfirm = clamp(doc["frontButtonConfirm"] | static_cast<uint8_t>(FRONT_HW_CONFIRM),
+                             FRONT_BUTTON_HARDWARE_COUNT, FRONT_HW_CONFIRM);
+  frontButtonLeft =
+      clamp(doc["frontButtonLeft"] | static_cast<uint8_t>(FRONT_HW_LEFT), FRONT_BUTTON_HARDWARE_COUNT, FRONT_HW_LEFT);
+  frontButtonRight = clamp(doc["frontButtonRight"] | static_cast<uint8_t>(FRONT_HW_RIGHT), FRONT_BUTTON_HARDWARE_COUNT,
+                           FRONT_HW_RIGHT);
+  validateFrontButtonMapping(*this);
+  readerFrontButtonsEnabled = clamp(doc["readerFrontButtonsEnabled"] | static_cast<uint8_t>(0), 2, 0);
+  readerFrontButtonBack = clamp(doc["readerFrontButtonBack"] | static_cast<uint8_t>(FRONT_HW_BACK),
+                                FRONT_BUTTON_HARDWARE_COUNT, FRONT_HW_BACK);
+  readerFrontButtonConfirm = clamp(doc["readerFrontButtonConfirm"] | static_cast<uint8_t>(FRONT_HW_CONFIRM),
+                                   FRONT_BUTTON_HARDWARE_COUNT, FRONT_HW_CONFIRM);
+  readerFrontButtonLeft = clamp(doc["readerFrontButtonLeft"] | static_cast<uint8_t>(FRONT_HW_LEFT),
+                                FRONT_BUTTON_HARDWARE_COUNT, FRONT_HW_LEFT);
+  readerFrontButtonRight = clamp(doc["readerFrontButtonRight"] | static_cast<uint8_t>(FRONT_HW_RIGHT),
+                                 FRONT_BUTTON_HARDWARE_COUNT, FRONT_HW_RIGHT);
+  validateReaderFrontButtonMapping(*this);
+
+  const uint8_t storedFontFamily = doc["fontFamily"] | static_cast<uint8_t>(0);
+  fontFamily = clamp(storedFontFamily, BUILTIN_FONT_COUNT, 0);
+  const char* sdFamily = doc["sdFontFamilyName"] | "";
+  strncpy(sdFontFamilyName, sdFamily, sizeof(sdFontFamilyName) - 1);
+  sdFontFamilyName[sizeof(sdFontFamilyName) - 1] = '\0';
+  const char* dictionaryFamily = doc["dictionaryFont"] | "";
+  strncpy(dictionarySdFontFamilyName, dictionaryFamily, sizeof(dictionarySdFontFamilyName) - 1);
+  dictionarySdFontFamilyName[sizeof(dictionarySdFontFamilyName) - 1] = '\0';
+  dictionaryFontPointSize = doc["dictionaryFontSize"] | static_cast<uint8_t>(0);
+  if (storedFontFamily >= BUILTIN_FONT_COUNT) needsResave = true;
+  if (doc["lineHeightPercent"].isNull() && !doc["lineSpacing"].isNull()) {
+    const uint8_t legacySpacing =
+        clamp(doc["lineSpacing"] | static_cast<uint8_t>(NORMAL), LINE_COMPRESSION_COUNT, static_cast<uint8_t>(NORMAL));
+    lineHeightPercent = legacyLineSpacingToPercent(legacySpacing, fontFamily, sdFontFamilyName[0] != '\0');
+    needsResave = true;
+  }
+  if (doc["language"].is<const char*>()) {
+    language = static_cast<uint8_t>(I18n::languageFromCode(doc["language"].as<const char*>()));
+  }
+  clockDateHasBeenSynced = clamp(doc["clockDateHasBeenSynced"] | static_cast<uint8_t>(0), 2, 0);
+
+  if (needsResave) requestResave();
+  LOG_DBG("CPS", "Settings loaded from file");
+  return true;
+}
+
+bool CrossPointSettings::saveToFile() const {
+  std::lock_guard<std::mutex> lock(storeMutex);
+  JsonDocument doc;
+  toJson(doc);
+  return PersistableStoreBase::writeDocToFile(SETTINGS_FILE_JSON, doc);
 }
 
 bool CrossPointSettings::loadFromFile() {
@@ -370,13 +600,20 @@ bool CrossPointSettings::loadFromFile() {
   auto loadJsonSettings = [this](const char* path, bool migrateToCurrentPath) -> JsonLoadStatus {
     if (!Storage.exists(path)) return JsonLoadStatus::MissingOrEmpty;
 
-    String json = Storage.readFile(path);
-    if (!json.isEmpty()) {
+    JsonDocument doc;
+    if (PersistableStoreBase::readDocFromFile(path, doc)) {
+      bool result = false;
       bool resave = false;
-      bool result;
       {
-        std::lock_guard<std::mutex> lock(_mutex);
-        result = JsonSettingsIO::loadSettings(*this, json.c_str(), &resave);
+        std::lock_guard<std::mutex> storeLock(storeMutex);
+        resaveRequested = false;
+        result = fromJson(doc.as<JsonVariantConst>());
+        resave = resaveRequested;
+        resaveRequested = false;
+      }
+      if (result) {
+        std::lock_guard<std::mutex> settingsLock(_mutex);
+        if (restoreLegacyRtcDateSyncState(*this)) resave = true;
       }
       if (result && (resave || migrateToCurrentPath)) {
         if (saveToFile()) {
@@ -487,7 +724,9 @@ bool CrossPointSettings::loadFromBinaryFile() {
       }
     }
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, fontSize, getActiveReaderFontSizeCount());
+    uint8_t legacyFontSize = MEDIUM;
+    readAndValidate(inputFile, legacyFontSize, getActiveReaderFontSizeCount());
+    readerFontPointSize = getReaderFontPointSize(static_cast<FONT_SIZE>(legacyFontSize));
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, lineSpacing, LINE_COMPRESSION_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -547,8 +786,44 @@ bool CrossPointSettings::loadFromBinaryFile() {
 
   lineHeightPercent = legacyLineSpacingToPercent(lineSpacing, fontFamily, sdFontFamilyName[0] != '\0');
 
-  LOG_DBG("CPS", "Settings loaded from binary file");
   return true;
+}
+
+CrossPointSettings::StatusBarSpec CrossPointSettings::statusBarSpec() const {
+  StatusBarSpec spec;
+  spec.showChapterPageCount = statusBarChapterPageCount != 0;
+  spec.showBookProgressPercent = statusBarBookProgressPercentage != 0;
+  spec.showStablePageNumbers = stablePageNumbers != 0;
+  spec.titleMode = statusBarTitle;
+  spec.timeLeftMode = statusBarTimeLeft;
+  spec.showBattery = statusBarBattery != 0;
+  spec.showBatteryPercent = hideBatteryPercentage == HIDE_NEVER;
+  spec.showClock = hideClock == HIDE_CLOCK_NEVER;
+  spec.progressBarMode = statusBarProgressBar;
+  spec.progressBarHeightPx =
+      statusBarProgressBar != HIDE_PROGRESS ? static_cast<uint8_t>((statusBarProgressBarThickness + 1) * 2) : 0;
+  spec.xtcMode = xtcStatusBarMode;
+  return spec;
+}
+
+ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWidth, const uint16_t viewportHeight,
+                                                      const EpubRenderMode renderMode) const {
+  ReaderRenderSpec spec;
+  spec.fontId = getReaderFontId();
+  spec.lineCompression = getReaderLineCompression();
+  spec.extraParagraphSpacing = extraParagraphSpacing != 0;
+  spec.forceParagraphIndents = forceParagraphIndents != 0;
+  spec.paragraphAlignment = paragraphAlignment;
+  spec.viewportWidth = viewportWidth;
+  spec.viewportHeight = viewportHeight;
+  spec.hyphenationEnabled = hyphenationEnabled != 0;
+  spec.embeddedStyle = embeddedStyle != 0;
+  spec.imageRendering = imageRendering;
+  spec.bionicReadingEnabled = bionicReadingEnabled != 0;
+  spec.guideReadingEnabled = guideReadingEnabled != 0;
+  spec.wordSpacing = wordSpacing;
+  spec.renderMode = renderMode;
+  return spec;
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
@@ -635,10 +910,6 @@ uint8_t CrossPointSettings::getStoredReaderFontSize(const FONT_SIZE size) {
 
 uint8_t CrossPointSettings::getReaderFontPointSize(const FONT_SIZE size) {
   switch (size) {
-    case TEENSY:
-      return 8;
-    case ITTY_BITTY:
-      return 9;
     case TINY:
       return 10;
     case SMALL:
@@ -648,10 +919,6 @@ uint8_t CrossPointSettings::getReaderFontPointSize(const FONT_SIZE size) {
       return 14;
     case LARGE:
       return 16;
-    case EXTRA_LARGE:
-      return 18;
-    case HUGE_SIZE:
-      return 20;
   }
 }
 
@@ -672,18 +939,22 @@ bool CrossPointSettings::isSdFontPointSizeAllowedForRange(const uint8_t pointSiz
 }
 
 CrossPointSettings::FONT_SIZE CrossPointSettings::getEffectiveReaderFontSize() const {
-  uint8_t stored = 0;
+  FONT_SIZE best = firstAvailableReaderFontSize();
+  uint8_t bestDiff = UINT8_MAX;
   for (const FONT_SIZE size : READER_FONT_SIZE_STORAGE_ORDER) {
     if (!isReaderFontSizeAvailable(size)) continue;
-    if (fontSize == stored) return size;
-    stored++;
+    const uint8_t pointSize = getReaderFontPointSize(size);
+    const uint8_t diff =
+        pointSize > readerFontPointSize ? pointSize - readerFontPointSize : readerFontPointSize - pointSize;
+    if (diff < bestDiff || (diff == bestDiff && pointSize < getReaderFontPointSize(best))) {
+      best = size;
+      bestDiff = diff;
+    }
   }
-  return firstAvailableReaderFontSize();
+  return best;
 }
 
-uint8_t CrossPointSettings::getSdFontTargetPointSize() const {
-  return getSdFontRangePointSize(sdFontSizeRange, fontSize);
-}
+uint8_t CrossPointSettings::getSdFontTargetPointSize() const { return readerFontPointSize; }
 
 bool CrossPointSettings::changeReaderFontSize(const bool larger) {
   const FONT_SIZE currentSize = getEffectiveReaderFontSize();
@@ -702,7 +973,7 @@ bool CrossPointSettings::changeReaderFontSize(const bool larger) {
         (currentIndex + direction * static_cast<int>(step) + static_cast<int>(sizeCount)) % sizeCount;
     const uint8_t stored = getStoredReaderFontSize(READER_FONT_SIZE_CYCLE_ORDER[nextIndex]);
     if (stored != INVALID_READER_FONT_SIZE) {
-      fontSize = stored;
+      readerFontPointSize = getReaderFontPointSize(READER_FONT_SIZE_CYCLE_ORDER[nextIndex]);
       return true;
     }
   }
@@ -712,7 +983,7 @@ bool CrossPointSettings::changeReaderFontSize(const bool larger) {
 int CrossPointSettings::getReaderFontId() const {
   // Check SD card font first
   if (sdFontFamilyName[0] != '\0' && sdFontIdResolver) {
-    int id = sdFontIdResolver(sdFontResolverCtx, sdFontFamilyName, fontSize);
+    int id = sdFontIdResolver(sdFontResolverCtx, sdFontFamilyName, readerFontPointSize);
     if (id != 0) return id;
     // Fall through to built-in if SD font not found
   }
@@ -727,82 +998,28 @@ int CrossPointSettings::getBuiltInReaderFontId() const {
     case LEXENDDECA:
     default:
       switch (effectiveSize) {
-#ifndef OMIT_TEENSY_FONT
-        case TEENSY:
-          return LEXENDDECA_8_FONT_ID;
-#endif
-#ifndef OMIT_ITTY_BITTY_FONT
-        case ITTY_BITTY:
-          return LEXENDDECA_9_FONT_ID;
-#endif
-#ifndef OMIT_TINY_FONT
         case TINY:
           return LEXENDDECA_10_FONT_ID;
-#endif
-#ifndef OMIT_SMALL_FONT
         case SMALL:
           return LEXENDDECA_12_FONT_ID;
-#endif
-#ifndef OMIT_MEDIUM_FONT
         case MEDIUM:
         default:
           return LEXENDDECA_14_FONT_ID;
-#endif
-#ifndef OMIT_LARGE_FONT
         case LARGE:
-#ifdef OMIT_MEDIUM_FONT
-        default:
-#endif
           return LEXENDDECA_16_FONT_ID;
-#endif
-#ifndef OMIT_XLARGE_FONT
-        case EXTRA_LARGE:
-          return LEXENDDECA_18_FONT_ID;
-#endif
-#ifndef OMIT_HUGE_FONT
-        case HUGE_SIZE:
-          return LEXENDDECA_20_FONT_ID;
-#endif
       }
       return getFallbackReaderFontIdForFamily(LEXENDDECA);
     case BITTER:
       switch (effectiveSize) {
-#ifndef OMIT_TEENSY_FONT
-        case TEENSY:
-          return BITTER_8_FONT_ID;
-#endif
-#ifndef OMIT_ITTY_BITTY_FONT
-        case ITTY_BITTY:
-          return BITTER_9_FONT_ID;
-#endif
-#ifndef OMIT_TINY_FONT
         case TINY:
           return BITTER_10_FONT_ID;
-#endif
-#ifndef OMIT_SMALL_FONT
         case SMALL:
           return BITTER_12_FONT_ID;
-#endif
-#ifndef OMIT_MEDIUM_FONT
         case MEDIUM:
         default:
           return BITTER_14_FONT_ID;
-#endif
-#ifndef OMIT_LARGE_FONT
         case LARGE:
-#ifdef OMIT_MEDIUM_FONT
-        default:
-#endif
           return BITTER_16_FONT_ID;
-#endif
-#ifndef OMIT_XLARGE_FONT
-        case EXTRA_LARGE:
-          return BITTER_18_FONT_ID;
-#endif
-#ifndef OMIT_HUGE_FONT
-        case HUGE_SIZE:
-          return BITTER_20_FONT_ID;
-#endif
       }
       return getFallbackReaderFontIdForFamily(BITTER);
   }

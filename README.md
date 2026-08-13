@@ -17,15 +17,11 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
   </tr>
 </table>
 
----
-
-**Note**: This firmware is confirmed to be working on both the X3 and X4.
-
 ### Highlights
 
 - New reader fonts: Lexend Deca and Bitter.
 - Unicode emoji and miscellaneous symbols support (a limited subset).
-- Adjusted font sizes: 8 pt, 9 pt, 10 pt, 12 pt, 14 pt, 16 pt, 18 pt, and 20 pt. See [Font Build Variants](./docs/font-build-variants.md) for more details.
+- Reader font sizes: 10 pt, 12 pt, 14 pt, and 16 pt.
 - Added ~~strikethrough~~ support.
 - Made <u>underlines</u> thicker for better visibility.
 - Added a custom `Minimal` theme and sleep screen option for the minimalists out there.
@@ -68,9 +64,9 @@ The UI now uses [Inter](https://fonts.google.com/specimen/Inter) as the display 
 
 ### Font Sizes
 
-There are 2 available build variants to choose from due to build size constraints: `tiny`, and `xlarge`.
+CrossSmudge includes 10 pt, 12 pt, 14 pt, and 16 pt built-in reader font sizes.
 
-See [Font Build Variants](./docs/font-build-variants.md) for the full point-size and emoji-support matrix.
+See [SD Card Fonts](./docs/sd-card-fonts.md) for installing additional font families and size ranges.
 
 ---
 
@@ -100,13 +96,15 @@ CrossSmudge runs on an ESP32-C3 with limited RAM, so very large folders or compl
 
 ## Development Device Simulator
 
-The [device simulator](https://github.com/uxjulia/crosspoint-simulator) renders the e-ink display in an SDL2 window so firmware changes can be sanity-checked without flashing hardware.
+The [device simulator](https://github.com/uxjulia/crosssmudge-simulator) renders the e-ink display in an SDL2 window so firmware changes can be sanity-checked without flashing hardware.
 
 See [Simulator](./docs/simulator.md) for setup, platform notes, keyboard controls, and cache tips.
 
 ---
 
 ## Installation
+
+The fastest way to install Crosssmudge is by using Inky, Crosssmudge's web companion app: https://inky.crosssmudge.dev/#flash-tools
 
 Download a `firmware-*.bin` from the [releases page](https://github.com/uxjulia/CrossSmudge/releases), then flash it with the web installer or command line.
 
@@ -116,10 +114,11 @@ See [Installation](./docs/installation.md) for step-by-step flashing and revert 
 
 ## Documentation
 
-- [User Guide](./USER_GUIDE.md)
+- [User Guide](./docs/user-guide.md)
 - [Installation](./docs/installation.md)
-- [Font Build Variants](./docs/font-build-variants.md)
+- [SD Card Fonts](./docs/sd-card-fonts.md)
 - [Reader Features](./docs/reader-features.md)
+- [Dictionary](./docs/dictionary.md)
 - [Controls](./docs/controls.md)
 - [Simulator](./docs/simulator.md)
 - [Data Cache](./docs/data-cache.md)
@@ -127,7 +126,7 @@ See [Installation](./docs/installation.md) for step-by-step flashing and revert 
 - [Web server endpoints](./docs/webserver-endpoints.md)
 - [Common issues](./docs/troubleshooting.md)
 - [Project scope](./SCOPE.md)
-- [Contributing docs](./docs/contributing/README.md)
+- [Development docs](./docs/development/README.md)
 
 ---
 
@@ -135,24 +134,62 @@ See [Installation](./docs/installation.md) for step-by-step flashing and revert 
 
 CrossSmudge uses PlatformIO for building and flashing firmware.
 
-See [Getting Started](./docs/contributing/getting-started.md) for prerequisites, clone setup, hooks, and validation commands.
+See [Getting Started](./docs/development/getting-started.md) for prerequisites, clone setup, and validation commands.
+
+### Nix/NixOS
+
+Nix/NixOS users can enter the development shell with either `nix develop` (flakes) or `nix-shell`:
+
+```bash
+nix develop -f nix
+# or
+nix-shell nix
+```
+
+To flash a connected ESP32-C3 device, enable PlatformIO's udev rules in your NixOS configuration:
+
+```nix
+services.udev.packages = with pkgs; [ platformio-core.udev ];
+```
+
+After rebuilding the system configuration, reconnect the device or reload udev rules.
 
 ### Build / flash / monitor
 
 Connect your Xteink X4 or X3 via USB-C and run:
 
 ```sh
-pio run -e tiny --target upload
+pio run -e default --target upload
 ```
 
-Replace `tiny` with another build variant if needed. See [Font Build Variants](./docs/font-build-variants.md).
+Use `-e sticky` only when building for a Seeed Sticky device. The X3/X4 firmware uses the default environment.
 
-See [Testing and Debugging](./docs/contributing/testing-debugging.md) for serial logging, simulator checks, static analysis, and bug-report guidance.
+See [Testing and Debugging](./docs/development/testing-debugging.md) for serial logging, simulator checks, static analysis, and bug-report guidance.
 
 ---
+
+## Repository layout
+
+- `src/` - app orchestration, settings/state, and activity implementations (home, reader, settings, network, boot/sleep)
+- `lib/` - supporting libraries: EPUB parsing/layout, fonts, i18n, filesystem helpers, HAL wrappers, and more
+- `freeink-sdk/` - hardware SDK submodule for display, input, storage, and battery (docs: https://freeink.org/docs)
+- `web/` - web portal sources (`templates/`, `pages/`, `assets/`); compiled by `scripts/build_web.py` into `src/network/html/*.generated.h`
+- `docs/` - user and developer documentation, published via the `site/` Astro site
+- `site/` - Astro project that builds `docs/` into the CrossSmudge documentation website
+- `test/` - unit tests and EPUB test fixtures
+- `scripts/` - build, codegen, and release tooling (i18n generation, web asset building, hyphenation tries, release packaging, etc.)
+- `bin/` - helper scripts for formatting (`clang-format-fix`) and CI checks
+- `fs_/` - sample SD card contents (books, sleep images, themes) used by the simulator
+- `nix/` - Nix/NixOS development shell definitions
+- `managed_components/` - ESP-IDF managed component dependencies, fetched automatically during build
+- [`SCOPE.md`](./SCOPE.md), [`GOVERNANCE.md`](./GOVERNANCE.md), [`CHANGELOG.md`](./CHANGELOG.md) - project scope, community principles, and release history
 
 ## Internals
 
 The ESP32-C3 has about 380 KB of usable RAM, so CrossSmudge stores reusable book and device data on the SD card instead of rebuilding everything in memory.
 
 See [Data Cache](./docs/data-cache.md) for the `.crosspoint` layout and [File Formats](./docs/file-formats.md) for binary cache details.
+
+## Notice on Contributions
+
+This repository does not accept pull requests. Feature requests may be opened in [discussions](https://github.com/uxjulia/CrossSmudge/discussions), but major features requiring ongoing support should be directed upstream to [CrossPoint](https://github.com/crosspoint-reader/crosspoint-reader).

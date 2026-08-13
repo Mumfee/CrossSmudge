@@ -7,12 +7,13 @@ fixed-size char buffer.
 
 ## `book.bin`
 
-### Version 8
+### Version 9
 
 `book.bin` stores EPUB metadata plus lookup tables for spine and TOC entries.
 The current firmware writes this version from `BookMetadataCache`.
-Version 8 stores book and TOC title strings NFC-composed so decomposed
-diacritics render correctly with device fonts.
+Version 9 stores book and TOC title strings NFC-composed so decomposed
+diacritics render correctly with device fonts. It also rebuilds metadata after
+the EPUB guide start-reference handling changed.
 
 ImHex pattern:
 
@@ -21,7 +22,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 8
+#define EXPECTED_VERSION 9
 #define MAX_STRING_LENGTH 65535
 
 struct String {
@@ -93,7 +94,7 @@ if (parsedSize != fileSize) {
 
 ## `reader_settings.bin`
 
-### Version 2
+### Version 5
 
 Each EPUB cache directory may contain `reader_settings.bin`. Missing files mean
 the book uses global Reader settings and the default auto-page-turn interval.
@@ -103,7 +104,12 @@ Version 1 stored only:
 - `u8 version`
 - `u16 autoPageTurnSeconds`
 
-Version 2 stores flags before the full reader-settings snapshot. This lets the
+Version 2 stores flags before the full reader-settings snapshot. Version 3 adds
+the EPUB word-spacing level to that snapshot. Version 4 adds the EPUB indexing
+method (`0` = incremental, `1` = full section). Version 5 appends a per-book
+dictionary SD-font family name. Version 6 stores reader font sizes as physical
+point sizes, and version 7 appends the dictionary font's selected point size.
+This lets the
 file preserve an auto-page-turn interval without forcing custom font/layout
 settings for the book. It also stores a per-book EPUB render mode override,
 which can be changed from book action menus before opening the book so a
@@ -114,14 +120,15 @@ fallback successfully opens a difficult book.
 
 ```c++
 struct ReaderSettingsBin {
-    u8 version; // 2
-    u8 flags;   // bit 0 = custom reader settings, bit 1 = custom auto-page-turn interval, bit 2 = render mode override
+    u8 version; // 7
+    u8 flags;   // bit 0 = custom reader settings, bit 1 = custom auto-page-turn interval, bit 2 = render mode override, bit 3 = dictionary font override
     u16 autoPageTurnSeconds;
     u8 renderMode; // 0 = CrossSmudge Default, 1 = Balanced, 2 = Light
 
     u8 fontFamily;
-    u8 fontSize;
+    u8 readerFontPointSize; // physical point size; versions 2-5 stored a size slot
     u8 lineHeightPercent;
+    u8 wordSpacing; // 0 = natural font spacing; 1-4 widen each gap by ~75% per level
     u8 orientation;
     u8 screenMargin;
     u8 publisherPageNumbers;
@@ -136,13 +143,16 @@ struct ReaderSettingsBin {
     u8 bionicReadingEnabled;
     u8 guideReadingEnabled;
     u8 snapshotRenderMode;
+    u8 indexingMethod; // 0 = incremental, 1 = full section
     char sdFontFamilyName[64];
+    char dictionarySdFontFamilyName[64]; // meaningful only when flag bit 3 is set
+    u8 dictionaryFontPointSize; // 0 = follow reader size
 };
 ```
 
 ## `/.crosspoint/clippings/<bookType>_<crc32(path)>.bin`
 
-### Version 1
+### Versions 1-3
 
 Clipping files store the per-book EPUB clipping list used by the reader. A
 saved clipping is also what CrossSmudge renders as an in-reader highlight; there is
@@ -160,8 +170,8 @@ example:
 
 Binary layout:
 
-- `[0]` version (`1`)
-- `[1-2]` clipping count (`uint16_t` LE, maximum `64`)
+- `[0]` version (`1`, `2`, or current version `3`)
+- `[1-2]` clipping count (`uint16_t` LE, maximum `256`)
 - book title (`String`)
 - book author (`String`)
 - book path (`String`)
@@ -175,14 +185,26 @@ Binary layout:
   - `wordCount` (`uint16_t` LE)
   - `paragraphIndex` (`uint16_t` LE, `UINT16_MAX` when unavailable)
   - `timestamp` (`uint32_t` LE, seconds since firmware boot when saved)
+  - version 3 only: reader layout signature (`uint32_t` LE; font, spacing,
+    viewport, and other section-layout inputs)
   - `chapterTitle` (`char[48]`, null-terminated/truncated)
-  - selected text (`String`, truncated to `512` bytes for the in-app store)
+  - version 1: selected text (`String`, truncated to `512` bytes for the
+    in-app store)
+  - versions 2-3: selected-text length (`uint16_t` LE) followed by that many
+    UTF-8 bytes (maximum `512`)
 
 CrossSmudge uses the stored spine/page/paragraph fields as anchors, then searches
 near that location for the stored clipping text after relayout. This is similar
 to keeping both a DOM position and a text quote in a web app: the numeric
 position gives a fast starting point, while the text makes jumps and highlights
 survive font, layout, or page-count changes when possible.
+
+Version 3 records which reader layout produced the numeric page/word anchor.
+When that signature differs, CrossSmudge ignores the stale numeric range and
+matches the saved text instead, including when both layouts happen to have the
+same total page count. Versions 1-2 retain their numeric fast path until the
+reader sees a relayout, when it stamps the previously active layout before
+rebuilding.
 
 Creating a clipping also appends a Kindle-style export entry to
 `/My Clippings.txt` on the SD-card root. That text export can keep up to `2000`
@@ -229,25 +251,65 @@ Binary layout:
 
 ## `section.bin`
 
-### Version 44
+### Version 59
 
 Each file in `sections/*.bin` stores one laid-out spine section. The header is
 also the cache-busting key: if any layout-affecting setting differs from the
 current reader settings, the section is discarded and rebuilt.
 
-Version 44 invalidates older section caches so `TextBlock` word data can be
-stored as one flat arena. It includes:
+Version 59 adds a compact page-start visible-text-offset lookup table. The
+offset is a Unicode codepoint coordinate in the spine XHTML, so reader progress
+and KOReader sync can return to the same content after a font, orientation, or
+indexing-method change instead of relying on a page percentage. Suspended
+incremental caches store the same table for their readable prefix; a target
+beyond that prefix must continue indexing before it can be resolved.
+
+Version 57 is binary-identical to version 56. The version was bumped because
+word-gap suppression now applies only to tokens glued together in the source.
+Older caches could collapse explicit spaces between Hangul words, so full and
+suspended partial section caches rebuild together. Version 58 recalculates
+Bionic Reading split-run offsets with the renderer's combined advance and
+kerning rounding, so old cached page positions rebuild.
+
+Version 56 changes `<br>` layout: a line break after text no longer reapplies
+the containing block's top or bottom spacing, while an empty `<br>` block keeps
+the existing scene-break gap. Full and suspended partial section caches rebuild
+together. Version 55 assigns compact IDs to internal EPUB links. The ID is
+stored in the existing per-word flags byte and in each page's footnote entry so
+touch devices can map tapped text to the existing fragment-navigation path
+without retaining another per-word data structure. Version 54 adds compact
+ruby-text annotations to serialized text blocks. Only words that begin a ruby
+group store annotation text; continuation words use a dedicated style bit. This
+keeps books without ruby markup unchanged apart from the cache version while
+avoiding an empty string allocation for every word.
+Version 53 stores each image's EPUB-internal source path so section indexing can
+read only its header and defer full extraction until the page is shown. Version
+52 keeps Guide Dots centered when extra word spacing is enabled. Version 51
+preserves continuation state for oversized CJK word fragments. Version 50
+paginates chapter-heading image runs within the reader viewport so they do not
+overflow into the reserved status-bar area. Version 49 stores Bionic Reading
+split-run offsets in visual order so RTL word prefixes render on the right.
+Version 48 changed Arabic contextual shaping and text measurement, so cached
+word positions from version 47 no longer match what `drawText` renders.
+
+Version 48 makes the EPUB word-spacing level widen the natural inter-word gap
+(each level adds 10 pixels), which changes laid-out word positions, so
+older sections must rebuild. Version 46 added the EPUB word-spacing level to the
+cache-busting header. It retains the flat `TextBlock` arena and chapter-opener
+anchor behavior introduced in version 45. It includes:
 
 - cache-busting fields for font, line compression, extra paragraph spacing,
   forced paragraph indents, paragraph alignment, viewport size, hyphenation,
-  embedded CSS, image rendering mode, Bionic Reading, Guide Dots, and EPUB
-  render mode
+  embedded CSS, image rendering mode, Bionic Reading, Guide Dots, word spacing,
+  and EPUB render mode
 - page offset LUT
 - anchor-to-page map for fragment and footnote navigation
 - paragraph and list-item LUTs used by KOReader sync page refinement
+- visible-text-offset LUT used to resolve page positions across reflow and sync
 - optional per-word Bionic Reading split metadata
 - optional per-word Guide Dot x-offset metadata
-- optional per-word text flags for CSS backgrounds and layout-inserted hyphens
+- optional per-word text flags for CSS backgrounds, layout-inserted hyphens,
+  and internal-link IDs
 - reading-aid layout that stores Bionic Reading and Guide Dots as per-word metadata instead of temporary layout words
 - publisher CSS page-break handling and adjusted justification spacing baked into page layout
 - table fragments
@@ -267,7 +329,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 44
+#define EXPECTED_VERSION 59
 #define MAX_STRING_LENGTH 65535
 #define FOOTNOTE_NUMBER_LEN 32
 #define FOOTNOTE_HREF_LEN 96
@@ -358,6 +420,7 @@ struct TextBlock {
 
 struct ImageBlock {
     String imagePath;
+    String sourcePath;
     s16 width;
     s16 height;
 };
@@ -423,6 +486,7 @@ struct PageElement {
 struct FootnoteEntry {
     char number[FOOTNOTE_NUMBER_LEN];
     char href[FOOTNOTE_HREF_LEN];
+    u8 linkId;
 };
 
 struct PublisherPageMarker {
@@ -474,6 +538,7 @@ struct SectionBin {
     u8 imageRendering;
     bool bionicReadingEnabled;
     bool guideReadingEnabled;
+    u8 wordSpacing;
     u8 renderMode; // 0 = CrossSmudge Default, 1 = Balanced, 2 = Light
 
     u16 pageCount;

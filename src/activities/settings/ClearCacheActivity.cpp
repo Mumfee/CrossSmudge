@@ -6,6 +6,7 @@
 #include <Logging.h>
 
 #include "MappedInputManager.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
@@ -26,7 +27,12 @@ void ClearCacheActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_CLEAR_READING_CACHE));
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, header, tr(STR_CLEAR_READING_CACHE), false);
+  } else {
+    GUI.drawHeader(renderer, header, tr(STR_CLEAR_READING_CACHE));
+  }
 
   if (state == WARNING) {
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 60, tr(STR_CLEAR_CACHE_WARNING_1), true);
@@ -74,8 +80,6 @@ void ClearCacheActivity::render(RenderLock&&) {
 }
 
 void ClearCacheActivity::clearCache() {
-  LOG_DBG("CLEAR_CACHE", "Clearing cache...");
-
   // Open .crosspoint directory
   auto root = Storage.open("/.crosspoint");
   if (!root || !root.isDirectory()) {
@@ -99,7 +103,6 @@ void ClearCacheActivity::clearCache() {
     // such as global_stats.bin are intentionally skipped.
     if (file.isDirectory() && isBookCacheDirectoryName(itemName.c_str())) {
       String fullPath = "/.crosspoint/" + itemName;
-      LOG_DBG("CLEAR_CACHE", "Removing cache: %s", fullPath.c_str());
 
       file.close();  // Close before attempting to delete
 
@@ -122,9 +125,12 @@ void ClearCacheActivity::clearCache() {
 }
 
 void ClearCacheActivity::loop() {
+  if (state != CLEARING && TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
+    goBack();
+    return;
+  }
   if (state == WARNING) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      LOG_DBG("CLEAR_CACHE", "User confirmed, starting cache clear");
       {
         RenderLock lock(*this);
         state = CLEARING;
@@ -143,14 +149,15 @@ void ClearCacheActivity::loop() {
     }
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-      LOG_DBG("CLEAR_CACHE", "User cancelled");
       goBack();
     }
     return;
   }
 
   if (state == SUCCESS || state == FAILED) {
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+    int x = 0;
+    int y = 0;
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back) || mappedInput.wasScreenTapped(x, y)) {
       goBack();
     }
     return;

@@ -8,12 +8,22 @@
 #include "CrossPointState.h"
 #include "FileBrowserActionActivity.h"
 #include "MappedInputManager.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
-#include "fontIds.h"
+#include "components/UIThemeTokens.h"
+#include "components/UiAppHelpers.h"
+
+namespace fui = freeink::ui;
 
 namespace {
 constexpr unsigned long BOOKMARK_DELETE_HOLD_MS = 1000;
-}
+constexpr fui::ActionId ACTION_ROW = 1;
+}  // namespace
+
+BookmarksHomeActivity::BookmarksHomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
+    : Activity("BookmarksHome", renderer, mappedInput),
+      uiTarget(makeUiTarget(renderer)),
+      app(uiTarget, uiTarget.deviceContext()) {}
 
 void BookmarksHomeActivity::reloadBookmarks() {
   books.clear();
@@ -30,6 +40,12 @@ void BookmarksHomeActivity::onEnter() {
 
   reloadBookmarks();
   selectedIndex = 0;
+  topIndex = 0;
+  visibleRows = 1;
+  uiReady = false;
+  app.setTheme(uiThemeTokens(uiTarget));
+  app.on(ACTION_ROW, &BookmarksHomeActivity::onRowEvent, this);
+  app.setScreen(&BookmarksHomeActivity::listScreen, this);
   requestUpdate();
 }
 
@@ -39,6 +55,10 @@ void BookmarksHomeActivity::onExit() {
 }
 
 void BookmarksHomeActivity::loop() {
+  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
+    onGoHome();
+    return;
+  }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     onGoHome();
     return;
@@ -62,50 +82,122 @@ void BookmarksHomeActivity::loop() {
     return;
   }
 
-  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, true);
   const int listSize = static_cast<int>(books.size());
+  if (listSize == 0) return;
 
-  buttonNavigator.onNextRelease([this, listSize] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, listSize);
-    requestUpdate();
-  });
+  int tx = 0;
+  int ty = 0;
+  if (mappedInput.isScreenTouchLongPress(tx, ty, BOOKMARK_DELETE_HOLD_MS) && listRowStep > 0 && ty >= listTop &&
+      ty < listBottom) {
+    const int offset = ty - listTop;
+    const int row = offset / listRowStep;
+    const int touchedIndex = topIndex + row;
+    if (row >= visibleRows || offset % listRowStep >= listRowHeight || touchedIndex >= listSize) return;
+    selectedIndex = touchedIndex;
+    mappedInput.suppressNextTouchTap();
+    longPressOpenHandled = true;
+    showBookmarkBookActionMenu(selectedIndex, true);
+    return;
+  }
+  if (uiReady) {
+    const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
+    if (snap.touchPressed || snap.touchReleased) {
+      const auto event = app.route(snap);
+      if (app.invalidated()) requestUpdate();
+      if (event) return;
+    }
+  }
 
-  buttonNavigator.onPreviousRelease([this, listSize] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, listSize);
-    requestUpdate();
-  });
+  const auto swipe = mappedInput.wasSwipe();
+  if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
+    const int next = scrollListBy(topIndex, swipe == MappedInputManager::SwipeDir::Up ? visibleRows : -visibleRows,
+                                  visibleRows, listSize);
+    if (next != topIndex) {
+      topIndex = next;
+      requestUpdate();
+    }
+    return;
+  }
 
-  buttonNavigator.onNextContinuous([this, listSize, pageItems] {
-    selectedIndex = ButtonNavigator::nextPageIndex(selectedIndex, listSize, pageItems);
+  const auto moveSelection = [this, listSize](const int next) {
+    selectedIndex = next;
+    topIndex = followListSelection(selectedIndex, topIndex, visibleRows, listSize);
     requestUpdate();
+  };
+  buttonNavigator.onNextRelease(
+      [this, listSize, &moveSelection] { moveSelection(ButtonNavigator::nextIndex(selectedIndex, listSize)); });
+  buttonNavigator.onPreviousRelease(
+      [this, listSize, &moveSelection] { moveSelection(ButtonNavigator::previousIndex(selectedIndex, listSize)); });
+  buttonNavigator.onNextContinuous([this, listSize, &moveSelection] {
+    moveSelection(ButtonNavigator::nextPageIndex(selectedIndex, listSize, visibleRows));
   });
+  buttonNavigator.onPreviousContinuous([this, listSize, &moveSelection] {
+    moveSelection(ButtonNavigator::previousPageIndex(selectedIndex, listSize, visibleRows));
+  });
+}
 
-  buttonNavigator.onPreviousContinuous([this, listSize, pageItems] {
-    selectedIndex = ButtonNavigator::previousPageIndex(selectedIndex, listSize, pageItems);
-    requestUpdate();
-  });
+void BookmarksHomeActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<BookmarksHomeActivity*>(user);
+  if (event.value < 0 || event.value >= static_cast<int16_t>(self->books.size())) return;
+  self->selectedIndex = event.value;
+  self->app.clearTapFlash();
+  self->openBookmarkList(self->selectedIndex);
+}
+
+void BookmarksHomeActivity::listScreen(UiApp::ScreenType& screen, void* user) {
+  static_cast<BookmarksHomeActivity*>(user)->buildListScreen(screen);
+}
+
+void BookmarksHomeActivity::buildListScreen(UiApp::ScreenType& screen) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  screen.setContentMargin(
+      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput)), 0,
+                  static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  if (books.empty()) {
+    screen.centeredText(tr(STR_NO_BOOKMARKS), screen.theme().bodyText);
+    return;
+  }
+  std::vector<fui::ListItem> items;
+  items.reserve(books.size());
+  for (size_t i = 0; i < books.size(); ++i) {
+    fui::ListItem item;
+    item.label = books[i].bookTitle.c_str();
+    if (!books[i].bookAuthor.empty()) item.subtitle = books[i].bookAuthor.c_str();
+    item.actionValue = static_cast<int16_t>(i);
+    items.push_back(item);
+  }
+  fui::ListProps props;
+  props.items = items.data();
+  props.count = static_cast<uint16_t>(items.size());
+  props.selectedIndex = static_cast<int16_t>(selectedIndex);
+  props.action = ACTION_ROW;
+  props.inputMask = fui::InputTouch;
+  const fui::Rect bounds = screen.body();
+  listTop = bounds.y;
+  listBottom = bounds.bottom();
+  const auto rows = configureUiList(props, screen.theme(), bounds, UiListRowType::WithSubtitle);
+  listRowHeight = props.rowHeight;
+  listRowStep = props.rowHeight + props.rowGap;
+  visibleRows = rows > 0 ? rows : 1;
+  topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(books.size()));
+  props.topIndex = static_cast<uint16_t>(topIndex);
+  screen.list(props);
 }
 
 void BookmarksHomeActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
-  const auto& metrics = UITheme::getInstance().getMetrics();
-
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_BOOKMARKS));
-
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
-
-  if (books.empty()) {
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_BOOKMARKS));
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_BOOKMARKS), false);
   } else {
-    GUI.drawList(
-        renderer, Rect{0, contentTop, pageWidth, contentHeight}, books.size(), selectedIndex,
-        [this](int index) { return books[index].bookTitle; }, [this](int index) { return books[index].bookAuthor; },
-        nullptr);
+    GUI.drawHeader(renderer, header, tr(STR_BOOKMARKS));
   }
+
+  uiReady = false;
+  app.render();
+  uiReady = true;
 
   const auto labels = mappedInput.mapLabels(tr(STR_HOME), tr(STR_OPEN), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

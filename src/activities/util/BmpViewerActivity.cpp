@@ -8,7 +8,7 @@
 
 #include <algorithm>
 
-#include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "Epub/converters/PngToFramebufferConverter.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -211,29 +211,12 @@ void BmpViewerActivity::onExit() {
 void BmpViewerActivity::doSetSleepCover() {
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
 
-  bool success = false;
-  HalFile inFile, outFile;
-  if (Storage.openFileForRead("BMP", filePath, inFile)) {
-    if (Storage.openFileForWrite("BMP", "/sleep.bmp", outFile)) {
-      char buffer[2048];
-      int bytesRead;
-      success = true;
-      while ((bytesRead = inFile.read(buffer, sizeof(buffer))) > 0) {
-        if (outFile.write(buffer, bytesRead) != bytesRead) {
-          success = false;
-          break;
-        }
-      }
-      outFile.close();
-    }
-    inFile.close();
-  }
-
-  if (success) {
-    SETTINGS.sleepScreen = CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM;
-    SETTINGS.saveToFile();
+  APP_STATE.favoriteSleepImagePath = filePath;
+  if (APP_STATE.saveToFile()) {
+    LOG_INF("BmpViewer", "Pinned favorite sleep image: %s", filePath.c_str());
     GUI.drawPopup(renderer, tr(STR_DONE));
   } else {
+    LOG_ERR("BmpViewer", "Failed to save favorite sleep image path: %s", filePath.c_str());
     GUI.drawPopup(renderer, tr(STR_FAILED_LOWER));
   }
 
@@ -245,8 +228,34 @@ void BmpViewerActivity::loop() {
   // Keep CPU awake/polling so 1st click works
   Activity::loop();
 
+  auto openSibling = [this](const int delta) {
+    if (currentImageIndex < 0) {
+      return false;
+    }
+    const int nextIndex = currentImageIndex + delta;
+    if (siblingImages.size() <= 1 || nextIndex < 0 || nextIndex >= static_cast<int>(siblingImages.size())) {
+      return false;
+    }
+    currentImageIndex = nextIndex;
+    std::string dirPath = FsHelpers::extractFolderPath(filePath);
+    if (dirPath.back() != '/') dirPath += "/";
+    filePath = dirPath + siblingImages[currentImageIndex];
+    onEnter();
+    return true;
+  };
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     activityManager.goToFileBrowser(filePath);
+    return;
+  }
+
+  const auto swipe = mappedInput.wasSwipe();
+  if (swipe == MappedInputManager::SwipeDir::Left) {
+    openSibling(1);
+    return;
+  }
+  if (swipe == MappedInputManager::SwipeDir::Right) {
+    openSibling(-1);
     return;
   }
 
@@ -259,26 +268,13 @@ void BmpViewerActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
       mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-    if (siblingImages.size() > 1 && currentImageIndex > 0) {
-      currentImageIndex--;
-      std::string dirPath = FsHelpers::extractFolderPath(filePath);
-      if (dirPath.back() != '/') dirPath += "/";
-      filePath = dirPath + siblingImages[currentImageIndex];
-      onEnter();
-    }
+    openSibling(-1);
     return;
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
       mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-    if (siblingImages.size() > 1 && currentImageIndex != -1 &&
-        currentImageIndex < static_cast<int>(siblingImages.size()) - 1) {
-      currentImageIndex++;
-      std::string dirPath = FsHelpers::extractFolderPath(filePath);
-      if (dirPath.back() != '/') dirPath += "/";
-      filePath = dirPath + siblingImages[currentImageIndex];
-      onEnter();
-    }
+    openSibling(1);
     return;
   }
 }

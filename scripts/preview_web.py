@@ -71,8 +71,8 @@ MOCK_API = {
     ],
     "/api/settings": [
         {"key": "darkMode", "name": "Dark Mode", "category": "Display", "type": "toggle", "value": 1},
-        {"key": "fontSize", "name": "Font Size", "category": "Display", "type": "enum",
-         "value": 1, "options": ["Small", "Medium", "Large"]},
+        {"key": "fontSize", "name": "Font Size", "category": "Reader", "type": "enum",
+         "value": 2, "options": ["10 pt", "12 pt", "14 pt", "16 pt"]},
         {"key": "margin", "name": "Page Margin", "category": "Reading", "type": "value",
          "value": 20, "min": 0, "max": 50, "step": 5},
         {"key": "sleepScreen", "name": "Sleep Screen", "category": "Reading", "type": "enum",

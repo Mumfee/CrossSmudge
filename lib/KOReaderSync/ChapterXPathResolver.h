@@ -34,4 +34,9 @@ class ChapterXPathResolver {
    * An empty string means parsing failed or the location could not be resolved.
    */
   static std::string findXPathForProgress(const std::shared_ptr<Epub>& epub, int spineIndex, float intraSpineProgress);
+
+  // Resolve a zero-based visible Unicode codepoint offset. This is the stable
+  // page position stored in CrossSmudge's section cache, independent of layout.
+  static std::string findXPathForVisibleTextOffset(const std::shared_ptr<Epub>& epub, int spineIndex,
+                                                   uint32_t visibleTextOffset);
 };

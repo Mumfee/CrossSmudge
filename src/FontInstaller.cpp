@@ -157,7 +157,10 @@ FontInstaller::Error FontInstaller::deleteFamily(const char* familyName) {
   return Error::OK;
 }
 
-void FontInstaller::refreshRegistry() { registry_.discover(); }
+bool FontInstaller::refreshRegistry() {
+  registry_.discover();
+  return !registry_.lastDiscoveryFailed();
+}
 
 bool FontInstaller::isFamilyInstalled(const char* familyName) const {
   return registry_.findFamily(familyName) != nullptr;

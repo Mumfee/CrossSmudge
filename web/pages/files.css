@@ -608,6 +608,16 @@ h2 {
       flex: 1 1 auto;
       min-width: 0;
     }
+.section-split-setting-row .setting-label {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+.section-split-setting-row .setting-controls {
+      flex: 0 0 44px;
+    }
+.section-split-setting-row .setting-desc {
+      overflow-wrap: anywhere;
+    }
 .reference-characters-row .setting-controls {
       flex: 0 0 auto;
     }

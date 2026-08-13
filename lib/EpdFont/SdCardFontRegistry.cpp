@@ -29,16 +29,6 @@ const SdCardFontFileInfo* SdCardFontFamilyInfo::findClosestFile(uint8_t targetSi
   return best;
 }
 
-const SdCardFontFileInfo* SdCardFontFamilyInfo::selectFile(uint8_t targetSize, uint8_t sizeStep, uint8_t style) const {
-  const std::vector<uint8_t> sizes = availableSizes();
-  if (!sizes.empty()) {
-    if (sizeStep >= sizes.size()) sizeStep = static_cast<uint8_t>(sizes.size() - 1);
-    const SdCardFontFileInfo* selected = findFile(sizes[sizeStep], style);
-    if (selected) return selected;
-  }
-  return findClosestFile(targetSize, style);
-}
-
 bool SdCardFontFamilyInfo::hasSize(uint8_t size) const {
   for (const auto& f : files) {
     if (f.pointSize == size) return true;
@@ -100,9 +90,12 @@ bool SdCardFontRegistry::parseFilename(const char* filename, uint8_t& size, uint
   return true;
 }
 
-void SdCardFontRegistry::scanDirectory(const char* dirPath, SdCardFontFamilyInfo& family) {
+bool SdCardFontRegistry::scanDirectory(const char* dirPath, SdCardFontFamilyInfo& family) {
   HalFile dir = Storage.open(dirPath);
-  if (!dir || !dir.isDirectory()) return;
+  if (!dir || !dir.isDirectory()) {
+    if (!dir) LOG_ERR("SDREG", "Failed/Out of memory opening font directory: %s", dirPath);
+    return static_cast<bool>(dir);
+  }
 
   char nameBuffer[128];
   while (true) {
@@ -144,20 +137,26 @@ void SdCardFontRegistry::scanDirectory(const char* dirPath, SdCardFontFamilyInfo
     info.style = style;
     family.files.push_back(std::move(info));
   }
+
+  if (!dir) {
+    LOG_ERR("SDREG", "Failed/Out of memory scanning font directory: %s", dirPath);
+    return false;
+  }
+  return true;
 }
 
 // Scan a single root (e.g. "/.fonts") and append its families to `out`.
 // Skips families whose names already exist in `out` (de-duplicates between
 // the hidden and visible roots — first scan wins).
-void SdCardFontRegistry::scanRoot(const char* rootPath, std::vector<SdCardFontFamilyInfo>& out) {
+bool SdCardFontRegistry::scanRoot(const char* rootPath, std::vector<SdCardFontFamilyInfo>& out) {
   HalFile root = Storage.open(rootPath);
   if (!root) {
-    LOG_DBG("SDREG", "Fonts directory not found: %s", rootPath);
-    return;
+    LOG_DBG("SDREG", "Fonts directory not found or failed to open: %s", rootPath);
+    return true;
   }
   if (!root.isDirectory()) {
     LOG_ERR("SDREG", "Fonts path is not a directory: %s", rootPath);
-    return;
+    return true;
   }
 
   char nameBuffer[128];
@@ -184,27 +183,38 @@ void SdCardFontRegistry::scanRoot(const char* rootPath, std::vector<SdCardFontFa
       SdCardFontFamilyInfo family;
       family.name = nameBuffer;
       std::string subDirPath = std::string(rootPath) + "/" + nameBuffer;
-      SdCardFontRegistry::scanDirectory(subDirPath.c_str(), family);
+      if (!SdCardFontRegistry::scanDirectory(subDirPath.c_str(), family)) return false;
 
       if (!family.files.empty()) {
         out.push_back(std::move(family));
-        LOG_DBG("SDREG", "Found family: %s (%d files) in %s", out.back().name.c_str(),
-                static_cast<int>(out.back().files.size()), rootPath);
       }
     } else {
       entry.close();
     }
   }
+
+  if (!root) {
+    LOG_ERR("SDREG", "Failed/Out of memory scanning font root: %s", rootPath);
+    return false;
+  }
+  return true;
 }
 
 bool SdCardFontRegistry::discover() {
+  discoveryFailed_ = false;
   families_.clear();
-  families_.reserve(MAX_SD_FAMILIES);
+  // Most cards have fewer than 16 families. Grow only for unusually large
+  // catalogs instead of permanently reserving 128 entries at boot.
+  families_.reserve(16);
 
   // Hidden root is scanned first so it wins on name collisions, matching the
   // sleep-folder pattern (/.sleep preferred over /sleep).
-  scanRoot(FONTS_DIR_HIDDEN, families_);
-  scanRoot(FONTS_DIR_VISIBLE, families_);
+  if (!scanRoot(FONTS_DIR_HIDDEN, families_) || !scanRoot(FONTS_DIR_VISIBLE, families_)) {
+    discoveryFailed_ = true;
+    clear();
+    LOG_ERR("SDREG", "Font discovery stopped after an out-of-memory directory scan");
+    return false;
+  }
 
   // Sort families alphabetically
   std::sort(families_.begin(), families_.end(),

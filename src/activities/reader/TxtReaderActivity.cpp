@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Memory.h>
 #include <Serialization.h>
 #include <Utf8.h>
 
@@ -18,6 +19,7 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "activities/boot_sleep/SleepCoverAssets.h"
+#include "activities/home/FileBrowserActionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -103,6 +105,7 @@ void TxtReaderActivity::onEnter() {
     return;
   }
 
+  sdFontSystem.ensureLoaded(renderer);
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
 
   // Activate reader-specific front button mapping (if configured).
@@ -129,6 +132,10 @@ void TxtReaderActivity::onExit() {
   // Deactivate reader-specific front button mapping.
   mappedInput.setReaderMode(false);
 
+  if (!flushQueuedProgress()) {
+    LOG_ERR("TRS", "Failed to flush debounced reader progress on exit");
+  }
+
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 
@@ -139,11 +146,37 @@ void TxtReaderActivity::onExit() {
   txt.reset();
 }
 
+void TxtReaderActivity::openReaderMenu() {
+  if (!txt) return;
+  std::vector<FileBrowserActionActivity::MenuItem> items;
+  items.push_back({FileBrowserAction::SendNearby, StrId::STR_SEND_NEARBY_BOOK});
+  auto menu = makeUniqueNoThrow<FileBrowserActionActivity>(renderer, mappedInput, txt->getTitle(), std::move(items));
+  if (!menu) {
+    LOG_ERR("NBOOK", "OOM: TXT nearby transfer menu");
+    return;
+  }
+  startActivityForResult(std::move(menu), [this](const ActivityResult& result) {
+    const auto* action = std::get_if<FileBrowserActionResult>(&result.data);
+    if (!result.isCancelled && action &&
+        static_cast<FileBrowserAction>(action->action) == FileBrowserAction::SendNearby) {
+      saveProgress(currentPage);
+      activityManager.goToNearbyBookSend(txt ? txt->getPath() : std::string{}, true);
+    } else {
+      requestUpdate();
+    }
+  });
+}
+
 void TxtReaderActivity::loop() {
   if (consumeLongPowerButtonRelease()) {
     return;
   }
   if (executePowerButtonAction()) {
+    return;
+  }
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    openReaderMenu();
     return;
   }
 
@@ -403,8 +436,6 @@ void TxtReaderActivity::initializeReader() {
   linesPerPage = viewportHeight / lineHeight;
   if (linesPerPage < 1) linesPerPage = 1;
 
-  LOG_DBG("TRS", "Viewport: %dx%d, lines per page: %d", viewportWidth, viewportHeight, linesPerPage);
-
   // Try to load cached page index first
   if (!loadPageIndexCache()) {
     // Cache not found, build page index
@@ -425,8 +456,6 @@ void TxtReaderActivity::buildPageIndex() {
 
   size_t offset = 0;
   const size_t fileSize = txt->getFileSize();
-
-  LOG_DBG("TRS", "Building page index for %zu bytes...", fileSize);
 
   GUI.drawPopup(renderer, tr(STR_INDEXING));
 
@@ -455,7 +484,6 @@ void TxtReaderActivity::buildPageIndex() {
   }
 
   totalPages = pageOffsets.size();
-  LOG_DBG("TRS", "Built page index: %d pages", totalPages);
 }
 
 bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset) {
@@ -530,8 +558,9 @@ void TxtReaderActivity::render(RenderLock&&) {
   renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   renderPage();
 
-  // Save progress
-  saveProgress();
+  if (!queueProgressSave()) {
+    LOG_ERR("TRS", "Failed to save debounced reader progress");
+  }
 }
 
 void TxtReaderActivity::renderPage() {
@@ -601,29 +630,51 @@ void TxtReaderActivity::renderPage() {
 void TxtReaderActivity::renderStatusBar() const {
   const float progress = totalPages > 0 ? (currentPage + 1) * 100.0f / totalPages : 0;
   std::string title;
-  if (SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE) {
+  if (SETTINGS.statusBarSpec().showsTitle()) {
     title = txt->getTitle();
   }
   GUI.drawStatusBar(renderer, progress, currentPage + 1, totalPages, title, 0, 0, false, nullptr,
                     ReaderUtils::readerDarkModeEnabled());
 }
 
-void TxtReaderActivity::saveProgress() const {
-  HalFile f;
-  if (Storage.openFileForWrite("TRS", txt->getCachePath() + "/progress.bin", f)) {
-    // 6-byte format: page(2 bytes LE) + file offset(4 bytes LE)
-    // The offset lets drawCurrentPageToBuffer render without requiring index.bin.
-    const size_t offset = (currentPage < static_cast<int>(pageOffsets.size())) ? pageOffsets[currentPage] : 0;
-    uint8_t data[6];
-    data[0] = currentPage & 0xFF;
-    data[1] = (currentPage >> 8) & 0xFF;
-    data[2] = offset & 0xFF;
-    data[3] = (offset >> 8) & 0xFF;
-    data[4] = (offset >> 16) & 0xFF;
-    data[5] = (offset >> 24) & 0xFF;
-    f.write(data, 6);
-    f.close();
+bool TxtReaderActivity::saveProgress(const int page) {
+  if (!txt) {
+    return false;
   }
+  HalFile f;
+  if (!Storage.openFileForWrite("TRS", txt->getCachePath() + "/progress.bin", f)) {
+    return false;
+  }
+  // 6-byte format: page(2 bytes LE) + file offset(4 bytes LE)
+  // The offset lets drawCurrentPageToBuffer render without requiring index.bin.
+  const size_t offset = (page >= 0 && page < static_cast<int>(pageOffsets.size())) ? pageOffsets[page] : 0;
+  uint8_t data[6];
+  data[0] = page & 0xFF;
+  data[1] = (page >> 8) & 0xFF;
+  data[2] = offset & 0xFF;
+  data[3] = (offset >> 8) & 0xFF;
+  data[4] = (offset >> 16) & 0xFF;
+  data[5] = (offset >> 24) & 0xFF;
+  const bool written = f.write(data, sizeof(data)) == sizeof(data);
+  f.close();
+  if (!written) {
+    LOG_ERR("TRS", "Short write saving reader progress");
+    return false;
+  }
+  progressSaveDebouncer.markPersisted(static_cast<uint32_t>(page));
+  return true;
+}
+
+bool TxtReaderActivity::queueProgressSave() {
+  if (!progressSaveDebouncer.observe(static_cast<uint32_t>(currentPage))) {
+    return true;
+  }
+  return saveProgress(currentPage);
+}
+
+bool TxtReaderActivity::flushQueuedProgress() {
+  return !progressSaveDebouncer.hasPending() ||
+         saveProgress(static_cast<int>(progressSaveDebouncer.lastObservedPosition()));
 }
 
 void TxtReaderActivity::loadProgress() {
@@ -638,7 +689,6 @@ void TxtReaderActivity::loadProgress() {
       if (currentPage < 0) {
         currentPage = 0;
       }
-      LOG_DBG("TRS", "Loaded progress: page %d/%d", currentPage, totalPages);
     }
   }
 }
@@ -739,7 +789,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   }
 
   totalPages = pageOffsets.size();
-  LOG_DBG("TRS", "Loaded page index cache: %d pages", totalPages);
   return true;
 }
 
@@ -766,8 +815,6 @@ void TxtReaderActivity::savePageIndexCache() const {
   for (size_t offset : pageOffsets) {
     serialization::writePod(f, static_cast<uint32_t>(offset));
   }
-
-  LOG_DBG("TRS", "Saved page index cache: %d pages", totalPages);
 }
 
 bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer) {

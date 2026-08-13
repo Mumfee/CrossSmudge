@@ -53,6 +53,3 @@ To provide a lightweight, high-performance firmware that maximizes the potential
 
 While I appreciate the desire to add new and exciting features to Crosspoint Reader, Crosspoint Reader is designed to be a lightweight, reliable, and performant e-reader. Things which distract or compromise the device's core mission will not be accepted. As a guiding question, consider if your idea improve the "core reading experience" for the average user,
 and, critically, not distract from that reading experience.
-
-> **Note to Contributors:** If you are unsure if your idea fits the scope, please open a **Discussion** before you start
-> coding!

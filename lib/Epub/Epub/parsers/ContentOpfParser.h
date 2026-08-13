@@ -34,6 +34,9 @@ class ContentOpfParser final : public Print {
   std::string coverItemId;
   Arena itemIndexArena;
   bool parseFailed = false;
+  bool lowMemoryFailure = false;
+  bool hasExplicitStartReference = false;
+  bool collectCssFiles = true;
 
   // Index for compact idref->href lookup. The temp manifest rows store only
   // hash/length plus href, not a second full copy of every manifest ID.
@@ -81,15 +84,17 @@ class ContentOpfParser final : public Print {
   std::vector<std::string> cssFiles;  // CSS stylesheet paths
 
   explicit ContentOpfParser(const std::string& cachePath, const std::string& baseContentPath, const size_t xmlSize,
-                            BookMetadataCache* cache)
+                            BookMetadataCache* cache, const bool collectCssFiles = true)
       : cachePath(cachePath),
         baseContentPath(baseContentPath),
         remainingSize(xmlSize),
         cache(cache),
+        collectCssFiles(collectCssFiles),
         itemIndex(itemIndexArena) {}
   ~ContentOpfParser() override;
 
   bool setup();
+  bool failedForLowMemory() const { return lowMemoryFailure; }
 
   size_t write(uint8_t) override;
   size_t write(const uint8_t* buffer, size_t size) override;

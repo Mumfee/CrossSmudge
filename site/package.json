@@ -1,0 +1,14 @@
+{
+  "scripts": {
+    "dev": "node scripts/sync_site_assets.mjs && astro dev --host",
+    "build": "node scripts/sync_site_assets.mjs && astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "astro": "^5.0.0",
+    "remark-github-blockquote-alert": "^2.1.0",
+    "typescript": "^5.6.0"
+  }
+}

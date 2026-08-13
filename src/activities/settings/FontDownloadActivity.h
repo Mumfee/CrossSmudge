@@ -1,11 +1,17 @@
 #pragma once
 
+#include <FreeInkApp.h>
+#include <FreeInkUIGfxRenderer.h>
+
+#include <atomic>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "FontInstaller.h"
 #include "SdCardFont.h"
 #include "activities/Activity.h"
+#include "activities/ScreenTransitionRefresh.h"
 #include "util/ButtonNavigator.h"
 
 struct Rect;
@@ -67,7 +73,6 @@ class FontDownloadActivity : public Activity {
     std::string installName;
     std::string description;
     std::string languages;
-    std::vector<std::string> styles;
     std::vector<ManifestFile> files;
     size_t totalSize = 0;
     bool installed = false;
@@ -75,17 +80,25 @@ class FontDownloadActivity : public Activity {
   };
 
   State state_ = WIFI_SELECTION;
+  ScreenTransitionRefresh screenTransitionRefresh_;
   FontInstaller fontInstaller_;
   ButtonNavigator buttonNavigator_;
 
   // Manifest data
   std::string baseUrl_;
   std::vector<ManifestFamily> families_;
+  // Built once after each manifest load. The renderer borrows these pointers,
+  // so keeping them activity-owned avoids heap growth on every redraw.
+  std::unique_ptr<freeink::ui::ListItem[]> listItems_;
+  size_t listItemCapacity_ = 0;
+  size_t listItemCount_ = 0;
+  char updateAllLabel_[96] = {};
   int selectedIndex_ = 0;
   ManifestFamily retryFamily_;
   bool hasRetryFamily_ = false;
   bool manifestReloadNeeded_ = false;
   std::string activeDownloadFamilyName_;
+  bool fontsChanged_ = false;
 
   // Download progress
   size_t currentFileIndex_ = 0;
@@ -98,9 +111,29 @@ class FontDownloadActivity : public Activity {
   std::string errorMessage_;
   std::string errorHint_;
   bool cancelRequested_ = false;
+  // Set when a blocking download consumed Home; exit only after its file and
+  // network resources have unwound.
+  bool goHomeRequested_ = false;
+
+  // FreeInkApp hosts the family list (themed rows, touch routing); the other
+  // states keep their legacy centered-text rendering.
+  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  freeink::ui::GfxRendererTarget uiTarget_;  // must precede `app_`: the app holds a reference to it
+  UiApp app_;
+  // render() rebuilds the app's interaction table; loop() only routes touch
+  // snapshots against it while this is true (the two run on different tasks).
+  std::atomic<bool> uiReady_{false};
+  int visibleRows_ = 1;  // rows per page at the current scale; set by the screen builder
+  int topIndex_ = 0;     // viewport scroll position, decoupled from the selection
+
+  static void listScreen(UiApp::ScreenType& screen, void* user);
+  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  void buildListScreen(UiApp::ScreenType& screen);
+  void activateSelected();
 
   void onWifiSelectionComplete(bool success);
   bool fetchAndParseManifest();
+  bool rebuildListItems();
   const SdCardFontFamilyInfo* findInstalledFamilyCandidate(const char* familyName) const;
   bool installedFilesMatch(const char* familyName, const std::vector<ManifestFile>& files, bool& hasUpdate,
                            std::string* resolvedFamilyName = nullptr) const;
@@ -108,24 +141,19 @@ class FontDownloadActivity : public Activity {
   void clearManifestFamilies();
   void downloadFamily(ManifestFamily& family);
   void downloadSelectedFamily(int familyIndex);
-  void downloadBatch(bool updatesOnly);
   void returnToFamilyList();
-  void downloadAll();
   void updateAll();
   static bool computeFileCrc32(const char* path, uint32_t& outCrc);
-  bool showDownloadAllRow() const;
   bool showUpdateAllRow() const;
   int specialRowCount() const;
-  bool isDownloadAllRow(int index) const;
   bool isUpdateAllRow(int index) const;
   bool isSelectedFamilyDeletable() const;
   void promptDeleteSelectedFamily();
   void onDeleteConfirmationResult(const ActivityResult& result);
   int familyIndexFromList(int listIndex) const { return listIndex - specialRowCount(); }
   int listItemCount() const;
-  size_t totalDownloadSize() const;
   size_t totalUpdateSize() const;
-  static std::string formatSize(size_t bytes);
+  static void formatSize(size_t bytes, char* buffer, size_t bufferSize);
   int fontListPageItems() const;
   void drawFontList(Rect rect);
 };

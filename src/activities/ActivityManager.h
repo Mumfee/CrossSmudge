@@ -75,6 +75,9 @@ class ActivityManager {
   // This variable must only be set by the main loop, to avoid race conditions
   std::atomic<bool> requestedUpdate{false};
 
+  bool handleGlobalHomeGesture();
+  bool handleReaderPowerButtonSettingsOverride();
+
  public:
   explicit ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : renderer(renderer), mappedInput(mappedInput), renderingMutex(xSemaphoreCreateMutex()) {
@@ -83,7 +86,7 @@ class ActivityManager {
   }
   ~ActivityManager() { assert(false); /* should never be called */ };
 
-  void begin();
+  void begin(uint32_t renderTaskStackBytes = 16384);
   void loop();
 
   // Will replace currentActivity and drop all activities on stack
@@ -91,20 +94,25 @@ class ActivityManager {
 
   // goTo... functions are convenient wrapper for replaceActivity()
   void goToFileTransfer(std::string returnBookPath = {});
-  void goToCalibreWireless(std::string returnBookPath = {});
-  void goToJoinNetworkFileTransfer(std::string returnBookPath = {});
-  void goToHotspotFileTransfer(std::string returnBookPath = {});
+  void goToCalibreWireless(const std::string& returnBookPath = {});
+  void goToJoinNetworkFileTransfer(const std::string& returnBookPath = {});
+  void goToHotspotFileTransfer(const std::string& returnBookPath = {});
+  bool resumeFileTransferFromNetworkBoot(uint32_t payload);
   void goToNearbyStatsSync();
-  void goToSettings();
+  void goToNearbyBookSend(std::string path, bool returnToReader);
+  void goToNearbyBookReceive();
+  void goToSettings(bool dismissOnUpSwipe = false);
   void goToFileBrowser(std::string path = {});
   void goToRecentBooks();
   void goToBrowser();
-  void goToReader(std::string path, bool suppressBackRelease = false);
+  bool goToOpdsServer(uint32_t serverIndex, bool networkBootReady = false);
+  void goToReader(std::string path, bool suppressBackRelease = false, bool allowFastInitialRefresh = false,
+                  bool cleanImageBaseOnEntry = false);
   void goToSleep(bool fromTimeout = false);
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToCrashReport();
-  void goHome(HomeMenuItem initialMenuItem = HomeMenuItem::NONE);
+  void goHome(HomeMenuItem initialMenuItem = HomeMenuItem::NONE, bool initialFullRefresh = false);
 
   // This will move current activity to stack instead of deleting it
   void pushActivity(std::unique_ptr<Activity>&& activity);
@@ -116,7 +124,13 @@ class ActivityManager {
   bool preventAutoSleep() const;
   bool isHomeActivity() const;
   bool isReaderActivity() const;
+  bool readerPowerButtonOpensSettings() const;
+  bool hasActivityNamed(const char* activityName) const;
+#ifdef SIMULATOR
+  bool isCurrentActivityNamed(const char* activityName) const;
+#endif
   bool canSnapshotForSleepOverlay() const;
+  bool requestManualReaderRefresh();
   bool skipLoopDelay() const;
   std::string getCurrentBookPath() const;
   ScreenshotInfo getScreenshotInfo() const;

@@ -19,6 +19,7 @@ namespace obfuscation {
 enum class DecodeStatus : uint8_t {
   EMPTY,
   INVALID,
+  TOO_LONG,
   LEGACY,
   VALIDATED,
 };
@@ -36,6 +37,9 @@ String obfuscateToBase64(const std::string& plaintext);
 // Returns empty string on invalid input; sets *ok to false if decode or validation fails.
 std::string deobfuscateFromBase64(const char* encoded, bool* ok = nullptr);
 std::string deobfuscateFromBase64(const char* encoded, DecodeStatus* status);
+// Rejects oversized plaintext before returning it to a credential/settings
+// store, and bounds the decoded payload allocation for corrupted input.
+std::string deobfuscateFromBase64(const char* encoded, size_t maxPlaintextLength, DecodeStatus* status);
 
 // Self-test: verifies round-trip obfuscation with hardware key. Logs PASS/FAIL.
 void selfTest();

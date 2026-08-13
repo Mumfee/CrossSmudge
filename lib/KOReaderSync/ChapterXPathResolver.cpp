@@ -77,6 +77,10 @@ size_t countUtf8Codepoints(const XML_Char* data, const int len) {
   return count;
 }
 
+bool isNonVisibleTextTag(const std::string& name) {
+  return name == "head" || name == "style" || name == "script" || name == "title" || name == "rp" || name == "rt";
+}
+
 class ParagraphTextCounter final : public Print {
  public:
   ParagraphTextCounter() {
@@ -155,9 +159,7 @@ class ParagraphTextCounter final : public Print {
       return;
     }
 
-    if (name == "p") {
-      paragraphDepth++;
-    }
+    if (isNonVisibleTextTag(name)) nonVisibleDepth++;
     depth++;
   }
 
@@ -174,13 +176,11 @@ class ParagraphTextCounter final : public Print {
       return;
     }
 
-    if (name == "p" && paragraphDepth > 0) {
-      paragraphDepth--;
-    }
+    if (isNonVisibleTextTag(name) && nonVisibleDepth > 0) nonVisibleDepth--;
   }
 
   void onCharacterData(const XML_Char* data, const int len) {
-    if (!insideBody || paragraphDepth <= 0 || len <= 0) {
+    if (!insideBody || nonVisibleDepth > 0 || len <= 0) {
       return;
     }
 
@@ -194,7 +194,7 @@ class ParagraphTextCounter final : public Print {
   bool stopped = false;
   int depth = 0;
   int bodyDepth = -1;
-  int paragraphDepth = 0;
+  int nonVisibleDepth = 0;
   size_t visibleChars = 0;
 };
 
@@ -422,6 +422,7 @@ class XPathProgressResolver final : public Print {
     if (name == "li") {
       liDepth++;
     }
+    if (isNonVisibleTextTag(name)) nonVisibleDepth++;
 
     depth++;
   }
@@ -448,6 +449,7 @@ class XPathProgressResolver final : public Print {
     if (name == "li" && liDepth > 0) {
       liDepth--;
     }
+    if (isNonVisibleTextTag(name) && nonVisibleDepth > 0) nonVisibleDepth--;
 
     if (!textNodeIndexStack.empty()) {
       textNodeIndexStack.pop_back();
@@ -464,7 +466,7 @@ class XPathProgressResolver final : public Print {
   }
 
   void onCharacterData(const XML_Char* data, const int len) {
-    if (!insideBody || (paragraphDepth <= 0 && liDepth <= 0) || len <= 0 || stopped) {
+    if (!insideBody || nonVisibleDepth > 0 || len <= 0 || stopped) {
       return;
     }
 
@@ -508,6 +510,7 @@ class XPathProgressResolver final : public Print {
   int bodyDepth = -1;
   int paragraphDepth = 0;
   int liDepth = 0;
+  int nonVisibleDepth = 0;
   size_t visibleChars = 0;
   size_t textNodeStartChars = 0;
   std::vector<int> textNodeIndexStack;
@@ -604,4 +607,34 @@ std::string ChapterXPathResolver::findXPathForProgress(const std::shared_ptr<Epu
 
   LOG_DBG("KOX", "Could not resolve progress %.3f in spine %d", intraSpineProgress, spineIndex);
   return "";
+}
+
+std::string ChapterXPathResolver::findXPathForVisibleTextOffset(const std::shared_ptr<Epub>& epub, const int spineIndex,
+                                                                const uint32_t visibleTextOffset) {
+  if (!epub || spineIndex < 0 || spineIndex >= epub->getSpineItemsCount()) {
+    return "";
+  }
+
+  const auto href = epub->getSpineItem(spineIndex).href;
+  if (href.empty()) {
+    return "";
+  }
+
+  // XPath text offsets are one-based, while the cache records the first
+  // visible codepoint on a page with a zero-based offset.
+  const size_t targetVisibleChar = static_cast<size_t>(visibleTextOffset) + 1;
+  XPathProgressResolver resolver(targetVisibleChar);
+  if (!resolver.ok()) {
+    return "";
+  }
+  resolver.spineIndex = spineIndex;
+  if (!epub->readItemContentsToStream(href, resolver, 1024) || !resolver.finish()) {
+    return "";
+  }
+  if (!resolver.hasMatch()) {
+    LOG_DBG("KOX", "Could not resolve visible offset %lu in spine %d", static_cast<unsigned long>(visibleTextOffset),
+            spineIndex);
+    return "";
+  }
+  return resolver.getXPath();
 }

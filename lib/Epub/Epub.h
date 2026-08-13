@@ -12,9 +12,11 @@
 #include "Epub/css/CssParser.h"
 
 class ZipFile;
+class ZipFileStreamReader;
 class GfxRenderer;
 
 class Epub {
+ private:
   // the ncx file (EPUB 2)
   std::string tocNcxItem;
   // the nav file (EPUB 3)
@@ -36,13 +38,50 @@ class Epub {
     uint32_t endLocation = 0;
     uint32_t wordStart = 0;
     uint32_t wordCount = 0;
+    uint16_t chapterGroup = UINT16_MAX;
   };
-  std::vector<LocationSpineEntry> locationSpine;
+  struct LocationChapterGroupEntry {
+    uint16_t firstSpineIndex = 0;
+    uint16_t lastSpineIndex = 0;
+    bool valid = false;
+  };
+
+ public:
+  enum class OpenFailure : uint8_t {
+    None,
+    OutOfMemory,
+    InvalidOrUnreadable,
+  };
+
+  struct SourceChildRange {
+    char name[12] = {};
+    uint16_t offset = 0;
+    uint16_t count = 0;
+  };
+  struct SourceSpineMapEntry {
+    uint16_t sourceSpineIndex = UINT16_MAX;
+    uint16_t firstRange = 0;
+    uint8_t rangeCount = 0;
+    uint8_t containerDepth = 0;
+  };
+
+ private:
+  std::unique_ptr<LocationSpineEntry[]> locationSpine;
+  size_t locationSpineCount = 0;
+  std::unique_ptr<LocationChapterGroupEntry[]> locationChapterGroups;
+  size_t locationChapterGroupCount = 0;
+  std::unique_ptr<SourceSpineMapEntry[]> sourceSpineMap;
+  std::unique_ptr<SourceChildRange[]> sourceChildRanges;
+  size_t sourceSpineMapCount = 0;
+  size_t sourceChildRangeCount = 0;
+  uint16_t sourceSpineCount = 0;
   uint32_t totalLocations = 0;
   uint32_t totalWords = 0;
   uint32_t wordsPerReferencePage = 0;
   uint32_t totalReferencePages = 0;
   bool xLocationsLoaded = false;
+  OpenFailure lastLoadFailure = OpenFailure::None;
+  bool sourceSpineMapDeclared = false;
   enum class CssParseStatus : uint8_t {
     Failed,
     Partial,
@@ -51,13 +90,20 @@ class Epub {
 
   void migrateLegacyCachePath(const std::string& cacheDir) const;
   bool findContentOpfFile(std::string* contentOpfFile) const;
-  bool parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, bool writeSpineEntries = true);
+  bool parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, bool writeSpineEntries = true,
+                       bool collectCssFiles = true);
   bool parseTocNcxFile() const;
   bool parseTocNavFile() const;
   CssParseStatus parseCssFiles(bool forceRebuild = false) const;
   void discoverCssFilesFromZip();
+  void releaseCssFileList();
 
  public:
+  enum class XLocationLoadMode : uint8_t {
+    Immediate,
+    Skip,
+  };
+
   explicit Epub(std::string filepath, const std::string& cacheDir);
   ~Epub() = default;
   static std::string cachePathForFilePath(const std::string& filepath, const std::string& cacheDir);
@@ -65,7 +111,12 @@ class Epub {
   // hit the fast path instead of rebuilding. Cheap: no parsing, just a stat.
   static bool hasCache(const std::string& filepath, const std::string& cacheDir);
   std::string& getBasePath() { return contentBasePath; }
-  bool load(bool buildIfMissing = true, bool skipLoadingCss = false);
+  bool load(bool buildIfMissing = true, bool skipLoadingCss = false,
+            XLocationLoadMode xLocationLoadMode = XLocationLoadMode::Immediate);
+  // Loads optional stable-page and source-spine metadata after a Skip-mode open.
+  // Failure leaves normal size-based progress available.
+  bool loadXLocations();
+  OpenFailure getLastLoadFailure() const { return lastLoadFailure; }
   bool clearCache() const;
   void setupCacheDir() const;
   const std::string& getCachePath() const;
@@ -73,6 +124,8 @@ class Epub {
   const std::string& getTitle() const;
   const std::string& getAuthor() const;
   const std::string& getLanguage() const;
+  // True when parsed EPUB metadata identifies a cover image. Requires load().
+  bool hasCoverImage() const;
   std::string getCoverBmpPath(bool cropped = false) const;
   bool generateCoverBmp(bool cropped = false, const GfxRenderer* renderer = nullptr, int readerFontId = 0) const;
   std::string getThumbBmpPath() const;
@@ -100,7 +153,10 @@ class Epub {
                                 int readerFontId = 0) const;
   uint8_t* readItemContentsToBytes(const std::string& itemHref, size_t* size = nullptr,
                                    bool trailingNullByte = false) const;
-  bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize) const;
+  bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize,
+                                bool allowEarlyStop = false) const;
+  bool extractItemToFile(const std::string& itemHref, const std::string& destPath) const;
+  std::unique_ptr<ZipFileStreamReader> openItemContentsStream(const std::string& itemHref, size_t chunkSize) const;
   bool getItemSize(const std::string& itemHref, size_t* size) const;
   BookMetadataCache::SpineEntry getSpineItem(int spineIndex) const;
   BookMetadataCache::TocEntry getTocItem(int tocIndex) const;
@@ -121,11 +177,19 @@ class Epub {
   bool resolveLocationPercentToSpineProgress(int percent, int& spineIndex, float& spineProgress) const;
   bool resolveReferencePage(int currentSpineIndex, float currentSpineRead, uint32_t& currentPage,
                             uint32_t& pageCount) const;
+  bool resolveChapterGroupRange(int currentSpineIndex, int& firstSpineIndex, int& lastSpineIndex) const;
+  bool hasChapterGroups() const { return locationChapterGroupCount > 0; }
+  bool hasSourceSpineMap() const { return sourceSpineMapCount > 0; }
+  bool requiresSourceSpineMap() const { return (hasChapterGroups() || sourceSpineMapDeclared) && !hasSourceSpineMap(); }
+  bool getSourceSpineMapEntry(int currentSpineIndex, SourceSpineMapEntry& entry) const;
+  const SourceChildRange* getSourceChildRange(const SourceSpineMapEntry& entry, size_t ordinal) const;
+  bool findCurrentSpineForSource(int sourceIndex, uint8_t containerDepth, const char* childName,
+                                 uint16_t sourceSiblingIndex, int& currentSpineIndex,
+                                 uint16_t& currentSiblingIndex) const;
   CssParser* getCssParser() const { return cssParser.get(); }
   int resolveHrefToSpineIndex(const std::string& href) const;
 
  private:
-  bool loadXLocations();
   std::string getCachedCoverImagePath(const std::string& coverImageHref) const;
   bool ensureCachedCoverImage(const std::string& coverImageHref, std::string& outPath) const;
   bool generateThumbBmpInternal(int width, int height, bool adaptiveContain, const GfxRenderer* renderer,

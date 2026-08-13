@@ -18,6 +18,7 @@ class SdCardFont;
 
 #include <cassert>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <string>
 #include <vector>
@@ -94,6 +95,19 @@ class GfxRenderer {
   // as before, concentrated in a single pointer instead of four fields.
   mutable FontCacheManager* fontCacheManager_ = nullptr;
 
+  // CJK UI font fallback map: primary (built-in, Latin-only) UI font id -> a
+  // size-matched SD-card font id that carries CJK glyphs. When a string drawn
+  // or measured with a mapped primary font contains a CJK codepoint the primary
+  // cannot render, the whole string is routed to the mapped fallback so it
+  // appears at the same point size as the surrounding UI text. Populated by the
+  // app-level SD font setup when an SD family is loaded. See resolveTextFontId().
+  std::map<int, int> fallbackFontMap_;
+
+  // If `text` contains a CJK codepoint that `fontId` cannot render and `fontId`
+  // has a registered fallback, returns the fallback id; otherwise returns
+  // fontId unchanged. The whole string is routed as a unit so each draw/measure
+  // call stays single-font (consistent bit depth, metrics, wrapping).
+  int resolveTextFontId(int fontId, const char* text, EpdFontFamily::Style style) const;
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
                   EpdFontFamily::Style style) const;
   void freeBwBufferChunks();
@@ -153,14 +167,24 @@ class GfxRenderer {
   void clearSdCardFonts() { sdCardFonts_.clear(); }
   const std::map<int, SdCardFont*>& getSdCardFonts() const { return sdCardFonts_; }
   bool isSdCardFont(int fontId) const { return sdCardFonts_.count(fontId) > 0; }
+  // Register/clear size-matched CJK UI fallbacks (see fallbackFontMap_).
+  // setFallbackFont maps a primary UI font id to an SD font id of the same size.
+  void setFallbackFont(int primaryFontId, int fallbackFontId) { fallbackFontMap_[primaryFontId] = fallbackFontId; }
+  void clearFallbackFonts() { fallbackFontMap_.clear(); }
   // Ensure SD card font glyph data is loaded for the given text. Called from layout code
   // (which holds a const GfxRenderer&) before measuring word widths. Safe to call on non-SD fonts (no-op).
   // styleMask: bitmask of styles to prepare (bit 0=regular, 1=bold, 2=italic, 3=bold-italic).
   void ensureSdCardFontReady(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F) const;
-  void ensureSdCardFontReady(int fontId, const std::vector<std::string>& words, bool includeHyphen,
+  void ensureSdCardFontReady(int fontId, const std::deque<std::string>& words, bool includeHyphen,
                              uint8_t styleMask = 0x0F) const;
   void ensureSdCardFontReady(int fontId, const uint32_t* codepoints, uint32_t cpCount, bool includeSpace,
                              bool includeHyphen, uint8_t styleMask = 0x0F) const;
+  // Adds shaped RTL presentation forms to one bounded style bucket. The caller
+  // owns the reusable scratch strings so clipping can batch pages without a
+  // temporary heap allocation for every word.
+  bool collectSdCardFontShapedRtlCodepoints(const char* utf8Text, uint32_t* codepoints, uint16_t& cpCount,
+                                            uint16_t capacity, std::string& tokenScratch,
+                                            std::string& visualScratch) const;
   bool releaseSdCardFontForLowMemory(int fontId, bool preserveAdvanceTable = false) const;
 
   // Orientation control (affects logical width/height and coordinate transforms)
@@ -173,10 +197,24 @@ class GfxRenderer {
   // Screen ops
   int getScreenWidth() const;
   int getScreenHeight() const;
+  void tapToLogical(float nx, float ny, int& outX, int& outY) const;
   void displayBuffer(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH, bool turnOffScreen = false) const;
+  // Non-blocking refresh: starts the waveform and returns so CPU work (e.g.
+  // grayscale strip rendering) can overlap the panel's refresh time. The
+  // framebuffer must stay untouched until waitRefreshComplete(). Falls back to
+  // a blocking refresh when fadingFix is enabled or the panel lacks deferral
+  // support. See HalDisplay::displayBufferAsync for the baseline contract.
+  void displayBufferAsync(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
+  void waitRefreshComplete() const;
+  // True when displayBufferAsync() genuinely overlaps: panel defers and
+  // fadingFix isn't forcing the blocking path. Callers can skip overlap
+  // scaffolding (e.g. whole-plane grayscale buffers) when false.
+  bool supportsAsyncRefresh() const;
+  bool supportsAsyncGrayscaleBase() const;
   // EXPERIMENTAL: Windowed update - display only a rectangular region
   // void displayWindow(int x, int y, int width, int height) const;
   void invertScreen() const;
+  void invertRect(int x, int y, int width, int height) const;
   void clearScreen(uint8_t color = 0xFF) const;
   void getOrientedViewableTRBL(int* outTop, int* outRight, int* outBottom, int* outLeft) const;
 
@@ -189,6 +227,7 @@ class GfxRenderer {
   int getWriteRows() const { return _stripActive ? _stripRows : panelHeight; }
 
   // Drawing
+  bool isPixelBlack(int x, int y) const;
   void drawPixel(int x, int y, bool state = true) const;
   void drawLine(int x1, int y1, int x2, int y2, bool state = true) const;
   void drawLine(int x1, int y1, int x2, int y2, int lineWidth, bool state) const;
@@ -217,6 +256,11 @@ class GfxRenderer {
   // bounding box of width `w` and height `max(hL, hR)` whose top-left is (x, y).
   void drawPerspectiveBitmap(const Bitmap& bitmap, int x, int y, int w, int hL, int hR) const;
   void fillPolygon(const int* xPoints, const int* yPoints, int numPoints, bool state = true) const;
+  // Snapshot / restore a screen-coordinate framebuffer region. The renderer
+  // byte-aligns the panel-memory rectangle internally, so callers must pass the
+  // same rectangle to restore the saved pixels.
+  size_t readFramebufferRegion(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t* dst, size_t dstCapacity) const;
+  void writeFramebufferRegion(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* src);
 
   // Text
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR,
@@ -234,7 +278,10 @@ class GfxRenderer {
   int getSpaceAdvance(int fontId, uint32_t leftCp, uint32_t rightCp, EpdFontFamily::Style style) const;
   /// Returns the kerning adjustment between two adjacent codepoints.
   int getKerning(int fontId, uint32_t leftCp, uint32_t rightCp, EpdFontFamily::Style style) const;
-  int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style) const;
+  /// Returns the rendered advance of \p text. When \p followingCp is supplied,
+  /// includes its kerning with the final glyph in the same fixed-point rounding
+  /// step that drawText() uses, without drawing or consuming that codepoint.
+  int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style, uint32_t followingCp = 0) const;
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
@@ -275,6 +322,34 @@ class GfxRenderer {
 
   // Font helpers
   const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const;
+
+  // Lend the 48 KB framebuffer's bytes to a memory-hungry phase (chapter
+  // builds) WITHOUT freeing the allocation, so it never moves and repeated
+  // loans cannot fragment the heap. Between release and restore NOTHING may
+  // draw or display — the panel keeps showing its last refreshed image. The
+  // lent bytes are published via buildscratch::claim() for consumers like
+  // InflateStream. restore returns the buffer white, so the caller must
+  // redraw the full screen; it cannot fail (no allocation involved).
+  void releaseFrameBufferForBuild();
+  bool restoreFrameBufferAfterBuild();
+  bool hasFrameBuffer() const { return frameBuffer != nullptr; }
+
+  // RAII form of the loan above, for blocking build regions with early-return
+  // error paths: restores on scope exit (or explicitly via end()). Display the
+  // popup/screen the panel should hold BEFORE constructing one. Constructing
+  // while the framebuffer is already lent yields an inert loan (nesting-safe).
+  class FrameBufferLoan {
+   public:
+    explicit FrameBufferLoan(GfxRenderer& renderer);
+    ~FrameBufferLoan() { end(); }
+    void end();
+    FrameBufferLoan(const FrameBufferLoan&) = delete;
+    FrameBufferLoan& operator=(const FrameBufferLoan&) = delete;
+
+   private:
+    GfxRenderer& renderer_;
+    bool active_ = false;
+  };
 
   // Low level functions
   uint8_t* getFrameBuffer() const;

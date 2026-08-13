@@ -1,11 +1,11 @@
 ---
 title: Reading Stats Sync
-nav_order: 6
+nav_order: 7
 ---
 
 # Reading Stats Sync
 
-CrossSmudge can sync all-time reading stats between nearby readers running CrossSmudge from **File Transfer > Nearby Stats Sync**. The sync is direct reader-to-reader; it does not use a server, account, or one "main" reader. This only works with CrossSmudge reading stats. This will *NOT* work with any other firmware's reading stats.
+CrossSmudge can sync all-time reading stats between nearby readers running CrossSmudge from **File Transfer > Sync Stats**. The sync is direct reader-to-reader; it does not use a server, account, or one "main" reader. This only works with CrossSmudge reading stats. This will _NOT_ work with any other firmware's reading stats.
 
 ## What Gets Synced
 
@@ -22,7 +22,7 @@ Each device owns one record, and the Reading Stats screen sums all the records i
 
 ## How Nearby Sync Works
 
-1. Open **File Transfer > Nearby Stats Sync** on both readers.
+1. Open **File Transfer > Sync Stats** on both readers.
 2. Press **Sync** on one reader only.
 3. The readers find each other over ESP-NOW and exchange their local
    `/.crosspoint/global_stats.bin` payloads.
@@ -65,7 +65,7 @@ To remove one old reader from the aggregate total, delete that reader's file fro
 /.crosspoint/synced_stats/device_aabbccddeeff.bin
 ```
 
-To stop using synced aggregate totals on a reader, delete the whole `/.crosspoint/synced_stats/` folder from that reader. As long as the folder is gone, local stats saves will not recreate it. Opening Nearby Stats Sync again will recreate the folder.
+To stop using synced aggregate totals on a reader, delete the whole `/.crosspoint/synced_stats/` folder from that reader. As long as the folder is gone, local stats saves will not recreate it. Opening Sync Stats again will recreate the folder.
 
 To reset only this reader's local all-time totals, delete both:
 

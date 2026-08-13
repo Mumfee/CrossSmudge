@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "site/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -28,14 +29,21 @@ jobs:
 
       - uses: actions/configure-pages@v6
 
-      - uses: actions/jekyll-build-pages@v1
+      - uses: actions/setup-node@v5
         with:
-          source: ./docs
-          destination: ./_site
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - run: npm ci
+        working-directory: site
+
+      - run: npm run build
+        working-directory: site
 
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: ./_site
+          path: ./site/dist
 
       - name: Deploy to GitHub Pages
         id: deployment

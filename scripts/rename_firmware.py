@@ -3,16 +3,15 @@ PlatformIO post-build script: copy firmware.bin to convenient artifact names
 in the same build directory.
 
 Default outputs:
-  .pio/build/tiny/firmware-tiny.bin
-  .pio/build/xlarge/firmware-xlarge.bin
+  .pio/build/default/firmware-x3-x4.bin
+  .pio/build/sticky/firmware-sticky.bin
 
-Release-candidate outputs when CROSSPOINT_RC_ARTIFACTS=1:
-  .pio/build/tiny/firmware-tiny-<branch>-<hash>-RC.bin
-  .pio/build/xlarge/firmware-xlarge-<branch>-<hash>-RC.bin
+Release-candidate outputs when CROSSSMUDGE_RC_ARTIFACTS=1:
+  .pio/build/default/firmware-x3-x4-<branch>-<hash>-RC.bin
 
-Release outputs when CROSSPOINT_RELEASE_VERSION is set:
-  .pio/build/tiny/firmware-tiny-v<version>.bin
-  .pio/build/xlarge/firmware-xlarge-v<version>.bin
+Release outputs when CROSSSMUDGE_RELEASE_VERSION is set:
+  .pio/build/default/firmware-x3-x4-v<version>.bin
+  .pio/build/sticky/firmware-sticky-v<version>.bin
 """
 
 import os
@@ -77,16 +76,20 @@ def _sanitize_branch(branch):
     return branch or 'unknown'
 
 
+def _get_firmware_device_type(env):
+    return _get_project_option(env, 'custom_firmware_device_type') or env['PIOENV']
+
+
 def _get_rc_artifact_name(project_dir, env):
-    env_name = _get_project_option(env, 'custom_rc_variant') or env['PIOENV']
+    device_type = _get_firmware_device_type(env)
     branch = (
         _get_project_option(env, 'custom_rc_branch')
-        or os.environ.get('CROSSPOINT_RC_BRANCH')
+        or os.environ.get('CROSSSMUDGE_RC_BRANCH')
         or _get_git_branch(project_dir)
     )
     short_hash = (
         _get_project_option(env, 'custom_rc_hash')
-        or os.environ.get('CROSSPOINT_RC_HASH')
+        or os.environ.get('CROSSSMUDGE_RC_HASH')
         or _get_git_value(
         project_dir,
         'rev-parse',
@@ -97,16 +100,16 @@ def _get_rc_artifact_name(project_dir, env):
     )
     branch = _sanitize_branch(branch)
     short_hash = re.sub(r'[^A-Za-z0-9]+', '', short_hash)[:12] or '00000'
-    return f'firmware-{env_name}-{branch}-{short_hash}-RC.bin'
+    return f'firmware-{device_type}-{branch}-{short_hash}-RC.bin'
 
 
 def _is_rc_artifact_build(env):
-    flag = _get_project_option(env, 'custom_rc_artifacts') or os.environ.get('CROSSPOINT_RC_ARTIFACTS')
+    flag = _get_project_option(env, 'custom_rc_artifacts') or os.environ.get('CROSSSMUDGE_RELEASE_VERSION')
     return str(flag).strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
 def _get_release_version(env):
-    version = _get_project_option(env, 'custom_release_version') or os.environ.get('CROSSPOINT_RELEASE_VERSION')
+    version = _get_project_option(env, 'custom_release_version') or os.environ.get('CROSSSMUDGE_RELEASE_VERSION')
     if not version:
         return None
     version = version.strip()
@@ -118,12 +121,12 @@ def _get_release_version(env):
 
 
 def rename_firmware(source, target, env):
-    env_name = env['PIOENV']
     project_dir = env['PROJECT_DIR']
     src = str(target[0])
     build_dir = os.path.dirname(src)
 
-    default_dst = os.path.join(build_dir, f'firmware-{env_name}.bin')
+    device_type = _get_firmware_device_type(env)
+    default_dst = os.path.join(build_dir, f'firmware-{device_type}.bin')
     _copy_artifact(src, default_dst)
 
     if _is_rc_artifact_build(env):
@@ -132,8 +135,7 @@ def rename_firmware(source, target, env):
 
     release_version = _get_release_version(env)
     if release_version:
-        release_env_name = _get_project_option(env, 'custom_rc_variant') or env_name
-        release_dst = os.path.join(build_dir, f'firmware-{release_env_name}-{release_version}.bin')
+        release_dst = os.path.join(build_dir, f'firmware-{device_type}-{release_version}.bin')
         _copy_artifact(src, release_dst)
 
 

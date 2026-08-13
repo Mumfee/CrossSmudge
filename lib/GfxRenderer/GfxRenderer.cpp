@@ -1,6 +1,7 @@
 #include "GfxRenderer.h"
 
 #include <BidiUtils.h>
+#include <BuildScratch.h>
 #include <FontDecompressor.h>
 #include <HalGPIO.h>
 #include <Logging.h>
@@ -34,6 +35,71 @@ int32_t resolveSdCardAdvanceFP(const SdCardFont& sdFont, const EpdFontFamily& fo
 
   const EpdGlyph* glyph = font.getGlyph(cp, style);
   return glyph ? glyph->advanceX : 0;
+}
+
+int32_t halfAdvanceFP(const int32_t advanceFP) { return (advanceFP + 1) / 2; }
+
+int32_t smallCapsAdvanceFP(const int32_t advanceFP) {
+  return advanceFP >= 0 ? (advanceFP * 3 + 2) / 4 : (advanceFP * 3 - 2) / 4;
+}
+
+int scaleSmallCapsMetric(const int value) { return value * 3 / 4; }
+
+int smallCapsScaledExtent(const int value) { return (value * 3 + 3) / 4; }
+
+int scaled75SourceEnd(const int dst, const int srcLimit) {
+  const int srcStart = dst * 4 / 3;
+  return std::min(srcLimit, std::max(srcStart + 1, ((dst + 1) * 4 + 2) / 3));
+}
+
+void draw2BitFontPixel(const GfxRenderer& renderer, const GfxRenderer::RenderMode renderMode, const int x, const int y,
+                       const uint8_t raw, const bool pixelState) {
+  const uint8_t bmpVal = 3 - raw;
+  if (renderMode == GfxRenderer::BW && bmpVal < 3) {
+    renderer.drawPixel(x, y, pixelState);
+  } else if (renderMode == GfxRenderer::GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
+    renderer.drawPixel(x, y, false);
+  } else if (renderMode == GfxRenderer::GRAYSCALE_LSB && bmpVal == 1) {
+    renderer.drawPixel(x, y, false);
+  }
+}
+
+const char* resolveVisualText(const char* text, std::string& visualBuffer, BidiUtils::BidiBaseDir baseDir);
+
+// Appends the shaped visual form of every RTL token in `text` to `shapedOut`.
+// getTextAdvanceX() measures the bidi-reordered, Arabic-shaped codepoint stream,
+// so the SD advance table must be warmed with the presentation forms as well as
+// the logical codepoints — otherwise every RTL word measurement misses the fast
+// path and falls through to onGlyphMiss(), which opens the .cpfont and reads
+// glyph metadata + bitmap into the 8-slot overflow ring, once per glyph.
+// Tokens without RTL lead bytes (0xD6-0xDB) are skipped with a byte scan, so
+// pure-LTR text pays almost nothing.
+template <typename Sink>
+void forEachShapedRtlToken(const char* text, std::string& tokenScratch, std::string& visualScratch, Sink&& sink) {
+  const auto isBreak = [](const char c) { return c == ' ' || c == '\n' || c == '\r' || c == '\t'; };
+  const char* p = text;
+  while (*p) {
+    while (*p && isBreak(*p)) ++p;
+    const char* start = p;
+    bool hasRtlBytes = false;
+    while (*p && !isBreak(*p)) {
+      const auto b = static_cast<unsigned char>(*p);
+      hasRtlBytes = hasRtlBytes || (b >= 0xD6 && b <= 0xDB);
+      ++p;
+    }
+    if (!hasRtlBytes) continue;
+    tokenScratch.assign(start, p - start);
+    if (BidiUtils::applyBidiVisual(tokenScratch.c_str(), visualScratch,
+                                   static_cast<int>(BidiUtils::BidiBaseDir::AUTO))) {
+      sink(visualScratch.c_str());
+    }
+  }
+}
+
+void appendShapedRtlTokens(const char* text, std::string& shapedOut) {
+  std::string token;
+  std::string visual;
+  forEachShapedRtlToken(text, token, visual, [&shapedOut](const char* shaped) { shapedOut += shaped; });
 }
 }  // namespace
 
@@ -90,21 +156,28 @@ GfxRenderer::BitmapScratchLock::~BitmapScratchLock() {
 void GfxRenderer::ensureSdCardFontReady(int fontId, const char* utf8Text, uint8_t styleMask) const {
   auto it = sdCardFonts_.find(fontId);
   if (it != sdCardFonts_.end()) {
-    int missed = it->second->buildAdvanceTable(utf8Text, styleMask);
+    std::string shaped;
+    appendShapedRtlTokens(utf8Text, shaped);
+    int missed = it->second->buildAdvanceTable(utf8Text, styleMask, shaped.empty() ? nullptr : shaped.c_str());
     if (missed > 0) {
       LOG_DBG("GFX", "ensureSdCardFontReady: %d glyph(s) not found", missed);
     }
   }
 }
 
-void GfxRenderer::ensureSdCardFontReady(int fontId, const std::vector<std::string>& words, bool includeHyphen,
+void GfxRenderer::ensureSdCardFontReady(int fontId, const std::deque<std::string>& words, bool includeHyphen,
                                         uint8_t styleMask) const {
   auto it = sdCardFonts_.find(fontId);
   if (it != sdCardFonts_.end()) {
     // Augment the persistent advance-only table for layout measurement.
     // The table survives across paragraphs/sections (capped per font), so
     // repeated indexing of the same SD font amortizes glyph-metric SD reads.
-    int missed = it->second->buildAdvanceTable(words, includeHyphen, styleMask);
+    std::string shaped;
+    for (const auto& w : words) {
+      appendShapedRtlTokens(w.c_str(), shaped);
+    }
+    int missed =
+        it->second->buildAdvanceTable(words, includeHyphen, styleMask, shaped.empty() ? nullptr : shaped.c_str());
     if (missed > 0) {
       LOG_DBG("GFX", "ensureSdCardFontReady: %d glyph(s) not found", missed);
     }
@@ -121,6 +194,27 @@ void GfxRenderer::ensureSdCardFontReady(int fontId, const uint32_t* codepoints, 
       LOG_DBG("GFX", "ensureSdCardFontReady: %d glyph(s) not found", missed);
     }
   }
+}
+
+bool GfxRenderer::collectSdCardFontShapedRtlCodepoints(const char* utf8Text, uint32_t* codepoints, uint16_t& cpCount,
+                                                       const uint16_t capacity, std::string& tokenScratch,
+                                                       std::string& visualScratch) const {
+  if (!utf8Text || !codepoints || cpCount >= capacity) return cpCount >= capacity;
+
+  bool truncated = false;
+  forEachShapedRtlToken(utf8Text, tokenScratch, visualScratch, [&](const char* shaped) {
+    const auto* p = reinterpret_cast<const unsigned char*>(shaped);
+    uint32_t cp = 0;
+    while ((cp = utf8NextCodepoint(&p))) {
+      if (std::find(codepoints, codepoints + cpCount, cp) != codepoints + cpCount) continue;
+      if (cpCount >= capacity) {
+        truncated = true;
+        return;
+      }
+      codepoints[cpCount++] = cp;
+    }
+  });
+  return truncated;
 }
 
 bool GfxRenderer::releaseSdCardFontForLowMemory(int fontId, const bool preserveAdvanceTable) const {
@@ -189,6 +283,47 @@ bool GfxRenderer::ensureBitmapScratchBuffers(const size_t outputRowSize, const s
   return true;
 }
 
+void GfxRenderer::releaseFrameBufferForBuild() {
+  // Lend the framebuffer's bytes IN PLACE: the allocation is never freed, so
+  // it cannot move and repeated loans cannot fragment the heap (the previous
+  // free+realloc model measurably decayed the max contiguous block over a
+  // session). The bytes are deposited in the build-scratch registry so
+  // memory-hungry build phases (e.g. InflateStream's tinfl state + window)
+  // can claim them instead of allocating.
+  uint32_t size = 0;
+  uint8_t* scratch = display.lendFrameBufferStorage(&size);
+  frameBuffer = nullptr;
+  if (scratch) {
+    buildscratch::lend(scratch, size);
+  }
+}
+
+bool GfxRenderer::restoreFrameBufferAfterBuild() {
+  buildscratch::reclaim();
+  display.returnFrameBufferStorage();  // cannot fail: the allocation was never freed
+  frameBuffer = display.getFrameBuffer();
+  return frameBuffer != nullptr;
+}
+
+GfxRenderer::FrameBufferLoan::FrameBufferLoan(GfxRenderer& renderer) : renderer_(renderer) {
+  // Nesting guard: if the framebuffer is already lent out (an outer loan),
+  // stay inert so this end() cannot return storage the outer loan still owns.
+  if (!renderer_.hasFrameBuffer()) return;
+  renderer_.releaseFrameBufferForBuild();
+  active_ = true;
+}
+
+void GfxRenderer::FrameBufferLoan::end() {
+  if (!active_) return;
+  active_ = false;
+  if (!renderer_.restoreFrameBufferAfterBuild()) {
+    // Only reachable if the framebuffer never existed, which begin() already
+    // asserts against; kept as a backstop since running blind helps nobody.
+    LOG_ERR("GFX", "Framebuffer restore failed - restarting");
+    ESP.restart();
+  }
+}
+
 bool GfxRenderer::isFontCacheScanning() const { return fontCacheManager_ && fontCacheManager_->isScanning(); }
 
 void GfxRenderer::insertFont(const int fontId, EpdFontFamily font) {
@@ -196,6 +331,36 @@ void GfxRenderer::insertFont(const int fontId, EpdFontFamily font) {
   if (!result.second) {
     LOG_ERR("GFX", "Font ID %d already registered, ignoring duplicate", fontId);
   }
+}
+
+int GfxRenderer::resolveTextFontId(const int fontId, const char* text, const EpdFontFamily::Style style) const {
+  if (fallbackFontMap_.empty() || text == nullptr || *text == '\0') {
+    return fontId;
+  }
+  const auto fbIt = fallbackFontMap_.find(fontId);
+  if (fbIt == fallbackFontMap_.end()) {
+    return fontId;  // no fallback registered for this font
+  }
+  const int fallbackFontId = fbIt->second;
+  const auto fontIt = fontMap.find(fontId);
+  const auto fallbackIt = fontMap.find(fallbackFontId);
+  if (fontIt == fontMap.end() || fallbackIt == fontMap.end()) {
+    return fontId;  // unknown primary or fallback not loaded — let the caller handle it
+  }
+  const EpdFontFamily& primary = fontIt->second;
+  const EpdFontFamily& fallback = fallbackIt->second;
+  const char* cursor = text;
+  uint32_t cp;
+  while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&cursor)))) {
+    // Only redirect for CJK the primary font cannot draw but the fallback can.
+    // Latin/symbol strings the built-in UI fonts already cover are left
+    // untouched, and a partial-coverage fallback (e.g. kana-only) is not worth
+    // dragging the whole string into for glyphs it would also miss.
+    if (utf8IsCjkCodepoint(cp) && !primary.hasCodepoint(cp, style) && fallback.hasCodepoint(cp, style)) {
+      return fallbackFontId;
+    }
+  }
+  return fontId;
 }
 
 // Translate logical (x,y) coordinates to physical panel coordinates based on current orientation
@@ -230,6 +395,48 @@ static inline void rotateCoordinates(const GfxRenderer::Orientation orientation,
       break;
     }
   }
+}
+
+struct AlignedMemRect {
+  uint16_t x = 0;
+  uint16_t y = 0;
+  uint16_t w = 0;
+  uint16_t h = 0;
+  bool valid = false;
+};
+
+static AlignedMemRect screenRectToAlignedMemRect(const GfxRenderer::Orientation orientation, const int sx, const int sy,
+                                                 const int sw, const int sh, const uint16_t panelWidth,
+                                                 const uint16_t panelHeight) {
+  AlignedMemRect out;
+  if (sw <= 0 || sh <= 0) return out;
+
+  int x0, y0, x1, y1;
+  rotateCoordinates(orientation, sx, sy, &x0, &y0, panelWidth, panelHeight);
+  rotateCoordinates(orientation, sx + sw - 1, sy + sh - 1, &x1, &y1, panelWidth, panelHeight);
+
+  const int memXLo = std::min(x0, x1);
+  const int memYLo = std::min(y0, y1);
+  const int memXHi = std::max(x0, x1) + 1;
+  const int memYHi = std::max(y0, y1) + 1;
+
+  int alignedXLo = memXLo & ~0x7;
+  int alignedXHi = (memXHi + 7) & ~0x7;
+  if (alignedXLo < 0) alignedXLo = 0;
+  if (alignedXHi > panelWidth) alignedXHi = panelWidth;
+
+  int clampedYLo = memYLo;
+  int clampedYHi = memYHi;
+  if (clampedYLo < 0) clampedYLo = 0;
+  if (clampedYHi > panelHeight) clampedYHi = panelHeight;
+
+  if (alignedXHi <= alignedXLo || clampedYHi <= clampedYLo) return out;
+  out.x = static_cast<uint16_t>(alignedXLo);
+  out.y = static_cast<uint16_t>(clampedYLo);
+  out.w = static_cast<uint16_t>(alignedXHi - alignedXLo);
+  out.h = static_cast<uint16_t>(clampedYHi - clampedYLo);
+  out.valid = true;
+  return out;
 }
 
 enum class TextRotation { None, Rotated90CW };
@@ -455,7 +662,7 @@ static void drawSyntheticGreekGlyphRotated90CW(const GfxRenderer& renderer, cons
 
 // Shared glyph rendering logic for normal and rotated text.
 // Coordinate mapping and cursor advance direction are selected at compile time via the template parameter.
-// Render a glyph at 50% scale. Used for SUP/SUB style bits.
+// Render a glyph at 50% scale. Used for SUP/SUB.
 //
 // Each destination pixel represents a 2x2 source block. Drawing when that block
 // contains ink preserves thin strokes that nearest-neighbor sampling can skip.
@@ -518,6 +725,69 @@ static void renderCharScaled(const GfxRenderer& renderer, GfxRenderer::RenderMod
             const uint8_t bit = 7 - (pos & 7);
             if ((byte >> bit) & 1) {
               hasInk = true;
+            }
+          }
+        }
+        if (hasInk) {
+          renderer.drawPixel(baseX + dstX, baseY + dstY, pixelState);
+        }
+      }
+    }
+  }
+}
+
+static void renderCharSmallCaps(const GfxRenderer& renderer, GfxRenderer::RenderMode renderMode,
+                                const EpdFontFamily& fontFamily, const uint32_t cp, int cursorX, int cursorY,
+                                const bool pixelState, const EpdFontFamily::Style style) {
+  const EpdGlyph* glyph = fontFamily.getGlyph(cp, style);
+  if (!glyph) return;
+
+  const EpdFontData* fontData = fontFamily.getData(style);
+  const uint8_t* bitmap = renderer.getGlyphBitmap(fontData, glyph);
+  if (!bitmap) return;
+
+  const int srcW = glyph->width;
+  const int srcH = glyph->height;
+  const int dstW = smallCapsScaledExtent(srcW);
+  const int dstH = smallCapsScaledExtent(srcH);
+  const int baseX = cursorX + scaleSmallCapsMetric(glyph->left);
+  const int baseY = cursorY - scaleSmallCapsMetric(glyph->top);
+
+  if (fontData->is2Bit) {
+    for (int dstY = 0; dstY < dstH; dstY++) {
+      const int srcY = dstY * 4 / 3;
+      const int srcYEnd = scaled75SourceEnd(dstY, srcH);
+      for (int dstX = 0; dstX < dstW; dstX++) {
+        const int srcX = dstX * 4 / 3;
+        const int srcXEnd = scaled75SourceEnd(dstX, srcW);
+        uint8_t maxRaw = 0;
+        for (int sampleY = srcY; sampleY < srcYEnd; sampleY++) {
+          for (int sampleX = srcX; sampleX < srcXEnd; sampleX++) {
+            const int pos = sampleY * srcW + sampleX;
+            const uint8_t byte = bitmap[pos >> 2];
+            const uint8_t raw = (byte >> ((3 - (pos & 3)) * 2)) & 0x3;
+            if (raw > maxRaw) maxRaw = raw;
+          }
+        }
+        draw2BitFontPixel(renderer, renderMode, baseX + dstX, baseY + dstY, maxRaw, pixelState);
+      }
+    }
+  } else {
+    for (int dstY = 0; dstY < dstH; dstY++) {
+      const int srcY = dstY * 4 / 3;
+      const int srcYEnd = scaled75SourceEnd(dstY, srcH);
+      for (int dstX = 0; dstX < dstW; dstX++) {
+        const int srcX = dstX * 4 / 3;
+        const int srcXEnd = scaled75SourceEnd(dstX, srcW);
+        bool hasInk = false;
+        for (int sampleY = srcY; sampleY < srcYEnd && !hasInk; sampleY++) {
+          for (int sampleX = srcX; sampleX < srcXEnd; sampleX++) {
+            const int pos = sampleY * srcW + sampleX;
+            const uint8_t byte = bitmap[pos >> 3];
+            const uint8_t bit = 7 - (pos & 7);
+            if ((byte >> bit) & 1) {
+              hasInk = true;
+              break;
             }
           }
         }
@@ -641,6 +911,29 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
 
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and
 // efficient as possible.
+bool GfxRenderer::isPixelBlack(const int x, const int y) const {
+  int phyX = 0;
+  int phyY = 0;
+  rotateCoordinates(orientation, x, y, &phyX, &phyY, panelWidth, panelHeight);
+  if (phyX < 0 || phyX >= panelWidth || phyY < 0 || phyY >= panelHeight) {
+    return false;
+  }
+
+  const uint8_t* target = frameBuffer;
+  uint32_t rowY = static_cast<uint32_t>(phyY);
+  if (_stripActive) {
+    if (phyY < _stripY0 || phyY >= _stripY0 + _stripRows) {
+      return false;
+    }
+    target = _stripBuf;
+    rowY = static_cast<uint32_t>(phyY - _stripY0);
+  }
+
+  const uint32_t byteIndex = rowY * panelWidthBytes + (phyX / 8);
+  const uint8_t bitPosition = 7 - (phyX % 8);
+  return (target[byteIndex] & (1 << bitPosition)) == 0;
+}
+
 void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
   int phyX = 0;
   int phyY = 0;
@@ -648,9 +941,10 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
   // Note: this call should be inlined for better performance
   rotateCoordinates(orientation, x, y, &phyX, &phyY, panelWidth, panelHeight);
 
-  // Bounds checking against runtime panel dimensions
+  // Text glyphs and shapes may cross a clipping edge. This is a per-pixel hot
+  // path, so logging here can turn one off-screen glyph into thousands of slow
+  // serial writes and starve input/power handling for minutes.
   if (phyX < 0 || phyX >= panelWidth || phyY < 0 || phyY >= panelHeight) {
-    LOG_ERR("GFX", "!! Outside range (%d, %d) -> (%d, %d)", x, y, phyX, phyY);
     return;
   }
 
@@ -678,6 +972,44 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
 }
 
 namespace {
+
+// Recognizes lowercase codepoints eligible for small-caps scaling: ASCII plus the
+// accented Latin (Latin-1 Supplement, Latin Extended-A), Greek, and Cyrillic
+// letters actually shipped in this repo's font builds (see EpdFont/scripts/
+// fontconvert.py and fontconvert_sdcard.py's latin-ext/greek/cyrillic intervals).
+// Ranges without a clean, single-codepoint uppercase pair (e.g. ß, digraphs) are
+// left unscaled rather than guessed at.
+bool isSmallCapsLowercase(const EpdFontFamily::Style style, const uint32_t cp) {
+  if ((style & EpdFontFamily::SMALL_CAPS) == 0) return false;
+  if (cp >= 'a' && cp <= 'z') return true;
+  // Latin-1 Supplement: à-ö, ø-þ (÷ at 0x00F7 is not a letter), plus ÿ (paired below).
+  if ((cp >= 0x00E0 && cp <= 0x00F6) || (cp >= 0x00F8 && cp <= 0x00FE) || cp == 0x00FF) return true;
+  // Latin Extended-A: alternating lower/upper pairs, plus the ź/ż/ž tail whose
+  // parity flips after the standalone Ÿ at 0x0178.
+  if (cp >= 0x0101 && cp <= 0x0177 && (cp & 1) != 0) return true;
+  if (cp == 0x017A || cp == 0x017C || cp == 0x017E) return true;
+  // Greek: α-ω, including final sigma ς (mapped to Σ, not the unassigned 0x03A2).
+  if (cp >= 0x03B1 && cp <= 0x03C9) return true;
+  // Cyrillic: а-я, the ѐ-џ supplement row (Ukrainian є/і/ї among them), and ґ.
+  if ((cp >= 0x0430 && cp <= 0x044F) || (cp >= 0x0450 && cp <= 0x045F) || cp == 0x0491) return true;
+  return false;
+}
+
+uint32_t smallCapsUppercaseCodepoint(const uint32_t cp) {
+  if (cp >= 'a' && cp <= 'z') return cp - ('a' - 'A');
+  if (cp == 0x00FF) return 0x0178;                     // ÿ -> Ÿ (not contiguous with à-þ)
+  if (cp >= 0x00E0 && cp <= 0x00FE) return cp - 0x20;  // à-þ
+  if (cp >= 0x0101 && cp <= 0x0177) return cp - 1;     // Latin Extended-A pairs
+  if (cp == 0x017A) return 0x0179;                     // ź -> Ź
+  if (cp == 0x017C) return 0x017B;                     // ż -> Ż
+  if (cp == 0x017E) return 0x017D;                     // ž -> Ž
+  if (cp == 0x03C2) return 0x03A3;                     // ς -> Σ (final sigma)
+  if (cp >= 0x03B1 && cp <= 0x03C9) return cp - 0x20;  // Greek base letters
+  if (cp == 0x0491) return 0x0490;                     // ґ -> Ґ
+  if (cp >= 0x0450 && cp <= 0x045F) return cp - 0x50;  // Cyrillic supplement row
+  return cp - 0x20;                                    // Cyrillic main block (а-я)
+}
+
 const char* resolveVisualText(const char* text, std::string& visualBuffer, const BidiUtils::BidiBaseDir baseDir) {
   if (!text || *text == '\0') return text;
 
@@ -705,17 +1037,22 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
     return 0;
   }
 
+  const int resolvedFontId = resolveTextFontId(fontId, text, style);
+
   std::string visualBuffer;
   const char* textCursor = resolveVisualText(text, visualBuffer, baseDir);
+  if ((style & EpdFontFamily::SMALL_CAPS) != 0) {
+    return getTextAdvanceX(resolvedFontId, textCursor, style);
+  }
 
   // SD-card fonts can measure from their persistent advance table during layout.
-  auto sdIt = sdCardFonts_.find(fontId);
+  auto sdIt = sdCardFonts_.find(resolvedFontId);
   if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
     int32_t widthFP = 0;
     const uint8_t styleIdx = resolveSdCardStyle(*sdIt->second, style);
-    const auto fontIt = fontMap.find(fontId);
+    const auto fontIt = fontMap.find(resolvedFontId);
     if (fontIt == fontMap.end()) {
-      LOG_ERR("GFX", "Font %d not found", fontId);
+      LOG_ERR("GFX", "Font %d not found", resolvedFontId);
       return 0;
     }
     const auto& font = fontIt->second;
@@ -725,9 +1062,9 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
     return fp4::toPixel(widthFP);
   }
 
-  const auto fontIt = fontMap.find(fontId);
+  const auto fontIt = fontMap.find(resolvedFontId);
   if (fontIt == fontMap.end()) {
-    LOG_ERR("GFX", "Font %d not found", fontId);
+    LOG_ERR("GFX", "Font %d not found", resolvedFontId);
     return 0;
   }
 
@@ -744,47 +1081,61 @@ void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* te
 
 void GfxRenderer::drawText(const int fontId, const int x, const int y, const char* text, const bool black,
                            const EpdFontFamily::Style style, const BidiUtils::BidiBaseDir baseDir) const {
-  const int yPos = y + getFontAscenderSize(fontId);
+  // cannot draw a NULL / empty string
+  if (text == nullptr || *text == '\0') {
+    return;
+  }
+
+  const int resolvedFontId = resolveTextFontId(fontId, text, style);
+  const int yPos = y + getFontAscenderSize(resolvedFontId);
   int lastBaseX = x;
   int lastBaseLeft = 0;
   int lastBaseWidth = 0;
   int lastBaseTop = 0;
   int32_t prevAdvanceFP = 0;  // 12.4 fixed-point: prev glyph's advance + next kern for snap
 
-  // cannot draw a NULL / empty string
-  if (text == nullptr || *text == '\0') {
-    return;
-  }
-
   if (fontCacheManager_ && fontCacheManager_->isScanning()) {
-    fontCacheManager_->recordText(text, fontId, style);
+    // Prewarm the exact codepoints the real pass will draw. Arabic shaping can
+    // replace logical characters with presentation forms; recording the input
+    // text here left those visual glyphs cold and produced replacement diamonds
+    // when the SD font's on-demand path was under memory pressure.
+    std::string visualBuffer;
+    fontCacheManager_->recordText(resolveVisualText(text, visualBuffer, baseDir), resolvedFontId, style);
     return;
   }
 
   std::string visualBuffer;
   const char* textCursor = resolveVisualText(text, visualBuffer, baseDir);
 
-  const auto fontIt = fontMap.find(fontId);
+  const auto fontIt = fontMap.find(resolvedFontId);
   if (fontIt == fontMap.end()) {
-    LOG_ERR("GFX", "Font %d not found", fontId);
+    LOG_ERR("GFX", "Font %d not found", resolvedFontId);
     return;
   }
   const auto& font = fontIt->second;
 
   uint32_t cp;
   uint32_t prevCp = 0;
+  bool prevScaledSmallCap = false;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&textCursor)))) {
-    if (utf8IsCombiningMark(cp)) {
+    if (utf8IsCombiningMark(cp) || BidiUtils::isTransparentMark(cp)) {
       const EpdGlyph* combiningGlyph = font.getGlyph(cp, style);
       if (!combiningGlyph) continue;
-      const int raiseBy = combiningMark::raiseAboveBase(combiningGlyph->top, combiningGlyph->height, lastBaseTop);
-      const int combiningX = combiningMark::centerOver(lastBaseX, lastBaseLeft, lastBaseWidth, combiningGlyph->left,
-                                                       combiningGlyph->width);
+      const auto anchor = combiningMark::anchorFor(cp);
+      const int raiseBy =
+          combiningMark::raiseAboveBase(anchor, combiningGlyph->top, combiningGlyph->height, lastBaseTop);
+      const int combiningX = combiningMark::anchorOver(anchor, lastBaseX, lastBaseLeft, lastBaseWidth,
+                                                       combiningGlyph->left, combiningGlyph->width);
       renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, combiningX, yPos - raiseBy, black, style);
       continue;
     }
 
-    cp = font.applyLigatures(cp, textCursor, style);
+    const bool scaledSmallCap = isSmallCapsLowercase(style, cp);
+    if (scaledSmallCap) {
+      cp = smallCapsUppercaseCodepoint(cp);
+    } else {
+      cp = font.applyLigatures(cp, textCursor, style);
+    }
     cp = font.getFallbackCodepoint(cp, style);
     const bool hasRealGlyph = font.findGlyphData(cp, style).glyph != nullptr;
 
@@ -792,8 +1143,11 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     // identical character pairs always produce the same pixel step regardless of
     // where they fall on the line.
     if (prevCp != 0) {
-      const auto kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
-      lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);       // snap 12.4 fixed-point to nearest pixel
+      int32_t kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
+      if (prevScaledSmallCap || scaledSmallCap) {
+        kernFP = smallCapsAdvanceFP(kernFP);
+      }
+      lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);  // snap 12.4 fixed-point to nearest pixel
     }
 
     if (!hasRealGlyph && syntheticGlyph::isSpaceFallback(cp)) {
@@ -802,6 +1156,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       lastBaseWidth = 0;
       lastBaseTop = 0;
       prevCp = 0;
+      prevScaledSmallCap = false;
       continue;
     }
 
@@ -813,6 +1168,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       lastBaseTop = metrics.top;
       prevAdvanceFP = metrics.advanceX;
       prevCp = cp;
+      prevScaledSmallCap = false;
       continue;
     }
 
@@ -824,6 +1180,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       lastBaseTop = metrics.top;
       prevAdvanceFP = metrics.advanceX;
       prevCp = cp;
+      prevScaledSmallCap = false;
       continue;
     }
 
@@ -835,6 +1192,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       lastBaseTop = metrics.top;
       prevAdvanceFP = metrics.advanceX;
       prevCp = cp;
+      prevScaledSmallCap = false;
       continue;
     }
 
@@ -848,6 +1206,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       lastBaseWidth = 0;
       lastBaseTop = 0;
       prevCp = 0;
+      prevScaledSmallCap = false;
       continue;
     }
 
@@ -858,18 +1217,21 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 
     const bool isSupSub = (style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0;
     if (isSupSub) {
-      // Halve the advance so the cursor advances by the same amount the scaled glyph
-      // actually occupies, keeping spacing correct without needing a separate smaller font.
-      prevAdvanceFP = (prevAdvanceFP + 1) / 2;
+      prevAdvanceFP = halfAdvanceFP(prevAdvanceFP);
+    } else if (scaledSmallCap) {
+      prevAdvanceFP = smallCapsAdvanceFP(prevAdvanceFP);
     }
 
     if (isSupSub) {
       // yPos already carries the vertical offset applied by TextBlock::render().
       renderCharScaled(*this, renderMode, font, cp, lastBaseX, yPos, black, style);
+    } else if (scaledSmallCap) {
+      renderCharSmallCaps(*this, renderMode, font, cp, lastBaseX, yPos, black, style);
     } else {
       renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, lastBaseX, yPos, black, style);
     }
     prevCp = cp;
+    prevScaledSmallCap = scaledSmallCap;
   }
 }
 
@@ -935,11 +1297,14 @@ void GfxRenderer::drawRect(const int x, const int y, const int width, const int 
 // Border is inside the rectangle
 void GfxRenderer::drawRect(const int x, const int y, const int width, const int height, const int lineWidth,
                            const bool state) const {
+  // Keep the border inside [x, x+width) like the thin overload: the previous
+  // right/bottom edges at x+width / y+height sat one pixel outside the rect,
+  // so stroked boxes looked shifted against fills computed from the rect.
   for (int i = 0; i < lineWidth; i++) {
-    drawLine(x + i, y + i, x + width - i, y + i, state);
-    drawLine(x + width - i, y + i, x + width - i, y + height - i, state);
-    drawLine(x + width - i, y + height - i, x + i, y + height - i, state);
-    drawLine(x + i, y + height - i, x + i, y + i, state);
+    drawLine(x + i, y + i, x + width - 1 - i, y + i, state);
+    drawLine(x + width - 1 - i, y + i, x + width - 1 - i, y + height - 1 - i, state);
+    drawLine(x + width - 1 - i, y + height - 1 - i, x + i, y + height - 1 - i, state);
+    drawLine(x + i, y + height - 1 - i, x + i, y + i, state);
   }
 }
 
@@ -1606,8 +1971,6 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
   bool isScaled = false;
   int cropPixX = std::floor(bitmap.getWidth() * cropX / 2.0f);
   int cropPixY = std::floor(bitmap.getHeight() * cropY / 2.0f);
-  LOG_DBG("GFX", "Cropping %dx%d by %dx%d pix, is %s", bitmap.getWidth(), bitmap.getHeight(), cropPixX, cropPixY,
-          bitmap.isTopDown() ? "top-down" : "bottom-up");
 
   const float croppedWidth = (1.0f - cropX) * static_cast<float>(bitmap.getWidth());
   const float croppedHeight = (1.0f - cropY) * static_cast<float>(bitmap.getHeight());
@@ -1629,7 +1992,6 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
     scale = fitScale;
     isScaled = true;
   }
-  LOG_DBG("GFX", "Scaling by %f - %s", scale, isScaled ? "scaled" : "not scaled");
 
   BitmapScratchLock scratchLock(*this);
   if (!scratchLock.isLocked()) return;
@@ -1877,11 +2239,7 @@ void GfxRenderer::fillPolygon(const int* xPoints, const int* yPoints, int numPoi
   free(nodeX);
 }
 
-// For performance measurement (using static to allow "const" methods)
-static unsigned long start_ms = 0;
-
 void GfxRenderer::clearScreen(const uint8_t color) const {
-  start_ms = millis();
   if (_stripActive) {
     // Clear only the active band's scratch, not the shared framebuffer.
     memset(_stripBuf, color, static_cast<size_t>(panelWidthBytes) * _stripRows);
@@ -1929,11 +2287,102 @@ void GfxRenderer::invertScreen() const {
   }
 }
 
+void GfxRenderer::invertRect(const int x, const int y, const int width, const int height) const {
+  if (frameBuffer == nullptr || width <= 0 || height <= 0) return;
+
+  const int lx0 = std::max(0, x);
+  const int ly0 = std::max(0, y);
+  const int lx1 = std::min(getScreenWidth(), x + width);
+  const int ly1 = std::min(getScreenHeight(), y + height);
+  if (lx0 >= lx1 || ly0 >= ly1) return;
+
+  int paX, paY, pbX, pbY;
+  rotateCoordinates(orientation, lx0, ly0, &paX, &paY, panelWidth, panelHeight);
+  rotateCoordinates(orientation, lx1 - 1, ly1 - 1, &pbX, &pbY, panelWidth, panelHeight);
+
+  const int phyX0 = std::min(paX, pbX);
+  const int phyX1 = std::max(paX, pbX);
+  int phyY0 = std::min(paY, pbY);
+  int phyY1 = std::max(paY, pbY);
+
+  uint8_t* target = getWriteTarget();
+  const int originY = getWriteOriginY();
+  phyY0 = std::max(phyY0, originY);
+  phyY1 = std::min(phyY1, originY + getWriteRows() - 1);
+  if (phyY0 > phyY1) return;
+
+  const int byteStart = phyX0 >> 3;
+  const int byteEnd = phyX1 >> 3;
+  const uint8_t headMask = static_cast<uint8_t>(0xFFu >> (phyX0 & 7));
+  const uint8_t tailMask = static_cast<uint8_t>(0xFFu << (7 - (phyX1 & 7)));
+
+  for (int py = phyY0; py <= phyY1; ++py) {
+    uint8_t* row = target + static_cast<int32_t>(py - originY) * panelWidthBytes;
+    if (byteStart == byteEnd) {
+      row[byteStart] ^= headMask & tailMask;
+      continue;
+    }
+
+    row[byteStart] ^= headMask;
+    for (int byte = byteStart + 1; byte < byteEnd; ++byte) {
+      row[byte] ^= 0xFFu;
+    }
+    row[byteEnd] ^= tailMask;
+  }
+}
+
 void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode, const bool turnOffScreen) const {
-  auto elapsed = millis() - start_ms;
-  LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
   display.displayBuffer(refreshMode, fadingFix || turnOffScreen);
 }
+
+size_t GfxRenderer::readFramebufferRegion(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t* dst,
+                                          size_t dstCapacity) const {
+  if (frameBuffer == nullptr || dst == nullptr || w == 0 || h == 0) return 0;
+
+  const AlignedMemRect mem = screenRectToAlignedMemRect(orientation, x, y, w, h, panelWidth, panelHeight);
+  if (!mem.valid) return 0;
+
+  const size_t rowBytes = mem.w / 8;
+  const size_t needed = rowBytes * mem.h;
+  if (needed > dstCapacity) return 0;
+
+  for (uint16_t row = 0; row < mem.h; row++) {
+    const uint8_t* srcRow = frameBuffer + (static_cast<uint32_t>(mem.y + row) * panelWidthBytes) + (mem.x / 8);
+    uint8_t* dstRow = dst + (static_cast<size_t>(row) * rowBytes);
+    memcpy(dstRow, srcRow, rowBytes);
+  }
+  return needed;
+}
+
+void GfxRenderer::writeFramebufferRegion(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* src) {
+  if (frameBuffer == nullptr || src == nullptr || w == 0 || h == 0) return;
+
+  const AlignedMemRect mem = screenRectToAlignedMemRect(orientation, x, y, w, h, panelWidth, panelHeight);
+  if (!mem.valid) return;
+
+  const size_t rowBytes = mem.w / 8;
+  for (uint16_t row = 0; row < mem.h; row++) {
+    const uint8_t* srcRow = src + (static_cast<size_t>(row) * rowBytes);
+    uint8_t* dstRow = frameBuffer + (static_cast<uint32_t>(mem.y + row) * panelWidthBytes) + (mem.x / 8);
+    memcpy(dstRow, srcRow, rowBytes);
+  }
+}
+
+void GfxRenderer::displayBufferAsync(const HalDisplay::RefreshMode refreshMode) const {
+  // The async path has no turn-off-screen hook, which the sunlight fading fix
+  // relies on; keep those users on the blocking path.
+  if (fadingFix) {
+    display.displayBuffer(refreshMode, fadingFix);
+    return;
+  }
+  display.displayBufferAsync(refreshMode);
+}
+
+void GfxRenderer::waitRefreshComplete() const { display.waitRefreshComplete(); }
+
+bool GfxRenderer::supportsAsyncRefresh() const { return !fadingFix && display.supportsAsyncRefresh(); }
+
+bool GfxRenderer::supportsAsyncGrayscaleBase() const { return !fadingFix && display.supportsAsyncGrayscaleBase(); }
 
 std::string GfxRenderer::truncatedText(const int fontId, const char* text, const int maxWidth,
                                        const EpdFontFamily::Style style) const {
@@ -2046,6 +2495,35 @@ int GfxRenderer::getScreenHeight() const {
       return panelHeight;
   }
   return panelWidth;
+}
+
+void GfxRenderer::tapToLogical(float nx, float ny, int& outX, int& outY) const {
+  int phyX = static_cast<int>(nx * panelWidth);
+  int phyY = static_cast<int>(ny * panelHeight);
+  if (phyX < 0) phyX = 0;
+  if (phyX > panelWidth - 1) phyX = panelWidth - 1;
+  if (phyY < 0) phyY = 0;
+  if (phyY > panelHeight - 1) phyY = panelHeight - 1;
+
+  switch (orientation) {
+    case Portrait:
+      outX = panelHeight - 1 - phyY;
+      outY = phyX;
+      break;
+    case PortraitInverted:
+      outX = phyY;
+      outY = panelWidth - 1 - phyX;
+      break;
+    case LandscapeClockwise:
+      outX = panelWidth - 1 - phyX;
+      outY = panelHeight - 1 - phyY;
+      break;
+    case LandscapeCounterClockwise:
+    default:
+      outX = phyX;
+      outY = phyY;
+      break;
+  }
 }
 
 // Translate a logical rect through rotateCoordinates and take the bounding
@@ -2188,31 +2666,72 @@ int GfxRenderer::getKerning(const int fontId, const uint32_t leftCp, const uint3
   return fp4::toPixel(kernFP);                                           // snap 4.4 fixed-point to nearest pixel
 }
 
-int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFamily::Style style) const {
+int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFontFamily::Style style,
+                                 const uint32_t followingCp) const {
+  // Match the font drawText would use for CJK-bearing strings (see resolveTextFontId).
+  const int resolvedFontId = resolveTextFontId(fontId, text, style);
+  // Measure the exact codepoint stream drawText renders: bidi-reordered and
+  // Arabic-shaped (contextual presentation forms, Lam-Alef collapse).
+  // Measuring the raw logical text counts the Alef a ligature absorbs and
+  // uses base-letter advances instead of presentation-form advances, so RTL
+  // lines come out wider than they draw — uneven word gaps and a ragged
+  // right margin.
+  std::string visual;
+  text = resolveVisualText(text, visual, BidiUtils::BidiBaseDir::AUTO);
+
   // Advance table fast-path for SD card fonts during layout.
   // No kerning/ligature lookup — consistent with previous metadataOnly behavior
   // where kern/lig data was not loaded.
-  auto sdIt = sdCardFonts_.find(fontId);
+  auto sdIt = sdCardFonts_.find(resolvedFontId);
   if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
     int32_t widthFP = 0;
     const bool isSupSub = (style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0;
     const uint8_t styleIdx = resolveSdCardStyle(*sdIt->second, style);
-    const auto fontIt = fontMap.find(fontId);
+    const auto fontIt = fontMap.find(resolvedFontId);
     if (fontIt == fontMap.end()) {
-      LOG_ERR("GFX", "Font %d not found", fontId);
+      LOG_ERR("GFX", "Font %d not found", resolvedFontId);
       return 0;
     }
     const auto& font = fontIt->second;
+    uint32_t lastCp = 0;
+    bool lastScaledSmallCap = false;
     while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text))) {
+      if (BidiUtils::isTransparentMark(cp)) {
+        continue;
+      }
+      const bool scaledSmallCap = isSmallCapsLowercase(style, cp);
+      if (scaledSmallCap) {
+        cp = smallCapsUppercaseCodepoint(cp);
+      }
       const int32_t advFP = resolveSdCardAdvanceFP(*sdIt->second, font, cp, style, styleIdx);
-      widthFP += isSupSub ? (advFP + 1) / 2 : advFP;
+      if (isSupSub) {
+        widthFP += halfAdvanceFP(advFP);
+      } else if (scaledSmallCap) {
+        widthFP += smallCapsAdvanceFP(advFP);
+      } else {
+        widthFP += advFP;
+      }
+      lastCp = cp;
+      lastScaledSmallCap = scaledSmallCap;
+    }
+    if (followingCp != 0 && lastCp != 0) {
+      uint32_t adjustedFollowingCp = followingCp;
+      const bool followingScaledSmallCap = isSmallCapsLowercase(style, adjustedFollowingCp);
+      if (followingScaledSmallCap) {
+        adjustedFollowingCp = smallCapsUppercaseCodepoint(adjustedFollowingCp);
+      }
+      int32_t kernFP = font.getKerning(lastCp, adjustedFollowingCp, style);
+      if (lastScaledSmallCap || followingScaledSmallCap) {
+        kernFP = smallCapsAdvanceFP(kernFP);
+      }
+      widthFP += kernFP;
     }
     return fp4::toPixel(widthFP);
   }
 
-  const auto fontIt = fontMap.find(fontId);
+  const auto fontIt = fontMap.find(resolvedFontId);
   if (fontIt == fontMap.end()) {
-    LOG_ERR("GFX", "Font %d not found", fontId);
+    LOG_ERR("GFX", "Font %d not found", resolvedFontId);
     return 0;
   }
 
@@ -2220,54 +2739,88 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
   uint32_t prevCp = 0;
   int widthPx = 0;
   int32_t prevAdvanceFP = 0;  // 12.4 fixed-point: prev glyph's advance + next kern for snap
+  bool prevScaledSmallCap = false;
   const auto& font = fontIt->second;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
+    // RTL vowel marks (niqqud/harakat) are zero-advance overlays in drawText — no width.
+    if (BidiUtils::isTransparentMark(cp)) {
+      continue;
+    }
     if (utf8IsCombiningMark(cp)) {
       continue;
     }
-    cp = font.applyLigatures(cp, text, style);
+    const bool scaledSmallCap = isSmallCapsLowercase(style, cp);
+    if (scaledSmallCap) {
+      cp = smallCapsUppercaseCodepoint(cp);
+    } else {
+      cp = font.applyLigatures(cp, text, style);
+    }
     cp = font.getFallbackCodepoint(cp, style);
     const bool hasRealGlyph = font.findGlyphData(cp, style).glyph != nullptr;
 
     // Differential rounding: snap (previous advance + current kern) together,
     // matching drawText so measurement and rendering agree exactly.
     if (prevCp != 0) {
-      const auto kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
-      widthPx += fp4::toPixel(prevAdvanceFP + kernFP);         // snap 12.4 fixed-point to nearest pixel
+      int32_t kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
+      if (prevScaledSmallCap || scaledSmallCap) {
+        kernFP = smallCapsAdvanceFP(kernFP);
+      }
+      widthPx += fp4::toPixel(prevAdvanceFP + kernFP);  // snap 12.4 fixed-point to nearest pixel
     }
 
     if (!hasRealGlyph && syntheticGlyph::isSpaceFallback(cp)) {
       prevAdvanceFP = 0;
       prevCp = 0;
+      prevScaledSmallCap = false;
       continue;
     }
 
     if (!hasRealGlyph && syntheticGlyph::isSolid(cp)) {
       prevAdvanceFP = getSyntheticSolidGlyphMetrics(font, style, cp).advanceX;
       prevCp = cp;
+      prevScaledSmallCap = false;
       continue;
     }
 
     if (!hasRealGlyph && syntheticGlyph::isGreekFallback(cp)) {
       prevAdvanceFP = getSyntheticGreekGlyphMetrics(font, style, cp).advanceX;
       prevCp = cp;
+      prevScaledSmallCap = false;
       continue;
     }
 
     if (!hasRealGlyph && syntheticGlyph::isReplacementFallback(cp)) {
       prevAdvanceFP = getSyntheticReplacementGlyphMetrics(font, style).advanceX;
       prevCp = cp;
+      prevScaledSmallCap = false;
       continue;
     }
 
     const EpdGlyph* glyph = font.getGlyph(cp, style);
     prevAdvanceFP = glyph ? glyph->advanceX : 0;
     if ((style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) {
-      prevAdvanceFP = (prevAdvanceFP + 1) / 2;
+      prevAdvanceFP = halfAdvanceFP(prevAdvanceFP);
+    } else if (scaledSmallCap) {
+      prevAdvanceFP = smallCapsAdvanceFP(prevAdvanceFP);
     }
     prevCp = cp;
+    prevScaledSmallCap = scaledSmallCap;
   }
-  widthPx += fp4::toPixel(prevAdvanceFP);  // final glyph's advance
+  if (followingCp != 0 && prevCp != 0) {
+    uint32_t adjustedFollowingCp = followingCp;
+    const bool followingScaledSmallCap = isSmallCapsLowercase(style, adjustedFollowingCp);
+    if (followingScaledSmallCap) {
+      adjustedFollowingCp = smallCapsUppercaseCodepoint(adjustedFollowingCp);
+    }
+    adjustedFollowingCp = font.getFallbackCodepoint(adjustedFollowingCp, style);
+    int32_t kernFP = font.getKerning(prevCp, adjustedFollowingCp, style);  // 4.4 fixed-point kern
+    if (prevScaledSmallCap || followingScaledSmallCap) {
+      kernFP = smallCapsAdvanceFP(kernFP);
+    }
+    widthPx += fp4::toPixel(prevAdvanceFP + kernFP);
+  } else {
+    widthPx += fp4::toPixel(prevAdvanceFP);  // final glyph's advance
+  }
   return widthPx;
 }
 
@@ -2307,9 +2860,11 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
     return;
   }
 
-  const auto fontIt = fontMap.find(fontId);
+  // Route CJK-bearing strings to the fallback font (see resolveTextFontId).
+  const int resolvedFontId = resolveTextFontId(fontId, text, style);
+  const auto fontIt = fontMap.find(resolvedFontId);
   if (fontIt == fontMap.end()) {
-    LOG_ERR("GFX", "Font %d not found", fontId);
+    LOG_ERR("GFX", "Font %d not found", resolvedFontId);
     return;
   }
 
@@ -2324,12 +2879,21 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
   uint32_t cp;
   uint32_t prevCp = 0;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
-    if (utf8IsCombiningMark(cp)) {
+    // RTL vowel marks (Hebrew niqqud, Arabic harakat) ride the combining-mark
+    // path: zero-advance overlays on the preceding base glyph (applyBidiVisual
+    // emits base-then-marks per UAX#9 L3). anchorFor pins position-sensitive
+    // niqqud (dagesh, shin/sin dots, holam) to their spot on the base; other
+    // marks stay centered, raised above the base or (kasra) at their
+    // font-native position. Fonts without their glyphs — the built-ins — miss
+    // the getGlyph lookup and skip them, as before.
+    if (utf8IsCombiningMark(cp) || BidiUtils::isTransparentMark(cp)) {
       const EpdGlyph* combiningGlyph = font.getGlyph(cp, style);
       if (!combiningGlyph) continue;
-      const int raiseBy = combiningMark::raiseAboveBase(combiningGlyph->top, combiningGlyph->height, lastBaseTop);
+      const auto anchor = combiningMark::anchorFor(cp);
+      const int raiseBy =
+          combiningMark::raiseAboveBase(anchor, combiningGlyph->top, combiningGlyph->height, lastBaseTop);
       const int combiningX = x - raiseBy;
-      const int combiningY = combiningMark::centerOverRotated90CW(lastBaseY, lastBaseLeft, lastBaseWidth,
+      const int combiningY = combiningMark::anchorOverRotated90CW(anchor, lastBaseY, lastBaseLeft, lastBaseWidth,
                                                                   combiningGlyph->left, combiningGlyph->width);
       renderCharImpl<TextRotation::Rotated90CW>(*this, renderMode, font, cp, combiningX, combiningY, black, style);
       continue;

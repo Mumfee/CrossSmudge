@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -46,12 +47,13 @@ class PageLine final : public PageElement {
 
 // New PageImage class
 class PageImage final : public PageElement {
-  std::shared_ptr<ImageBlock> imageBlock;
+  std::unique_ptr<ImageBlock> imageBlock;
 
  public:
-  PageImage(std::shared_ptr<ImageBlock> block, const int16_t xPos, const int16_t yPos)
+  PageImage(std::unique_ptr<ImageBlock> block, const int16_t xPos, const int16_t yPos)
       : PageElement(xPos, yPos), imageBlock(std::move(block)) {}
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) override;
+  void renderPlaceholder(GfxRenderer& renderer, int xOffset, int yOffset, bool foregroundBlack) const;
   bool serialize(FsFile& file) override;
   PageElementTag getTag() const override { return TAG_PageImage; }
   static std::unique_ptr<PageImage> deserialize(FsFile& file);
@@ -127,15 +129,21 @@ class Page {
   };
 
   // the list of block index and line numbers on this page
-  std::vector<std::shared_ptr<PageElement>> elements;
+  // Page elements have one owner: their page. Text blocks remain shared by
+  // PageLine entries when a laid-out block spans multiple lines or pages.
+  std::vector<std::unique_ptr<PageElement>> elements;
   std::vector<FootnoteEntry> footnotes;
   std::vector<PublisherPageMarker> publisherPageMarkers;
-  static constexpr uint16_t MAX_FOOTNOTES_PER_PAGE = 16;
+  static constexpr uint16_t MAX_FOOTNOTES_PER_PAGE = EPUB_MAX_FOOTNOTES_PER_PAGE;
   static constexpr uint8_t INITIAL_FOOTNOTE_RESERVE = 2;
   static constexpr uint8_t MAX_PUBLISHER_PAGE_MARKERS_PER_PAGE = 8;
   static constexpr uint8_t INITIAL_PUBLISHER_PAGE_MARKER_RESERVE = 2;
 
-  void addFootnote(const char* number, const char* href) {
+  void addFootnote(const char* number, const char* href, const uint8_t linkId = 0) {
+    if (linkId != 0 && std::any_of(footnotes.begin(), footnotes.end(),
+                                   [linkId](const FootnoteEntry& entry) { return entry.linkId == linkId; })) {
+      return;
+    }
     if (footnotes.size() >= MAX_FOOTNOTES_PER_PAGE) return;  // Cap per-page footnotes
     if (footnotes.empty()) {
       footnotes.reserve(INITIAL_FOOTNOTE_RESERVE);
@@ -145,6 +153,7 @@ class Page {
     entry.number[sizeof(entry.number) - 1] = '\0';
     std::strncpy(entry.href, href, sizeof(entry.href) - 1);
     entry.href[sizeof(entry.href) - 1] = '\0';
+    entry.linkId = linkId;
     footnotes.push_back(entry);
   }
 
@@ -162,14 +171,23 @@ class Page {
 
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) const;
   void renderText(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) const;
-  void renderImages(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) const;
+  void renderImages(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) const;
+  void renderWithImagePlaceholders(GfxRenderer& renderer, int fontId, int xOffset, int yOffset,
+                                   bool foregroundBlack = true) const;
   bool serialize(FsFile& file) const;
   static std::unique_ptr<Page> deserialize(FsFile& file);
 
   // Check if page contains any images (used to force full refresh)
   bool hasImages() const {
     return std::any_of(elements.begin(), elements.end(),
-                       [](const std::shared_ptr<PageElement>& el) { return el->getTag() == TAG_PageImage; });
+                       [](const std::unique_ptr<PageElement>& el) { return el->getTag() == TAG_PageImage; });
+  }
+
+  bool hasImagesNeedingDecode() const {
+    return std::any_of(elements.begin(), elements.end(), [](const std::unique_ptr<PageElement>& element) {
+      return element->getTag() == TAG_PageImage &&
+             static_cast<const PageImage&>(*element).getImageBlock().needsDecode();
+    });
   }
 
   // Get bounding box of all images on the page (union of image rects)

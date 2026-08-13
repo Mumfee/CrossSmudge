@@ -16,16 +16,20 @@ class XtcReaderMenuActivity final : public Activity {
     TOGGLE_COMPLETED,
     DELETE_STATS,
     DELETE_CACHE,
+    SEND_NEARBY_BOOK,
+    DISABLE_TOUCHSCREEN,
   };
 
   XtcReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string title, bool hasChapters,
                         bool isBookCompleted);
 
   void onEnter() override;
+  void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
   bool isReaderActivity() const override { return true; }
   bool allowPowerAsConfirmInReaderMode() const override { return true; }
+  bool allowGlobalHomeGesture() const override { return false; }
 
  private:
   struct MenuItem {
@@ -33,7 +37,8 @@ class XtcReaderMenuActivity final : public Activity {
     StrId labelId;
   };
 
-  static std::vector<MenuItem> buildMenuItems(bool hasChapters, bool isBookCompleted);
+  static std::vector<MenuItem> buildMenuItems(bool hasChapters, bool isBookCompleted, bool hasTouch);
+  void finishCancelled();
 
   ButtonNavigator buttonNavigator;
   std::string title;

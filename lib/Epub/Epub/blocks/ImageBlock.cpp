@@ -5,6 +5,9 @@
 #include <Logging.h>
 #include <Serialization.h>
 
+#include <cstdlib>
+#include <utility>
+
 #include "Epub/converters/DirectPixelWriter.h"
 #include "Epub/converters/ImageDecoderFactory.h"
 
@@ -13,8 +16,16 @@
 // - uint16_t height
 // - uint8_t pixels[...] - 2 bits per pixel, packed (4 pixels per byte), row-major order
 
-ImageBlock::ImageBlock(const std::string& imagePath, int16_t width, int16_t height)
-    : imagePath(imagePath), width(width), height(height) {}
+ImageBlock::ImageBlock(std::string imagePath, std::string sourcePath, int16_t width, int16_t height)
+    : imagePath(std::move(imagePath)), sourcePath(std::move(sourcePath)), width(width), height(height) {}
+
+void* ImageBlock::extractContext = nullptr;
+ImageBlock::ExtractFn ImageBlock::extractFn = nullptr;
+
+void ImageBlock::setExtractor(void* context, ExtractFn fn) {
+  extractContext = context;
+  extractFn = fn;
+}
 
 bool ImageBlock::imageExists() const { return Storage.exists(imagePath.c_str()); }
 
@@ -58,6 +69,54 @@ void clampCachedRowsToLandscapeStrip(const GfxRenderer& renderer, const int imag
   if (rowEnd > stripRowEnd) rowEnd = stripRowEnd;
 }
 
+bool readValidCacheHeader(FsFile& cacheFile, const int expectedWidth, const int expectedHeight, uint16_t& cachedWidth,
+                          uint16_t& cachedHeight) {
+  if (cacheFile.read(&cachedWidth, 2) != 2 || cacheFile.read(&cachedHeight, 2) != 2) {
+    return false;
+  }
+
+  const int widthDiff = abs(cachedWidth - expectedWidth);
+  const int heightDiff = abs(cachedHeight - expectedHeight);
+  if (widthDiff > 1 || heightDiff > 1) {
+    return false;
+  }
+
+  const size_t bytesPerRow = (cachedWidth + 3) / 4;
+  const size_t expectedSize = 4 + bytesPerRow * cachedHeight;
+  return cacheFile.size() >= expectedSize;
+}
+
+// Pages are deserialized afresh on each visit. Keep a bounded, allocation-free
+// record so an image that failed renders its placeholder directly for the rest
+// of the reader session instead of paying another placeholder refresh and
+// decode. The reader clears this on entry so transient memory/storage failures
+// are retried.
+constexpr size_t MAX_SESSION_IMAGE_FAILURES = 16;
+uint64_t failedImageHashes[MAX_SESSION_IMAGE_FAILURES];
+size_t failedImageCount = 0;
+
+uint64_t imagePathHash(const std::string& path) {
+  uint64_t hash = 14695981039346656037ull;
+  for (const char c : path) {
+    hash ^= static_cast<uint8_t>(c);
+    hash *= 1099511628211ull;
+  }
+  return hash;
+}
+
+bool imageFailedThisSession(const std::string& path) {
+  const uint64_t hash = imagePathHash(path);
+  for (size_t i = 0; i < failedImageCount; i++) {
+    if (failedImageHashes[i] == hash) return true;
+  }
+  return false;
+}
+
+void rememberImageFailure(const std::string& path) {
+  if (failedImageCount == MAX_SESSION_IMAGE_FAILURES || imageFailedThisSession(path)) return;
+  failedImageHashes[failedImageCount++] = imagePathHash(path);
+}
+
 bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x, int y, int expectedWidth,
                      int expectedHeight) {
   FsFile cacheFile;
@@ -66,26 +125,14 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
   }
 
   uint16_t cachedWidth, cachedHeight;
-  if (cacheFile.read(&cachedWidth, 2) != 2 || cacheFile.read(&cachedHeight, 2) != 2) {
-    cacheFile.close();
-    return false;
-  }
-
-  // Verify dimensions are close (allow 1 pixel tolerance for rounding differences)
-  int widthDiff = abs(cachedWidth - expectedWidth);
-  int heightDiff = abs(cachedHeight - expectedHeight);
-  if (widthDiff > 1 || heightDiff > 1) {
-    LOG_ERR("IMG", "Cache dimension mismatch: %dx%d vs %dx%d", cachedWidth, cachedHeight, expectedWidth,
-            expectedHeight);
-    cacheFile.close();
+  if (!readValidCacheHeader(cacheFile, expectedWidth, expectedHeight, cachedWidth, cachedHeight)) {
+    LOG_ERR("IMG", "Invalid image cache: %s", cachePath.c_str());
     return false;
   }
 
   // Use cached dimensions for rendering (they're the actual decoded size)
   expectedWidth = cachedWidth;
   expectedHeight = cachedHeight;
-
-  LOG_DBG("IMG", "Loading from cache: %s (%dx%d)", cachePath.c_str(), cachedWidth, cachedHeight);
 
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
@@ -183,13 +230,36 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
 
   free(readBuffer);
   cacheFile.close();
-  LOG_DBG("IMG", "Cache render complete");
   return true;
 }
 
 }  // namespace
 
-void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
+bool ImageBlock::hasValidCache() const {
+  const auto cachePath = getCachePath(imagePath);
+  FsFile cacheFile;
+  if (!Storage.openFileForRead("IMG", cachePath, cacheFile)) {
+    return false;
+  }
+
+  uint16_t cachedWidth, cachedHeight;
+  const bool valid = readValidCacheHeader(cacheFile, width, height, cachedWidth, cachedHeight);
+  cacheFile.close();
+  return valid;
+}
+
+bool ImageBlock::needsDecode() const { return !imageFailedThisSession(imagePath) && !hasValidCache(); }
+
+void ImageBlock::clearSessionRenderFailures() { failedImageCount = 0; }
+
+void ImageBlock::renderPlaceholder(GfxRenderer& renderer, const int x, const int y, const bool foregroundBlack) const {
+  renderer.fillRect(x, y, width, height, foregroundBlack);
+  if (width > 2 && height > 2) {
+    renderer.fillRect(x + 1, y + 1, width - 2, height - 2, !foregroundBlack);
+  }
+}
+
+void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const bool foregroundBlack) {
   // The font-prewarm scan pass only accumulates glyphs; an image contributes
   // none, and its DirectPixelWriter output bypasses the renderer's scan-mode
   // suppression, so it would otherwise do a full (discarded) cache render every
@@ -197,8 +267,6 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   // passes; on first view this just moves the one-time decode to the BW pass.
   FontCacheManager* fcm = renderer.getFontCacheManager();
   if (fcm && fcm->isScanning()) return;
-
-  LOG_DBG("IMG", "Rendering image at %d,%d: %s (%dx%d)", x, y, imagePath.c_str(), width, height);
 
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
@@ -227,10 +295,21 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
     return;
   }
 
+  if (imageFailedThisSession(imagePath)) {
+    renderPlaceholder(renderer, x, y, foregroundBlack);
+    return;
+  }
+
   // Try to render from cache first
   std::string cachePath = getCachePath(imagePath);
   if (renderFromCache(renderer, cachePath, x, y, width, height)) {
     return;  // Successfully rendered from cache
+  }
+
+  if (!sourcePath.empty() && extractFn && !Storage.exists(imagePath.c_str())) {
+    if (!extractFn(extractContext, sourcePath.c_str(), imagePath.c_str())) {
+      LOG_ERR("IMG", "Lazy extraction failed: %s", sourcePath.c_str());
+    }
   }
 
   // No cache - need to decode the image
@@ -238,6 +317,8 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   FsFile file;
   if (!Storage.openFileForRead("IMG", imagePath, file)) {
     LOG_ERR("IMG", "Image file not found: %s", imagePath.c_str());
+    rememberImageFailure(imagePath);
+    renderPlaceholder(renderer, x, y, foregroundBlack);
     return;
   }
   size_t fileSize = file.size();
@@ -245,10 +326,10 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
 
   if (fileSize == 0) {
     LOG_ERR("IMG", "Image file is empty: %s", imagePath.c_str());
+    rememberImageFailure(imagePath);
+    renderPlaceholder(renderer, x, y, foregroundBlack);
     return;
   }
-
-  LOG_DBG("IMG", "Decoding and caching: %s", imagePath.c_str());
 
   RenderConfig config;
   config.x = x;
@@ -266,23 +347,23 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(imagePath);
   if (!decoder) {
     LOG_ERR("IMG", "No decoder found for image: %s", imagePath.c_str());
+    rememberImageFailure(imagePath);
+    renderPlaceholder(renderer, x, y, foregroundBlack);
     return;
   }
-
-  LOG_DBG("IMG", "Using %s decoder", decoder->getFormatName());
 
   bool success = decoder->decodeToFramebuffer(imagePath, renderer, config);
   if (!success) {
     LOG_ERR("IMG", "Failed to decode image: %s", imagePath.c_str());
+    rememberImageFailure(imagePath);
+    renderPlaceholder(renderer, x, y, foregroundBlack);
     return;
   }
-
-  LOG_DBG("IMG", "Decode successful");
 }
 
 bool ImageBlock::serialize(FsFile& file) {
-  return serialization::tryWriteString(file, imagePath) && serialization::tryWritePod(file, width) &&
-         serialization::tryWritePod(file, height);
+  return serialization::tryWriteString(file, imagePath) && serialization::tryWriteString(file, sourcePath) &&
+         serialization::tryWritePod(file, width) && serialization::tryWritePod(file, height);
 }
 
 std::unique_ptr<ImageBlock> ImageBlock::deserialize(FsFile& file) {
@@ -291,13 +372,18 @@ std::unique_ptr<ImageBlock> ImageBlock::deserialize(FsFile& file) {
     LOG_ERR("IMG", "Deserialization failed: could not read image path");
     return nullptr;
   }
+  std::string source;
+  if (!serialization::tryReadString(file, source)) {
+    LOG_ERR("IMG", "Deserialization failed: could not read image source path");
+    return nullptr;
+  }
   int16_t w, h;
   if (!serialization::tryReadPod(file, w) || !serialization::tryReadPod(file, h)) {
     LOG_ERR("IMG", "Deserialization failed: truncated image metadata");
     return nullptr;
   }
 
-  auto* imageBlock = new (std::nothrow) ImageBlock(path, w, h);
+  auto* imageBlock = new (std::nothrow) ImageBlock(std::move(path), std::move(source), w, h);
   if (!imageBlock) {
     LOG_ERR("IMG", "Deserialization failed: could not allocate ImageBlock");
     return nullptr;

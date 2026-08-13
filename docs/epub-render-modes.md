@@ -1,6 +1,6 @@
 ---
 title: EPUB Render Modes
-nav_order: 18
+nav_order: 9
 ---
 
 # EPUB Render Modes
@@ -15,12 +15,12 @@ default behavior for your other books.
 
 ## Which Mode Should I Use?
 
-| Mode | Best for | What it keeps | What it simplifies |
-| --- | --- | --- | --- |
-| CrossSmudge Default | Most books | Full CrossSmudge styling, detailed CSS, table layout, image sizing, publisher spacing, Bionic Reading, Guide Dots | Nothing by default |
-| Balanced | Books where CrossSmudge has fallen back automatically, or books you want to start in a lighter mode | Publisher spacing, image sizing, decorations, Bionic Reading, Guide Dots | Complex CSS lookups and table layout |
-| Light | Books where Balanced is still too heavy, or books you want to start in the safest mode | Text content, hidden-content rules, basic formatting, Bionic Reading, Guide Dots | Complex CSS lookups, table layout, publisher spacing, image sizing, and decorative separators |
-| Safe Mode | Final automatic fallback for books that still run out of memory in Light | Text content, hidden-content rules, basic formatting | Light-mode simplifications plus embedded styles, Bionic Reading, and Guide Dots |
+| Mode             | Best for                                                                                         | What it keeps                                                                                                  | What it simplifies                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| CrossSmudge Default | Most books                                                                                       | Full CrossSmudge styling, detailed CSS, table layout, image sizing, publisher spacing, Bionic Reading, Guide Dots | Nothing by default                                                                            |
+| Balanced         | Books where CrossSmudge has fallen back automatically, or books you want to start in a lighter mode | Publisher spacing, image sizing, decorations, Bionic Reading, Guide Dots                                       | Complex CSS lookups and table layout                                                          |
+| Light            | Books where Balanced is still too heavy, or books you want to start in the safest mode           | Text content, hidden-content rules, basic formatting, Bionic Reading, Guide Dots                               | Complex CSS lookups, table layout, publisher spacing, image sizing, and decorative separators |
+| Safe Mode        | Final automatic fallback for books that still run out of memory in Light                         | Text content, hidden-content rules, basic formatting                                                           | Light-mode simplifications plus embedded styles, Bionic Reading, and Guide Dots               |
 
 Most users can leave books on **CrossSmudge Default**. If a book runs out of memory
 while building a section, CrossSmudge will automatically try **Balanced** and then

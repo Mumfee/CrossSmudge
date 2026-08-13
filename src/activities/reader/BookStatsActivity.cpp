@@ -4,6 +4,7 @@
 
 #include "BookStatsView.h"
 #include "MappedInputManager.h"
+#include "components/TouchHeaderBackButton.h"
 
 BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                      const std::string& bookCachePath, const BookReadingStats& stats,
@@ -217,21 +218,18 @@ void BookStatsActivity::adjustSelectedDateField(const int delta) {
 
 void BookStatsActivity::onEnter() {
   Activity::onEnter();
+  previousOrientation = renderer.getOrientation();
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   requestUpdate();
 }
 
 void BookStatsActivity::onExit() {
   saveStats();
+  renderer.setOrientation(previousOrientation);
   Activity::onExit();
 }
 
-void BookStatsActivity::exitStatsActivity(const bool viaBack) {
-  if (viaBack) {
-    mappedInput.suppressNextBackRelease();
-  } else {
-    mappedInput.suppressNextConfirmRelease();
-  }
-
+void BookStatsActivity::exitStatsActivity() {
   if (returnToHomeOnExit) {
     onGoHome();
     return;
@@ -240,25 +238,101 @@ void BookStatsActivity::exitStatsActivity(const bool viaBack) {
   finish();
 }
 
+bool BookStatsActivity::showNextStatsPage() {
+  if (page == Page::PerBook) {
+    page = Page::ThisDevice;
+    requestUpdate();
+    return true;
+  }
+
+  if (page == Page::ThisDevice && showAllDevicesStats) {
+    page = Page::AllDevices;
+    requestUpdate();
+    return true;
+  }
+
+  return false;
+}
+
+bool BookStatsActivity::showPreviousStatsPage() {
+  if (page == Page::AllDevices) {
+    page = Page::ThisDevice;
+    requestUpdate();
+    return true;
+  }
+
+  if (page == Page::ThisDevice) {
+    page = Page::PerBook;
+    requestUpdate();
+    return true;
+  }
+
+  return false;
+}
+
+bool BookStatsActivity::selectEditFieldFromTouchTarget(const int touchTarget) {
+  if (touchTarget < BookStatsTouchTarget::DateFieldBase ||
+      touchTarget >= BookStatsTouchTarget::DateFieldBase + BookStatsTouchTarget::DateFieldCount) {
+    return false;
+  }
+
+  const int newEditField = touchTarget - BookStatsTouchTarget::DateFieldBase;
+  if (selectedEditField != newEditField) {
+    selectedEditField = newEditField;
+    requestUpdate();
+  }
+  return true;
+}
+
 void BookStatsActivity::loop() {
+  if (TouchHeaderBackButton::wasTapped(mappedInput, TouchHeaderBackButton::compactHeaderRect(renderer))) {
+    if (page == Page::EditDates) {
+      saveStats();
+      page = Page::PerBook;
+      requestUpdate();
+    } else {
+      exitStatsActivity();
+    }
+    return;
+  }
   if (usesNoRtcSingleScreenLayout()) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-      exitStatsActivity(true);
+      mappedInput.suppressNextBackRelease();
+      exitStatsActivity();
       return;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      exitStatsActivity(false);
+      mappedInput.suppressNextConfirmRelease();
+      exitStatsActivity();
       return;
     }
     return;
   }
 
-  const bool editShortcutPressed = mappedInput.wasPressed(MappedInputManager::Button::Up) ||
-                                   mappedInput.wasPressed(MappedInputManager::Button::Left);
-  const bool moreShortcutPressed = mappedInput.wasPressed(MappedInputManager::Button::Down) ||
-                                   mappedInput.wasPressed(MappedInputManager::Button::Right);
+  const bool upOrLeftPressed = mappedInput.wasPressed(MappedInputManager::Button::Up) ||
+                               mappedInput.wasPressed(MappedInputManager::Button::Left);
+  const bool downOrRightPressed = mappedInput.wasPressed(MappedInputManager::Button::Down) ||
+                                  mappedInput.wasPressed(MappedInputManager::Button::Right);
 
   if (page == Page::EditDates) {
+    int touchedTarget = -1;
+    if (mappedInput.wasItemTouchedDown(touchedTarget) && selectEditFieldFromTouchTarget(touchedTarget)) {
+      return;
+    }
+    int tappedTarget = -1;
+    if (mappedInput.wasItemTapped(tappedTarget)) {
+      if (selectEditFieldFromTouchTarget(tappedTarget)) {
+        return;
+      }
+      if (tappedTarget == BookStatsTouchTarget::DateAdjustUp) {
+        adjustSelectedDateField(1);
+        return;
+      }
+      if (tappedTarget == BookStatsTouchTarget::DateAdjustDown) {
+        adjustSelectedDateField(-1);
+        return;
+      }
+    }
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       saveStats();
       page = Page::PerBook;
@@ -284,40 +358,60 @@ void BookStatsActivity::loop() {
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    if (page == Page::PerBook) {
-      exitStatsActivity(true);
-    } else if (page == Page::ThisDevice) {
-      page = Page::PerBook;
-      requestUpdate();
-    } else if (page == Page::AllDevices) {
-      page = Page::ThisDevice;
-      requestUpdate();
-    }
+    mappedInput.suppressNextBackRelease();
+    exitStatsActivity();
     return;
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    exitStatsActivity(false);
-    return;
-  }
-
-  if (page == Page::PerBook) {
-    if (hasEditableBook() && editShortcutPressed) {
+    mappedInput.suppressNextConfirmRelease();
+    if (page == Page::PerBook && hasEditableBook()) {
       page = Page::EditDates;
       requestUpdate();
       return;
     }
-    if (moreShortcutPressed) {
-      page = Page::ThisDevice;
+    exitStatsActivity();
+    return;
+  }
+
+  const auto swipe = mappedInput.wasSwipe();
+  if (swipe == MappedInputManager::SwipeDir::Left && showNextStatsPage()) {
+    return;
+  }
+  if (swipe == MappedInputManager::SwipeDir::Right) {
+    if (!showPreviousStatsPage()) {
+      exitStatsActivity();
+    }
+    return;
+  }
+
+  if (page == Page::PerBook) {
+    int touchedTarget = -1;
+    if (hasEditableBook() && mappedInput.wasItemTapped(touchedTarget) &&
+        touchedTarget == BookStatsTouchTarget::StartedDaysStat) {
+      page = Page::EditDates;
       requestUpdate();
+      return;
+    }
+    if (hasEditableBook() && upOrLeftPressed) {
+      page = Page::EditDates;
+      requestUpdate();
+      return;
+    }
+    if (downOrRightPressed) {
+      showNextStatsPage();
       return;
     }
     return;
   }
 
-  if (page == Page::ThisDevice && showAllDevicesStats && moreShortcutPressed) {
-    page = Page::AllDevices;
-    requestUpdate();
+  if (upOrLeftPressed) {
+    showPreviousStatsPage();
+    return;
+  }
+
+  if (page == Page::ThisDevice && showAllDevicesStats && downOrRightPressed) {
+    showNextStatsPage();
   }
 }
 

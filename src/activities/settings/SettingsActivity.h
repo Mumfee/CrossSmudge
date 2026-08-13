@@ -1,7 +1,10 @@
 #pragma once
+#include <FreeInkApp.h>
+#include <FreeInkUIGfxRenderer.h>
 #include <I18n.h>
 
 #include <algorithm>
+#include <atomic>
 #include <functional>
 #include <iterator>
 #include <string>
@@ -244,6 +247,10 @@ class SettingsActivity final : public Activity {
 
   bool preserveQuickResumeTimeoutOn = false;
   bool quickResumeTimeoutAutoEnabled = false;
+  // The frontlight-panel shortcut opens Settings as a transient Home menu.
+  // Its swipe-up closes the screen; regular Settings keeps swipe scrolling.
+  bool dismissOnUpSwipe = false;
+  bool showSettingSelection = true;
   SettingAction activeSubmenu = SettingAction::None;
   SettingAction parentSubmenu = SettingAction::None;
 
@@ -251,6 +258,25 @@ class SettingsActivity final : public Activity {
 
   static constexpr int categoryCount = 4;
   static const StrId categoryNames[categoryCount];
+
+  // FreeInkApp hosts the tab bar + settings list (themed, touch-routed); the
+  // header stays on GUI.drawHeader for the battery, OptionPopup stays legacy.
+  using UiApp = freeink::ui::FreeInkApp<24, 4>;
+  freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
+  UiApp app;
+  // render() rebuilds the app's interaction table; loop() only routes touch
+  // snapshots against it while this is true (the two run on different tasks).
+  std::atomic<bool> uiReady{false};
+  int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
+  int topIndex = 0;     // viewport scroll position, decoupled from the selection
+
+  static void settingsScreen(UiApp::ScreenType& screen, void* user);
+  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onTabEvent(const freeink::ui::ActionEvent& event, void* user);
+  static std::string settingValueText(const SettingInfo& setting);
+  void buildSettingsScreen(UiApp::ScreenType& screen);
+  void selectCategory(int categoryIndex);
+  void applyUiSettingChange(uint8_t CrossPointSettings::* valuePtr);
 
   void enterCategory(int categoryIndex);
   void setCurrentSettingsForCategory();
@@ -270,8 +296,7 @@ class SettingsActivity final : public Activity {
   void syncQuickResumeTimeoutForSleepScreen(bool sleepScreenChanged, bool quickResumeTimeoutChanged);
 
  public:
-  explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("Settings", renderer, mappedInput) {}
+  explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool dismissOnUpSwipe = false);
   void onEnter() override;
   void onExit() override;
   void loop() override;

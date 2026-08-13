@@ -1,19 +1,40 @@
 ---
 title: Installation
-nav_order: 14
+nav_order: 2
 ---
 
 # Installation
 
-## Web Installer
+## Supported Devices
 
-1. Download the `firmware-*.bin` file for the build variant of your choosing from the [releases page](https://github.com/uxjulia/CrossSmudge/releases).
-2. Connect your Xteink X4 or X3 to your computer via USB-C and wake/unlock the device.
-3. Go to <https://crosspointreader.com/#flash-tools> and choose your device.
-4. Select **Custom .bin** from the options.
-5. Choose the `firmware-*.bin` file you downloaded and click **Flash**.
+- Xteink X3, X4
+- Seeed Studio Sticky
 
-To revert back to the official firmware, flash the latest official firmware from <https://crosspointreader.com/#flash-tools>.
+## Web Installation via USB
+
+#### For new installs and updates.
+
+1. Navigate to [https://inky.crosssmudge.dev/#flash-tools](https://inky.crosssmudge.dev/#flash-tools) and select your device model.
+2. The latest version will be automatically selected, but if you ever want to revert to an earlier build, you can select it from the dropdown.
+3. Choose the firmware option you want to install.
+4. Click on the "Flash Firmware" button
+
+## SD Card Firmware Update
+
+#### For installing newer versions of CrossSmudge. Can be used by USB locked devices.
+
+1. Follow the same steps from the Web Installation method above. There will be an option to download the firmware instead of USB flashing.
+2. Place the downloaded `firmware-*.bin` file on your SD card. You can place this file anywhere.
+3. Go to `Settings > System > SD Card Firmware Update` and navigate to the `.bin` file and update.
+
+## USB Locked Devices
+
+If your device has USB data transfer disabled:
+
+1. Navigate to [https://inky.crosssmudge.dev/#flash-tools](https://inky.crosssmudge.dev/#flash-tools) and check the box for "I have a locked device" at the top.
+2. The latest version will be automatically selected, but if you ever want to revert to an earlier build, you can select it from the dropdown.
+3. Choose the firmware option you want to download.
+4. Click on the "Download update.bin" button and follow the instructions.
 
 ## Command Line
 

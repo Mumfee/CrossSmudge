@@ -2,6 +2,7 @@
 
 #include "I18nKeys.h"
 #include "activities/Activity.h"
+#include "activities/ScreenTransitionRefresh.h"
 #include "network/OtaUpdater.h"
 
 class OtaUpdateActivity : public Activity {
@@ -20,11 +21,13 @@ class OtaUpdateActivity : public Activity {
   static constexpr unsigned int UNINITIALIZED_PERCENTAGE = 111;
 
   State state = WIFI_SELECTION;
+  ScreenTransitionRefresh screenTransitionRefresh;
   unsigned int lastUpdaterPercentage = UNINITIALIZED_PERCENTAGE;
   StrId failureMessage = StrId::STR_UPDATE_FAILED;
   OtaUpdater updater;
 
   void onWifiSelectionComplete(bool success);
+  void runUpdateInstall();
 
  public:
   explicit OtaUpdateActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)

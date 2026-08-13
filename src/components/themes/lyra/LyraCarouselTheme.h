@@ -53,6 +53,7 @@ class LyraCarouselTheme : public LyraTheme {
   void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                       const std::function<const char*(int index)>& buttonLabel,
                       const std::function<UIIcon(int index)>& rowIcon) const override;
+  void registerButtonMenuTouchTargets(const GfxRenderer& renderer, int buttonCount) const;
   // LyraTheme has no virtual overlay hook; this is a carousel-only helper.
   void drawButtonMenuSelectionOverlay(const GfxRenderer& renderer, int buttonCount, int selectedIndex,
                                       const std::function<const char*(int index)>& buttonLabel,
@@ -65,5 +66,6 @@ class LyraCarouselTheme : public LyraTheme {
                 const std::function<UIIcon(int index)>& rowIcon = {},
                 const std::function<std::string(int index)>& rowValue = {}, bool highlightValue = false,
                 const std::function<bool(int index)>& rowDimmed = {},
-                const std::function<bool(int index)>& isHeader = {}) const override;
+                const std::function<bool(int index)>& isHeader = {}, int rowHeightScale = 1,
+                bool showSelection = true) const override;
 };

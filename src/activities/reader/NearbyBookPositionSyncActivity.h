@@ -9,8 +9,10 @@
 #include <optional>
 #include <string>
 
+#include "KOReaderCredentialStore.h"
 #include "ProgressMapper.h"
 #include "activities/Activity.h"
+#include "activities/ScreenTransitionRefresh.h"
 
 class NearbyBookPositionSyncActivity final : public Activity {
  public:
@@ -18,6 +20,7 @@ class NearbyBookPositionSyncActivity final : public Activity {
                                           std::shared_ptr<Epub> epub, const std::string& epubPath,
                                           int currentSpineIndex, int currentPage, int totalPagesInSpine,
                                           KOReaderPosition localKoPos, std::string localChapterName,
+                                          DocumentMatchMethod matchMethod,
                                           std::optional<uint16_t> currentParagraphIndex = std::nullopt,
                                           std::optional<uint16_t> currentListItemIndex = std::nullopt);
   ~NearbyBookPositionSyncActivity() override;
@@ -69,6 +72,7 @@ class NearbyBookPositionSyncActivity final : public Activity {
   };
 
   State state_ = State::STARTING;
+  ScreenTransitionRefresh screenTransitionRefresh_;
   SemaphoreHandle_t eventMutex_ = nullptr;
   std::array<SyncEvent, MAX_SYNC_EVENTS> events_ = {};
   uint8_t eventHead_ = 0;
@@ -95,6 +99,7 @@ class NearbyBookPositionSyncActivity final : public Activity {
   std::optional<uint16_t> currentParagraphIndex_;
   std::optional<uint16_t> currentListItemIndex_;
   KOReaderPosition localKoPosition_;
+  DocumentMatchMethod matchMethod_ = DocumentMatchMethod::FILENAME;
   CompactPosition localPosition_ = {};
   CompactPosition peerPosition_ = {};
   CrossPointPosition peerCrossPoint_ = {};

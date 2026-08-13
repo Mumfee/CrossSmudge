@@ -149,16 +149,17 @@ void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const 
       continue;
     }
 
-    const int raiseBy = isCombining ? combiningMark::raiseAboveBase(glyph->top, glyph->height, lastBaseTop) : 0;
+    const auto anchor = combiningMark::anchorFor(cp);
+    const int raiseBy = isCombining ? combiningMark::raiseAboveBase(anchor, glyph->top, glyph->height, lastBaseTop) : 0;
 
     if (!isCombining && prevCp != 0) {
       const auto kernFP = getKerning(prevCp, cp, style);
       lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);
     }
 
-    const int glyphBaseX =
-        isCombining ? combiningMark::centerOver(lastBaseX, lastBaseLeft, lastBaseWidth, glyph->left, glyph->width)
-                    : lastBaseX;
+    const int glyphBaseX = isCombining ? combiningMark::anchorOver(anchor, lastBaseX, lastBaseLeft, lastBaseWidth,
+                                                                   glyph->left, glyph->width)
+                                       : lastBaseX;
     const int glyphBaseY = -raiseBy;
 
     minX = std::min(minX, glyphBaseX + glyph->left);
@@ -220,6 +221,10 @@ uint32_t EpdFontFamily::getFallbackCodepoint(const uint32_t cp, const Style styl
   if (syntheticGlyph::isSpaceFallback(cp)) return cp;
   if (syntheticGlyph::isSolid(cp) || syntheticGlyph::isGreekFallback(cp)) return cp;
   return REPLACEMENT_GLYPH;
+}
+
+bool EpdFontFamily::hasCodepoint(const uint32_t cp, const Style style) const {
+  return getFont(style)->hasCodepoint(cp);
 }
 
 int8_t EpdFontFamily::getKerning(const uint32_t leftCp, const uint32_t rightCp, const Style style) const {

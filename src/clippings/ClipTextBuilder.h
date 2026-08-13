@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 #include "activities/ActivityResult.h"
@@ -7,7 +8,7 @@
 
 namespace ClipTextBuilder {
 
-ClippingResult build(const std::vector<WordRef>& words, const std::vector<int>& wordOrder, int fromOrder, int toOrder,
+ClippingResult build(const ClipWordStore& wordStore, const uint16_t* wordOrder, int fromOrder, int toOrder,
                      int totalOrder, int startPageInSection, int sectionPageCount);
 
 }  // namespace ClipTextBuilder

@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <utility>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -21,12 +23,13 @@ XtcReaderMenuActivity::XtcReaderMenuActivity(GfxRenderer& renderer, MappedInputM
                                              const bool hasChapters, const bool isBookCompleted)
     : Activity("XtcReaderMenu", renderer, mappedInput),
       title(std::move(title)),
-      items(buildMenuItems(hasChapters, isBookCompleted)) {}
+      items(buildMenuItems(hasChapters, isBookCompleted, mappedInput.hasTouchHardware())) {}
 
 std::vector<XtcReaderMenuActivity::MenuItem> XtcReaderMenuActivity::buildMenuItems(const bool hasChapters,
-                                                                                   const bool isBookCompleted) {
+                                                                                   const bool isBookCompleted,
+                                                                                   const bool hasTouch) {
   std::vector<MenuItem> menuItems;
-  menuItems.reserve(5);
+  menuItems.reserve(6 + (hasTouch ? 1u : 0u));
   if (hasChapters) {
     menuItems.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
   }
@@ -35,25 +38,65 @@ std::vector<XtcReaderMenuActivity::MenuItem> XtcReaderMenuActivity::buildMenuIte
       {MenuAction::TOGGLE_COMPLETED, isBookCompleted ? StrId::STR_MARK_UNFINISHED : StrId::STR_MARK_FINISHED});
   menuItems.push_back({MenuAction::DELETE_STATS, StrId::STR_DELETE_BOOK_STATS});
   menuItems.push_back({MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE});
+  menuItems.push_back({MenuAction::SEND_NEARBY_BOOK, StrId::STR_SEND_NEARBY_BOOK});
+  if (hasTouch) {
+    menuItems.push_back({MenuAction::DISABLE_TOUCHSCREEN, StrId::STR_DISABLE_TOUCHSCREEN});
+  }
   return menuItems;
 }
 
 void XtcReaderMenuActivity::onEnter() {
   Activity::onEnter();
+  mappedInput.setReaderTouchscreenOverride(true);
   selectedIndex = 0;
   requestUpdate();
 }
 
+void XtcReaderMenuActivity::onExit() {
+  mappedInput.setReaderTouchscreenOverride(false);
+  Activity::onExit();
+}
+
+void XtcReaderMenuActivity::finishCancelled() {
+  ActivityResult result;
+  result.isCancelled = true;
+  setResult(std::move(result));
+  finish();
+}
+
 void XtcReaderMenuActivity::loop() {
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    ActivityResult result;
-    result.isCancelled = true;
-    setResult(std::move(result));
-    finish();
+  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer) ||
+      mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    finishCancelled();
+    return;
+  }
+
+  if (mappedInput.wasHomeGesture()) {
+    finishCancelled();
     return;
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (items[selectedIndex].action == MenuAction::DISABLE_TOUCHSCREEN) {
+      SETTINGS.disableReaderTouchscreen = SETTINGS.disableReaderTouchscreen ? 0 : 1;
+      SETTINGS.saveToFile();
+      requestUpdate();
+      return;
+    }
+    setResult(MenuResult{static_cast<int>(items[selectedIndex].action)});
+    finish();
+    return;
+  }
+
+  int touchedIndex = -1;
+  if (mappedInput.wasItemTapped(touchedIndex) && touchedIndex >= 0 && touchedIndex < static_cast<int>(items.size())) {
+    selectedIndex = touchedIndex;
+    if (items[selectedIndex].action == MenuAction::DISABLE_TOUCHSCREEN) {
+      SETTINGS.disableReaderTouchscreen = SETTINGS.disableReaderTouchscreen ? 0 : 1;
+      SETTINGS.saveToFile();
+      requestUpdate();
+      return;
+    }
     setResult(MenuResult{static_cast<int>(items[selectedIndex].action)});
     finish();
     return;
@@ -76,7 +119,9 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
-  const int titleX = metrics.contentSidePadding;
+  const Rect standardHeader{0, metrics.topPadding, pageWidth, metrics.headerHeight};
+  const int titleX = mappedInput.hasTouchHardware() ? TouchHeaderBackButton::layout(standardHeader).titleX
+                                                    : metrics.contentSidePadding;
   const int titleMaxWidth = std::max(0, pageWidth - titleX - metrics.contentSidePadding - kBatteryTextReserveWidth);
   const auto titleLines =
       renderer.wrappedText(kTitleFontId, title.c_str(), titleMaxWidth, kTitleMaxLines, EpdFontFamily::BOLD);
@@ -84,7 +129,12 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
   const int titleBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight +
                                std::max(0, static_cast<int>(titleLines.size()) - 1) * kTitleLineGap;
   const int headerHeight = std::max(metrics.headerHeight, metrics.batteryBarHeight + titleBlockHeight + 16);
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, headerHeight}, "");
+  const Rect header{0, metrics.topPadding, pageWidth, headerHeight};
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, header, "", true, 0, nullptr, 0);
+  } else {
+    GUI.drawHeader(renderer, header, "");
+  }
 
   const int titleY = metrics.topPadding + metrics.batteryBarHeight + 3;
   for (int i = 0; i < static_cast<int>(titleLines.size()); ++i) {
@@ -94,8 +144,15 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
 
   const int contentTop = metrics.topPadding + headerHeight + metrics.verticalSpacing;
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
-  GUI.drawList(renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(items.size()), selectedIndex,
-               [this](int index) { return std::string(I18N.get(items[index].labelId)); });
+  GUI.drawList(
+      renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(items.size()), selectedIndex,
+      [this](int index) { return std::string(I18N.get(items[index].labelId)); }, nullptr, nullptr,
+      [this](int index) -> std::string {
+        if (items[index].action == MenuAction::DISABLE_TOUCHSCREEN) {
+          return I18N.get(SETTINGS.disableReaderTouchscreen ? StrId::STR_ON : StrId::STR_OFF);
+        }
+        return "";
+      });
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

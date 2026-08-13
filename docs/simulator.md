@@ -38,6 +38,12 @@ pio run -e simulator
 .pio/build/simulator/program
 ```
 
+Use the X4 Pro environment to enable its touch, frontlight, and Home-key behavior:
+
+```sh
+pio run -e x4-pro-simulator -t run_simulator
+```
+
 ## Keyboard Controls
 
 | Key | Action |
@@ -47,6 +53,9 @@ pio run -e simulator
 | Return | Confirm / Select |
 | Escape | Back |
 | P | Power |
+| H | X4 Pro Home key (tap to go Home; hold for 700 ms to toggle the reader menu) |
+
+The `H` mapping is active only in `x4-pro-simulator`.
 
 ## Cache Note
 

@@ -1,0 +1,26 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+import { getDocBySlug, getRoutableDocs } from '../lib/docs';
+
+export async function getStaticPaths() {
+  const docs = await getRoutableDocs();
+  return docs.map((doc) => ({
+    params: { slug: doc.slug },
+    props: { doc }
+  }));
+}
+
+const { doc } = Astro.props;
+const loadedDoc = await getDocBySlug(doc.slug);
+if (!loadedDoc) {
+  return Astro.redirect('/404.html');
+}
+const module = await loadedDoc.load();
+const Content = module.Content;
+---
+
+<SiteLayout title={loadedDoc.title} description={`${loadedDoc.title} documentation for CrossSmudge.`}>
+  <article class="doc-article">
+    <Content />
+  </article>
+</SiteLayout>

@@ -60,6 +60,23 @@
 
           <div id="convertInfo" style="display: none; margin-bottom: 10px; font-size: 0.9em"></div>
 
+          <div class="advanced-setting-row">
+            <div class="setting-label">
+              <div class="setting-title">Rename from Book Metadata</div>
+              <div class="setting-desc">Use Title - Author.epub when available</div>
+            </div>
+            <div class="setting-controls">
+              <label class="toggle-switch">
+                <input
+                  type="checkbox"
+                  id="renameFromMetadataToggle"
+                  onchange="updateUploadSettingsPersistence()"
+                />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
           <div class="convert-settings" id="convertSettings" style="display: block">
             <span>⚫ True-Grayscale</span>
             <span id="convertSizeSummary">📏 Max 480×800px</span>
@@ -68,6 +85,18 @@
           </div>
           <!-- Advanced Settings Content -->
           <div class="advanced-settings-content" id="advancedSettingsContent">
+            <div class="advanced-setting-row section-split-setting-row">
+              <div class="setting-label">
+                <div class="setting-title">Split Long Sections</div>
+                <div class="setting-desc">Break oversized chapters into smaller reader-friendly sections</div>
+              </div>
+              <div class="setting-controls">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="splitLongSectionsToggle" onchange="updateUploadSettingsPersistence()" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
             <!-- JPEG Quality -->
             <div class="advanced-setting-row quality-row">
               <div class="setting-title">📦 JPEG Quality</div>
@@ -120,6 +149,7 @@
                   max="10000"
                   step="1"
                   value="1500"
+                  onchange="updateUploadSettingsPersistence()"
                 />
               </div>
             </div>
@@ -169,7 +199,19 @@
               </div>
               <div class="setting-controls">
                 <label class="toggle-switch">
-                  <input type="checkbox" id="export-log-checkbox" />
+                  <input type="checkbox" id="export-log-checkbox" onchange="updateUploadSettingsPersistence()" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="advanced-setting-row">
+              <div class="setting-label">
+                <div class="setting-title">Remember Settings</div>
+                <div class="setting-desc">Store these upload options in this browser</div>
+              </div>
+              <div class="setting-controls">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="rememberUploadSettings" onchange="updateUploadSettingsPersistence()" />
                   <span class="toggle-slider"></span>
                 </label>
               </div>
@@ -270,7 +312,7 @@
     <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
     <h3>🗑️ Delete Item(s)</h3>
     <div class="folder-form">
-      <p class="delete-warning">⚠️ This action cannot be undone!</p>
+      <p class="delete-warning">⚠️ This action cannot be undone. Folders and everything inside them will be deleted.</p>
       <p class="file-info">Are you sure you want to delete the following item(s)?</p>
       <div id="deleteItemList" style="max-height: 240px; overflow: auto; margin-bottom: 10px"></div>
       <button class="delete-btn-confirm" onclick="confirmDelete()">Delete</button>

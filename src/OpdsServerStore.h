@@ -30,6 +30,7 @@ struct OpdsServer {
 class OpdsServerStore : public PersistableStore<OpdsServerStore> {
  private:
   std::vector<OpdsServer> servers;
+  bool loaded_ = false;
 
   static constexpr size_t MAX_SERVERS = 8;
 
@@ -43,15 +44,26 @@ class OpdsServerStore : public PersistableStore<OpdsServerStore> {
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
   bool loadFromFile();
+  void ensureLoaded() const;
+  void release();
 
   bool addServer(const OpdsServer& server);
   bool updateServer(size_t index, const OpdsServer& server);
   bool removeServer(size_t index);
 
-  const std::vector<OpdsServer>& getServers() const { return servers; }
+  const std::vector<OpdsServer>& getServers() const {
+    ensureLoaded();
+    return servers;
+  }
   const OpdsServer* getServer(size_t index) const;
-  size_t getCount() const { return servers.size(); }
-  bool hasServers() const { return !servers.empty(); }
+  size_t getCount() const {
+    ensureLoaded();
+    return servers.size();
+  }
+  bool hasServers() const {
+    ensureLoaded();
+    return !servers.empty();
+  }
 };
 
 #define OPDS_STORE OpdsServerStore::getInstance()

@@ -52,6 +52,9 @@ enum class CssFontStyle : uint8_t { Normal = 0, Italic = 1 };
 // Font weight options - CSS supports 100-900, we simplify to normal/bold
 enum class CssFontWeight : uint8_t { Normal = 0, Bold = 1 };
 
+// Font variant caps options matching the small subset CrossInk renders.
+enum class CssFontVariantCaps : uint8_t { Normal = 0, SmallCaps = 1 };
+
 // Text decoration options. Values are bit flags so CSS can combine multiple line decorations.
 enum class CssTextDecoration : uint8_t { None = 0, Underline = 1, LineThrough = 2 };
 
@@ -95,6 +98,7 @@ struct CssPropertyFlags {
   uint32_t direction : 1;
   uint32_t pageBreakBefore : 1;
   uint32_t pageBreakAfter : 1;
+  uint32_t fontVariantCaps : 1;
 
   CssPropertyFlags()
       : textAlign(0),
@@ -117,12 +121,14 @@ struct CssPropertyFlags {
         verticalAlign(0),
         direction(0),
         pageBreakBefore(0),
-        pageBreakAfter(0) {}
+        pageBreakAfter(0),
+        fontVariantCaps(0) {}
 
   [[nodiscard]] bool anySet() const {
     return textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
            marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
-           imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore || pageBreakAfter;
+           imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore ||
+           pageBreakAfter || fontVariantCaps;
   }
 
   void clearAll() {
@@ -130,7 +136,7 @@ struct CssPropertyFlags {
     marginTop = marginBottom = marginLeft = marginRight = 0;
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
     imageHeight = imageWidth = display = backgroundBlack = verticalAlign = direction = 0;
-    pageBreakBefore = pageBreakAfter = 0;
+    pageBreakBefore = pageBreakAfter = fontVariantCaps = 0;
   }
 };
 
@@ -146,6 +152,7 @@ struct CssStyle {
   CssFontWeight fontWeight = CssFontWeight::Normal;
   CssTextDecoration textDecoration = CssTextDecoration::None;
   CssTextDirection direction = CssTextDirection::Ltr;
+  CssFontVariantCaps fontVariantCaps = CssFontVariantCaps::Normal;
 
   CssLength textIndent;     // First-line indent (deferred resolution)
   CssLength marginTop;      // Vertical spacing before block
@@ -253,6 +260,10 @@ struct CssStyle {
       pageBreakAfter = base.pageBreakAfter;
       defined.pageBreakAfter = 1;
     }
+    if (base.hasFontVariantCaps()) {
+      fontVariantCaps = base.fontVariantCaps;
+      defined.fontVariantCaps = 1;
+    }
   }
 
   [[nodiscard]] bool hasTextAlign() const { return defined.textAlign; }
@@ -276,6 +287,7 @@ struct CssStyle {
   [[nodiscard]] bool hasDirection() const { return defined.direction; }
   [[nodiscard]] bool hasPageBreakBefore() const { return defined.pageBreakBefore; }
   [[nodiscard]] bool hasPageBreakAfter() const { return defined.pageBreakAfter; }
+  [[nodiscard]] bool hasFontVariantCaps() const { return defined.fontVariantCaps; }
 
   void reset() {
     textAlign = CssTextAlign::Left;
@@ -283,6 +295,7 @@ struct CssStyle {
     fontWeight = CssFontWeight::Normal;
     textDecoration = CssTextDecoration::None;
     direction = CssTextDirection::Ltr;
+    fontVariantCaps = CssFontVariantCaps::Normal;
     textIndent = CssLength{};
     marginTop = marginBottom = marginLeft = marginRight = CssLength{};
     paddingTop = paddingBottom = paddingLeft = paddingRight = CssLength{};

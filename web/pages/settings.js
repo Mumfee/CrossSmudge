@@ -290,8 +290,6 @@ let allSettings = [];
     btn.textContent = 'Save Settings';
   }
 
-  loadSettings();
-
   // --- Wi-Fi Network Management ---
   // Renders an editable list of saved Wi-Fi networks using /api/wifi endpoints.
   // Password fields are never pre-filled; when left blank during edit, existing
@@ -527,5 +525,11 @@ let allSettings = [];
     }
   }
 
-  loadWifiNetworks();
-  loadOpdsServers();
+  // Sequential, not concurrent: the device's web server handles one client
+  // connection at a time, and three simultaneous fetches on page load can
+  // stall long enough to delay or interrupt a response.
+  (async () => {
+    await loadSettings();
+    await loadWifiNetworks();
+    await loadOpdsServers();
+  })();

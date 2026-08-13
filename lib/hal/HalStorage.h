@@ -15,6 +15,8 @@ class HalStorage {
   HalStorage();
   bool begin();
   bool ready() const;
+  uint64_t totalBytes() const;
+  uint64_t usedBytes();
   std::vector<String> listFiles(const char* path = "/", int maxFiles = 200);
   // Read the entire file at `path` into a String. Returns empty string on failure.
   String readFile(const char* path);
@@ -63,8 +65,18 @@ class HalStorage {
 class HalFile : public Print {
   friend class HalStorage;
   class Impl;
-  std::unique_ptr<Impl> impl;
-  explicit HalFile(std::unique_ptr<Impl> impl);
+  struct ImplDeleter {
+    void operator()(Impl* impl) const;
+  };
+  using ImplPtr = std::unique_ptr<Impl, ImplDeleter>;
+
+  ImplPtr impl;
+  // Invalid handles otherwise represent both ordinary EOF/open failure and a
+  // wrapper-allocation failure. Registry scans need to distinguish them.
+  bool allocationFailed_ = false;
+
+  explicit HalFile(ImplPtr impl);
+  static void* allocateImplStorage();
 
  public:
   HalFile();
@@ -95,6 +107,7 @@ class HalFile : public Print {
   void rewindDirectory();
   bool close();
   HalFile openNextFile();
+  bool allocationFailed() const { return allocationFailed_; }
   bool isOpen() const;
   operator bool() const;
 };

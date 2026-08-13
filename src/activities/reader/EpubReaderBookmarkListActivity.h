@@ -1,16 +1,20 @@
 #pragma once
 
+#include <FreeInkApp.h>
+#include <FreeInkUIGfxRenderer.h>
+
+#include <atomic>
 #include <vector>
 
 #include "../Activity.h"
 #include "BookmarkStore.h"
+#include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
 
 class EpubReaderBookmarkListActivity final : public Activity {
  public:
-  explicit EpubReaderBookmarkListActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                          const std::vector<Bookmark>& bookmarks)
-      : Activity("EpubReaderBookmarkList", renderer, mappedInput), bookmarks(bookmarks) {}
+  EpubReaderBookmarkListActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                 const std::vector<Bookmark>& bookmarks);
 
   void onEnter() override;
   void onExit() override;
@@ -22,10 +26,25 @@ class EpubReaderBookmarkListActivity final : public Activity {
  private:
   std::vector<Bookmark> bookmarks;
   int selectedIndex = 0;
-  bool longPressConfirmHandled = false;
+  bool confirmingDelete = false;
   ButtonNavigator buttonNavigator;
+  OptionPopup confirmPopup;
+  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  freeink::ui::GfxRendererTarget uiTarget;
+  UiApp app;
+  std::atomic<bool> uiReady{false};
+  int visibleRows = 1;
+  int topIndex = 0;
+  int listTop = 0;
+  int listBottom = 0;
+  int listRowHeight = 0;
+  int listRowStep = 0;
+
+  static void listScreen(UiApp::ScreenType& screen, void* user);
+  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  void buildListScreen(UiApp::ScreenType& screen);
+  void selectBookmark();
 
   void deleteSelectedBookmark();
-  void showBookmarkActionMenu(bool ignoreInitialConfirmRelease = false);
-  int getPageItems() const;
+  void showBookmarkDeletePopup();
 };

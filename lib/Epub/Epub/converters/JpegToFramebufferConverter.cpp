@@ -376,7 +376,6 @@ bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePat
 
   out.width = jpeg->getWidth();
   out.height = jpeg->getHeight();
-  LOG_DBG("JPG", "Image dimensions: %dx%d", out.width, out.height);
 
   jpeg->close();
   delete jpeg;
@@ -385,8 +384,6 @@ bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePat
 
 bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer,
                                                      const RenderConfig& config) {
-  LOG_DBG("JPG", "Decoding JPEG: %s", imagePath.c_str());
-
   if (!MemoryBudget::hasHeapForImageDecoder("JPG", "JPEG", JPEG_DECODER_APPROX_SIZE)) {
     return false;
   }
@@ -487,10 +484,6 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   ctx.invScaleFPX = (int32_t)((int64_t)ctx.scaledSrcWidth * FP_ONE / destWidth);
   ctx.invScaleFPY = (int32_t)((int64_t)ctx.scaledSrcHeight * FP_ONE / destHeight);
 
-  LOG_DBG("JPG", "JPEG %dx%d -> %dx%d (scale %.2f, jpegScale 1/%d, fineScale %.2fx%.2f)%s", srcWidth, srcHeight,
-          destWidth, destHeight, targetScale, jpegScaleDenom, (float)destWidth / ctx.scaledSrcWidth,
-          (float)destHeight / ctx.scaledSrcHeight, isProgressive ? " [progressive]" : "");
-
   // Set pixel type to 8-bit grayscale (must be after open())
   jpeg->setPixelType(EIGHT_BIT_GRAYSCALE);
   jpeg->setUserPointer(&ctx);
@@ -507,9 +500,7 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
     }
   }
 
-  unsigned long decodeStart = millis();
   rc = jpeg->decode(0, 0, jpegScaleOption);
-  unsigned long decodeTime = millis() - decodeStart;
 
   if (rc != 1) {
     LOG_ERR("JPG", "Decode failed (rc=%d, lastError=%d)", rc, jpeg->getLastError());
@@ -521,7 +512,6 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
 
   jpeg->close();
   delete jpeg;
-  LOG_DBG("JPG", "JPEG decoding complete - render time: %lu ms", decodeTime);
 
   // Finalize the streamed cache file. Note: a flush failure mid-decode clears
   // ctx.caching (the partial file is dropped), so re-read the flag here.

@@ -31,6 +31,8 @@ class RecentBooksGridActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int selectorIndex = 0;
   bool longPressFired = false;
+  bool pendingCacheDeletedFeedback = false;
+  unsigned long cacheDeletedFeedbackShowTime = 0UL;
   std::vector<BookState> recentBooks;
   int loadedPageStart = NO_PAGE_LOADED;
 
@@ -41,4 +43,5 @@ class RecentBooksGridActivity final : public Activity {
   void promptDeleteBook(const RecentBook& book);
   void promptRemoveBook(const std::string& path, const std::string& title);
   void showBookActionMenu(int bookIndex, bool ignoreInitialConfirmRelease = false);
+  int bookIndexFromPoint(int x, int y);
 };

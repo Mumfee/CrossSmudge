@@ -3,22 +3,30 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Memory.h>
 
 #include <algorithm>
 
 #include "../reader/EpubReaderBookmarkListActivity.h"
 #include "../reader/EpubReaderClippingListActivity.h"
+#include "BookActions.h"
 #include "BookmarkStore.h"
 #include "ClippingStore.h"
 #include "CrossPointState.h"
 #include "FileBrowserActionActivity.h"
 #include "MappedInputManager.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/CompactHeader.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
-#include "fontIds.h"
+#include "components/UIThemeTokens.h"
+#include "components/UiAppHelpers.h"
+
+namespace fui = freeink::ui;
 
 namespace {
 constexpr unsigned long SAVED_ITEM_DELETE_HOLD_MS = 1000;
+constexpr fui::ActionId ACTION_ROW = 1;
 
 void mergeBookmarkEntry(std::vector<SavedBookEntry>& out, const BookmarkedBookEntry& entry) {
   auto it = std::find_if(out.begin(), out.end(), [&](const SavedBookEntry& existing) {
@@ -49,6 +57,11 @@ void mergeClippingEntry(std::vector<SavedBookEntry>& out, const ClippedBookEntry
 }
 }  // namespace
 
+SavedItemsHomeActivity::SavedItemsHomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
+    : Activity("SavedItemsHome", renderer, mappedInput),
+      uiTarget(makeUiTarget(renderer)),
+      app(uiTarget, uiTarget.deviceContext()) {}
+
 void SavedItemsHomeActivity::reloadSavedBooks() {
   books.clear();
 
@@ -76,6 +89,12 @@ void SavedItemsHomeActivity::onEnter() {
   Activity::onEnter();
   reloadSavedBooks();
   selectedIndex = 0;
+  topIndex = 0;
+  visibleRows = 1;
+  uiReady = false;
+  app.setTheme(uiThemeTokens(uiTarget));
+  app.on(ACTION_ROW, &SavedItemsHomeActivity::onRowEvent, this);
+  app.setScreen(&SavedItemsHomeActivity::listScreen, this);
   requestUpdate();
 }
 
@@ -85,6 +104,10 @@ void SavedItemsHomeActivity::onExit() {
 }
 
 void SavedItemsHomeActivity::loop() {
+  if (TouchHeaderBackButton::wasTapped(mappedInput, TouchHeaderBackButton::compactHeaderRect(renderer))) {
+    onGoHome();
+    return;
+  }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     onGoHome();
     return;
@@ -108,51 +131,121 @@ void SavedItemsHomeActivity::loop() {
     return;
   }
 
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int contentTop = CompactHeader::contentTop(metrics);
-  const int contentHeight =
-      renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
-  const int pageItems = std::max(1, contentHeight / metrics.listWithSubtitleRowHeight);
   const int listSize = static_cast<int>(books.size());
+  if (listSize == 0) return;
 
-  buttonNavigator.onNextRelease([this, listSize] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, listSize);
+  int tx = 0;
+  int ty = 0;
+  if (mappedInput.isScreenTouchLongPress(tx, ty, SAVED_ITEM_DELETE_HOLD_MS) && listRowStep > 0 && ty >= listTop &&
+      ty < listBottom) {
+    const int offset = ty - listTop;
+    const int row = offset / listRowStep;
+    const int touchedIndex = topIndex + row;
+    if (row >= visibleRows || offset % listRowStep >= listRowHeight || touchedIndex >= listSize) return;
+    selectedIndex = touchedIndex;
+    mappedInput.suppressNextTouchTap();
+    longPressOpenHandled = true;
+    showSavedBookActionMenu(selectedIndex, true);
+    return;
+  }
+  if (uiReady) {
+    const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
+    if (snap.touchPressed || snap.touchReleased) {
+      const auto event = app.route(snap);
+      if (app.invalidated()) requestUpdate();
+      if (event) return;
+    }
+  }
+
+  const auto swipe = mappedInput.wasSwipe();
+  if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
+    const int next = scrollListBy(topIndex, swipe == MappedInputManager::SwipeDir::Up ? visibleRows : -visibleRows,
+                                  visibleRows, listSize);
+    if (next != topIndex) {
+      topIndex = next;
+      requestUpdate();
+    }
+    return;
+  }
+
+  const auto moveSelection = [this, listSize](const int next) {
+    selectedIndex = next;
+    topIndex = followListSelection(selectedIndex, topIndex, visibleRows, listSize);
     requestUpdate();
+  };
+  buttonNavigator.onNextRelease(
+      [this, listSize, &moveSelection] { moveSelection(ButtonNavigator::nextIndex(selectedIndex, listSize)); });
+  buttonNavigator.onPreviousRelease(
+      [this, listSize, &moveSelection] { moveSelection(ButtonNavigator::previousIndex(selectedIndex, listSize)); });
+  buttonNavigator.onNextContinuous([this, listSize, &moveSelection] {
+    moveSelection(ButtonNavigator::nextPageIndex(selectedIndex, listSize, visibleRows));
   });
-  buttonNavigator.onPreviousRelease([this, listSize] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, listSize);
-    requestUpdate();
+  buttonNavigator.onPreviousContinuous([this, listSize, &moveSelection] {
+    moveSelection(ButtonNavigator::previousPageIndex(selectedIndex, listSize, visibleRows));
   });
-  buttonNavigator.onNextContinuous([this, listSize, pageItems] {
-    selectedIndex = ButtonNavigator::nextPageIndex(selectedIndex, listSize, pageItems);
-    requestUpdate();
-  });
-  buttonNavigator.onPreviousContinuous([this, listSize, pageItems] {
-    selectedIndex = ButtonNavigator::previousPageIndex(selectedIndex, listSize, pageItems);
-    requestUpdate();
-  });
+}
+
+void SavedItemsHomeActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<SavedItemsHomeActivity*>(user);
+  if (event.value < 0 || event.value >= static_cast<int16_t>(self->books.size())) return;
+  self->selectedIndex = event.value;
+  self->app.clearTapFlash();
+  self->openSavedItems(self->selectedIndex);
+}
+
+void SavedItemsHomeActivity::listScreen(UiApp::ScreenType& screen, void* user) {
+  static_cast<SavedItemsHomeActivity*>(user)->buildListScreen(screen);
+}
+
+void SavedItemsHomeActivity::buildListScreen(UiApp::ScreenType& screen) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  screen.setContentMargin(fui::Insets{static_cast<int16_t>(CompactHeader::contentTop(metrics)), 0,
+                                      static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  if (books.empty()) {
+    screen.centeredText(tr(STR_NO_BOOKMARKS), screen.theme().bodyText);
+    return;
+  }
+  std::vector<fui::ListItem> items;
+  items.reserve(books.size());
+  for (size_t i = 0; i < books.size(); ++i) {
+    fui::ListItem item;
+    item.label = books[i].bookTitle.c_str();
+    if (!books[i].bookAuthor.empty()) item.subtitle = books[i].bookAuthor.c_str();
+    item.actionValue = static_cast<int16_t>(i);
+    items.push_back(item);
+  }
+  fui::ListProps props;
+  props.items = items.data();
+  props.count = static_cast<uint16_t>(items.size());
+  props.selectedIndex = static_cast<int16_t>(selectedIndex);
+  props.action = ACTION_ROW;
+  props.inputMask = fui::InputTouch;
+  props.labelText = screen.theme().bodyText;
+  props.labelText.bold = true;
+  const fui::Rect bounds = screen.body();
+  listTop = bounds.y;
+  listBottom = bounds.bottom();
+  const auto rows = configureUiList(props, screen.theme(), bounds, UiListRowType::WithSubtitle);
+  listRowHeight = props.rowHeight;
+  listRowStep = props.rowHeight + props.rowGap;
+  visibleRows = rows > 0 ? rows : 1;
+  topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(books.size()));
+  props.topIndex = static_cast<uint16_t>(topIndex);
+  screen.list(props);
 }
 
 void SavedItemsHomeActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
-  const auto& metrics = UITheme::getInstance().getMetrics();
-
-  CompactHeader::drawTitle(renderer, tr(STR_BOOKMARKS_AND_CLIPPINGS));
-
-  const int contentTop = CompactHeader::contentTop(metrics);
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
-
-  if (books.empty()) {
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_BOOKMARKS));
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::drawCompact(renderer, tr(STR_BOOKMARKS_AND_CLIPPINGS));
   } else {
-    GUI.drawList(
-        renderer, Rect{0, contentTop, pageWidth, contentHeight}, books.size(), selectedIndex,
-        [this](int index) { return books[index].bookTitle; }, [this](int index) { return books[index].bookAuthor; },
-        nullptr);
+    CompactHeader::drawTitle(renderer, tr(STR_BOOKMARKS_AND_CLIPPINGS));
   }
+  uiReady = false;
+  app.render();
+  uiReady = true;
 
   const auto labels = mappedInput.mapLabels(tr(STR_HOME), tr(STR_OPEN), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -227,10 +320,26 @@ void SavedItemsHomeActivity::showSavedBookActionMenu(const int bookIndex, const 
         const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);
         if (!result.isCancelled && actionResult) {
           switch (static_cast<FileBrowserAction>(actionResult->action)) {
-            case FileBrowserAction::DeleteBookmarks:
-              BOOKMARKS.loadForBook(entry.bookPath, entry.bookTitle, entry.bookAuthor, entry.bookType);
-              BOOKMARKS.clearAll();
-              break;
+            case FileBrowserAction::DeleteBookmarks: {
+              auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(
+                  renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE_BOOKMARKS),
+                  entry.bookTitle);
+              if (!confirmation) {
+                LOG_ERR("SVA", "OOM: bookmark clear ConfirmationActivity");
+                reloadSavedBooks();
+                requestUpdate();
+                return;
+              }
+              startActivityForResult(std::move(confirmation), [this, entry](const ActivityResult& confirmation) {
+                if (!confirmation.isCancelled) {
+                  BOOKMARKS.loadForBook(entry.bookPath, entry.bookTitle, entry.bookAuthor, entry.bookType);
+                  BOOKMARKS.clearAll();
+                }
+                reloadSavedBooks();
+                requestUpdate();
+              });
+              return;
+            }
             case FileBrowserAction::DeleteClippings:
               CLIPPINGS.loadForBook(entry.bookPath, entry.bookTitle, entry.bookAuthor, entry.bookType);
               CLIPPINGS.clearAll();
@@ -273,26 +382,26 @@ void SavedItemsHomeActivity::openBookmarkList(const SavedBookEntry& entry) {
 void SavedItemsHomeActivity::openClippingList(const SavedBookEntry& entry) {
   CLIPPINGS.loadForBook(entry.bookPath, entry.bookTitle, entry.bookAuthor, entry.bookType);
 
-  startActivityForResult(
-      std::make_unique<EpubReaderClippingListActivity>(renderer, mappedInput, CLIPPINGS.getClippings()),
-      [this, entry](const ActivityResult& result) {
-        if (!result.isCancelled) {
-          const auto* clipping = std::get_if<ClippingJumpResult>(&result.data);
-          if (clipping) {
-            APP_STATE.pendingBookmarkSpine = clipping->spineIndex;
-            APP_STATE.pendingBookmarkProgress =
-                clipping->pageCount > 0 ? static_cast<float>(clipping->page) / clipping->pageCount : 0.0f;
-            APP_STATE.pendingBookmarkParagraphIndex = clipping->paragraphIndex;
-            APP_STATE.pendingClippingIndex = clipping->clippingIndex;
-            APP_STATE.saveToFile();
-            onSelectBook(entry.bookPath);
-          } else {
-            LOG_ERR("SVA", "openClippingList: unexpected result variant");
-            requestUpdate();
-          }
-        } else {
-          reloadSavedBooks();
-          requestUpdate();
-        }
-      });
+  startActivityForResult(std::make_unique<EpubReaderClippingListActivity>(renderer, mappedInput),
+                         [this, entry](const ActivityResult& result) {
+                           if (!result.isCancelled) {
+                             const auto* clipping = std::get_if<ClippingJumpResult>(&result.data);
+                             if (clipping) {
+                               APP_STATE.pendingBookmarkSpine = clipping->spineIndex;
+                               APP_STATE.pendingBookmarkProgress =
+                                   clipping->pageCount > 0 ? static_cast<float>(clipping->page) / clipping->pageCount
+                                                           : 0.0f;
+                               APP_STATE.pendingBookmarkParagraphIndex = clipping->paragraphIndex;
+                               APP_STATE.pendingClippingIndex = clipping->clippingIndex;
+                               APP_STATE.saveToFile();
+                               onSelectBook(entry.bookPath);
+                             } else {
+                               LOG_ERR("SVA", "openClippingList: unexpected result variant");
+                               requestUpdate();
+                             }
+                           } else {
+                             reloadSavedBooks();
+                             requestUpdate();
+                           }
+                         });
 }

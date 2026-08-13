@@ -1,6 +1,6 @@
 ---
 title: Controls
-nav_order: 13
+nav_order: 6
 ---
 
 # Controls
@@ -39,9 +39,9 @@ When set to `Change Font Size`, hold a side button for about 2 seconds:
 - Down decreases font size
 
 When set to `Orientation Change`, hold a side button for about 2 seconds:
+
 - Up cycles through the orientations in the following order: `Landscape CCW` -> `Inverted` -> `Landscape CW` -> `Portrait`
 - Down cycles through the orientations in the following order: `Landscape CW` -> `Inverted` -> `Landscape CCW` -> `Portrait`
-
 
 ## Power, Back, and Menu Button Actions
 
@@ -75,6 +75,8 @@ Available actions include:
 - Footnotes
 - Dark Mode
 - Browse Files
+- Create Clipping
+- Look Up Word
 
 ## Footnote Shortcut
 

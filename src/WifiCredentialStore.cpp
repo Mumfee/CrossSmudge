@@ -6,6 +6,7 @@
 #include <Serialization.h>
 
 #include <algorithm>
+#include <cstring>
 #include <utility>
 
 namespace {
@@ -23,6 +24,7 @@ void legacyDeobfuscate(std::string& data) {
 }  // namespace
 
 void WifiCredentialStore::toJson(JsonDocument& doc) const {
+  std::lock_guard<std::mutex> lock(credentialMutex);
   doc["lastConnectedSsid"] = lastConnectedSsid;
 
   JsonArray arr = doc["credentials"].to<JsonArray>();
@@ -34,6 +36,7 @@ void WifiCredentialStore::toJson(JsonDocument& doc) const {
 }
 
 bool WifiCredentialStore::fromJson(JsonVariantConst doc) {
+  std::lock_guard<std::mutex> lock(credentialMutex);
   lastConnectedSsid = doc["lastConnectedSsid"] | "";
 
   // Tolerate a missing/invalid 'credentials' key (treat as empty list); only
@@ -53,13 +56,24 @@ bool WifiCredentialStore::fromJson(JsonVariantConst doc) {
     }
 
     obfuscation::DecodeStatus status = obfuscation::DecodeStatus::INVALID;
-    cred.password = obfuscation::deobfuscateFromBase64(obj["password_obf"] | "", &status);
+    cred.password = obfuscation::deobfuscateFromBase64(obj["password_obf"] | "", MAX_PASSWORD_LENGTH, &status);
+    if (status == obfuscation::DecodeStatus::TOO_LONG) {
+      LOG_ERR("WCS", "Skipping WiFi credential with oversized password: %s", cred.ssid.c_str());
+      needsResave = true;
+      continue;
+    }
     if (status == obfuscation::DecodeStatus::LEGACY && !cred.password.empty()) {
       needsResave = true;
     }
     if (status == obfuscation::DecodeStatus::INVALID || status == obfuscation::DecodeStatus::EMPTY ||
         cred.password.empty()) {
-      cred.password = obj["password"] | "";
+      const char* legacyPassword = obj["password"] | "";
+      if (strlen(legacyPassword) > MAX_PASSWORD_LENGTH) {
+        LOG_ERR("WCS", "Skipping WiFi credential with oversized plaintext password: %s", cred.ssid.c_str());
+        needsResave = true;
+        continue;
+      }
+      cred.password = legacyPassword;
       if (!cred.password.empty()) needsResave = true;
     }
     if (status == obfuscation::DecodeStatus::INVALID && cred.password.empty()) {
@@ -69,17 +83,21 @@ bool WifiCredentialStore::fromJson(JsonVariantConst doc) {
     credentials.push_back(std::move(cred));
   }
 
-  LOG_DBG("WCS", "Loaded %zu WiFi credentials from file", credentials.size());
-
   if (needsResave) {
     LOG_DBG("WCS", "Resaving JSON with obfuscated passwords");
-    saveToFile();
+    requestResave();
   }
 
   return true;
 }
 
 bool WifiCredentialStore::loadFromFile() {
+  {
+    std::lock_guard<std::mutex> lock(credentialMutex);
+    credentials.clear();
+    lastConnectedSsid.clear();
+  }
+
   const bool hasStoreFile = Storage.exists(getFilePath());
   if (PersistableStore<WifiCredentialStore>::loadFromFile()) {
     return true;
@@ -98,6 +116,10 @@ bool WifiCredentialStore::loadFromFile() {
   }
 
   return false;
+}
+
+void WifiCredentialStore::ensureLoaded() const {
+  std::call_once(loadOnce, [this] { const_cast<WifiCredentialStore*>(this)->loadFromFile(); });
 }
 
 bool WifiCredentialStore::loadFromBinaryFile() {
@@ -136,73 +158,124 @@ bool WifiCredentialStore::loadFromBinaryFile() {
 }
 
 bool WifiCredentialStore::addCredential(const std::string& ssid, const std::string& password) {
-  // Check if this SSID already exists and update it
-  const auto cred = find_if(credentials.begin(), credentials.end(),
-                            [&ssid](const WifiCredential& cred) { return cred.ssid == ssid; });
-  if (cred != credentials.end()) {
-    cred->password = password;
-    LOG_DBG("WCS", "Updated credentials for: %s", ssid.c_str());
-    return saveToFile();
-  }
-
-  // Check if we've reached the limit
-  if (credentials.size() >= MAX_NETWORKS) {
-    LOG_DBG("WCS", "Cannot add more networks, limit of %zu reached", MAX_NETWORKS);
+  ensureLoaded();
+  if (password.size() > MAX_PASSWORD_LENGTH) {
+    LOG_ERR("WCS", "Refusing oversized WiFi password for %s", ssid.c_str());
     return false;
   }
 
-  // Add new credential
-  credentials.push_back({ssid, password});
-  LOG_DBG("WCS", "Added credentials for: %s", ssid.c_str());
+  {
+    std::lock_guard<std::mutex> lock(credentialMutex);
+    const auto cred = find_if(credentials.begin(), credentials.end(),
+                              [&ssid](const WifiCredential& cred) { return cred.ssid == ssid; });
+    if (cred != credentials.end()) {
+      cred->password = password;
+    } else {
+      if (credentials.size() >= MAX_NETWORKS) {
+        LOG_DBG("WCS", "Cannot add more networks, limit of %zu reached", MAX_NETWORKS);
+        return false;
+      }
+
+      credentials.push_back({ssid, password});
+    }
+  }
   return saveToFile();
 }
 
 bool WifiCredentialStore::removeCredential(const std::string& ssid) {
-  const auto cred = find_if(credentials.begin(), credentials.end(),
-                            [&ssid](const WifiCredential& cred) { return cred.ssid == ssid; });
-  if (cred != credentials.end()) {
+  ensureLoaded();
+
+  {
+    std::lock_guard<std::mutex> lock(credentialMutex);
+    const auto cred = find_if(credentials.begin(), credentials.end(),
+                              [&ssid](const WifiCredential& cred) { return cred.ssid == ssid; });
+    if (cred == credentials.end()) return false;
     credentials.erase(cred);
-    LOG_DBG("WCS", "Removed credentials for: %s", ssid.c_str());
-    if (ssid == lastConnectedSsid) {
-      clearLastConnectedSsid();
-    }
-    return saveToFile();
+    if (ssid == lastConnectedSsid) lastConnectedSsid.clear();
   }
-  return false;  // Not found
+  return saveToFile();
 }
 
-const WifiCredential* WifiCredentialStore::findCredential(const std::string& ssid) const {
+std::optional<WifiCredential> WifiCredentialStore::findCredential(const std::string& ssid) const {
+  ensureLoaded();
+  std::lock_guard<std::mutex> lock(credentialMutex);
+
   const auto cred = find_if(credentials.begin(), credentials.end(),
                             [&ssid](const WifiCredential& cred) { return cred.ssid == ssid; });
-
-  if (cred != credentials.end()) {
-    return &*cred;
-  }
-
-  return nullptr;
+  return cred != credentials.end() ? std::optional<WifiCredential>(*cred) : std::nullopt;
 }
 
-bool WifiCredentialStore::hasSavedCredential(const std::string& ssid) const { return findCredential(ssid) != nullptr; }
+std::optional<WifiCredential> WifiCredentialStore::getCredentialAt(const size_t index) const {
+  ensureLoaded();
+  std::lock_guard<std::mutex> lock(credentialMutex);
+  return index < credentials.size() ? std::optional<WifiCredential>(credentials[index]) : std::nullopt;
+}
+
+std::optional<std::string> WifiCredentialStore::getSsidAt(const size_t index) const {
+  ensureLoaded();
+  std::lock_guard<std::mutex> lock(credentialMutex);
+  return index < credentials.size() ? std::optional<std::string>(credentials[index].ssid) : std::nullopt;
+}
+
+size_t WifiCredentialStore::getCredentialCount() const {
+  ensureLoaded();
+  std::lock_guard<std::mutex> lock(credentialMutex);
+  return credentials.size();
+}
+
+std::vector<WifiCredentialSummary> WifiCredentialStore::getCredentialSummaries() const {
+  ensureLoaded();
+  std::lock_guard<std::mutex> lock(credentialMutex);
+  std::vector<WifiCredentialSummary> summaries;
+  summaries.reserve(credentials.size());
+  for (const auto& credential : credentials) {
+    summaries.push_back({credential.ssid, !credential.password.empty(), credential.ssid == lastConnectedSsid});
+  }
+  return summaries;
+}
+
+bool WifiCredentialStore::hasSavedCredential(const std::string& ssid) const {
+  ensureLoaded();
+  std::lock_guard<std::mutex> lock(credentialMutex);
+  return find_if(credentials.begin(), credentials.end(),
+                 [&ssid](const WifiCredential& cred) { return cred.ssid == ssid; }) != credentials.end();
+}
 
 void WifiCredentialStore::setLastConnectedSsid(const std::string& ssid) {
-  if (lastConnectedSsid != ssid) {
+  ensureLoaded();
+
+  {
+    std::lock_guard<std::mutex> lock(credentialMutex);
+    if (lastConnectedSsid == ssid) return;
     lastConnectedSsid = ssid;
-    saveToFile();
   }
+  saveToFile();
 }
 
-const std::string& WifiCredentialStore::getLastConnectedSsid() const { return lastConnectedSsid; }
+std::string WifiCredentialStore::getLastConnectedSsid() const {
+  ensureLoaded();
+  std::lock_guard<std::mutex> lock(credentialMutex);
+  return lastConnectedSsid;
+}
 
 void WifiCredentialStore::clearLastConnectedSsid() {
-  if (!lastConnectedSsid.empty()) {
+  ensureLoaded();
+
+  {
+    std::lock_guard<std::mutex> lock(credentialMutex);
+    if (lastConnectedSsid.empty()) return;
     lastConnectedSsid.clear();
-    saveToFile();
   }
+  saveToFile();
 }
 
 void WifiCredentialStore::clearAll() {
-  credentials.clear();
-  lastConnectedSsid.clear();
+  ensureLoaded();
+
+  {
+    std::lock_guard<std::mutex> lock(credentialMutex);
+    credentials.clear();
+    lastConnectedSsid.clear();
+  }
   saveToFile();
-  LOG_DBG("WCS", "Cleared all WiFi credentials");
 }

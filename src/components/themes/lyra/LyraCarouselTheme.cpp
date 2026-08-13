@@ -16,7 +16,10 @@
 
 #include "RecentBooksStore.h"
 #include "activities/reader/BookReadingStats.h"
+#include "components/TouchRegistry.h"
 #include "components/UITheme.h"
+#include "components/UiAppHelpers.h"
+#include "components/icons/chart.h"
 #include "components/icons/cover.h"
 #include "fontIds.h"
 
@@ -172,6 +175,64 @@ Rect computeCenterCoverSlotRect(const GfxRenderer& renderer, Rect rect, const st
   return Rect{centerX, centerDrawY, kDisplayCenterW, kDisplayCenterH};
 }
 
+void registerCoverTarget(int bookIdx, Rect rect, int bookCount, int* registeredIds, int& registeredCount) {
+  if (bookIdx < 0 || bookIdx >= bookCount || rect.width <= 0 || rect.height <= 0) return;
+  for (int i = 0; i < registeredCount; ++i) {
+    if (registeredIds[i] == bookIdx) return;
+  }
+  if (registeredCount < LyraCarouselMetrics::values.homeRecentBooksCount) {
+    registeredIds[registeredCount++] = bookIdx;
+  }
+  TouchRegistry::getInstance().add(rect, bookIdx, TouchRegistry::Cover);
+}
+
+void registerCarouselCoverTouchTargets(const GfxRenderer& renderer, Rect rect,
+                                       const std::vector<RecentBook>& recentBooks, int centerIdx) {
+  const int bookCount = static_cast<int>(recentBooks.size());
+  if (bookCount <= 0 || centerIdx < 0 || centerIdx >= bookCount) return;
+
+  const int screenW = renderer.getScreenWidth();
+  const Rect centerCoverSlotRect = computeCenterCoverSlotRect(renderer, rect, recentBooks);
+  const int centerX = centerCoverSlotRect.x;
+  const int sideMaxHeight = std::max(kNearSideInnerH, kNearSideOuterH);
+  const int sideTileY = centerCoverSlotRect.y + (kDisplayCenterH - sideMaxHeight) / 2;
+  const int nearOverlap = 4;
+  const int farOverlap = 2;
+  constexpr int nearCoverInset = 10;
+  const int baseLeftNearX = centerX - kNearSideW + nearOverlap;
+  const int baseRightNearX = centerX + kDisplayCenterW - nearOverlap;
+  const int leftNearX = baseLeftNearX + nearCoverInset;
+  const int rightNearX = baseRightNearX - nearCoverInset;
+  const int leftFarX = std::max(0, baseLeftNearX - kFarSideW + farOverlap);
+  const int rightFarX = std::min(screenW - kFarSideW, baseRightNearX + kNearSideW - farOverlap);
+  int registeredIds[LyraCarouselMetrics::values.homeRecentBooksCount] = {-1, -1, -1};
+  int registeredCount = 0;
+
+  const int leftNearIdx = (centerIdx + bookCount - 1) % bookCount;
+  const int leftFarIdx = (centerIdx + bookCount - 2) % bookCount;
+  const int rightNearIdx = (centerIdx + 1) % bookCount;
+  const int rightFarIdx = (centerIdx + 2) % bookCount;
+
+  if (bookCount >= 5) {
+    registerCoverTarget(leftFarIdx, Rect{leftFarX, sideTileY, kFarSideW, std::max(kFarSideInnerH, kFarSideOuterH)},
+                        bookCount, registeredIds, registeredCount);
+  }
+  if (bookCount >= 4) {
+    registerCoverTarget(rightFarIdx, Rect{rightFarX, sideTileY, kFarSideW, std::max(kFarSideOuterH, kFarSideInnerH)},
+                        bookCount, registeredIds, registeredCount);
+  }
+  if (bookCount >= 2) {
+    registerCoverTarget(leftNearIdx, Rect{leftNearX, sideTileY, kNearSideW, std::max(kNearSideInnerH, kNearSideOuterH)},
+                        bookCount, registeredIds, registeredCount);
+  }
+  if (bookCount >= 3) {
+    registerCoverTarget(rightNearIdx,
+                        Rect{rightNearX, sideTileY, kNearSideW, std::max(kNearSideOuterH, kNearSideInnerH)}, bookCount,
+                        registeredIds, registeredCount);
+  }
+  registerCoverTarget(centerIdx, shrinkCenterCoverRect(centerCoverSlotRect), bookCount, registeredIds, registeredCount);
+}
+
 void drawMenuBookmarkIcon(const GfxRenderer& renderer, int x, int y, bool selected) {
   constexpr int ribbonWidth = 16;
   constexpr int ribbonHeight = 22;
@@ -241,6 +302,7 @@ void LyraCarouselTheme::setPreRenderIndex(int idx) {
 void LyraCarouselTheme::drawCarouselBorder(GfxRenderer& renderer, Rect coverRect,
                                            const std::vector<RecentBook>& recentBooks, int centerIdx,
                                            bool inCarouselRow) const {
+  registerCarouselCoverTouchTargets(renderer, coverRect, recentBooks, centerIdx);
   if (!inCarouselRow) return;
   Rect borderRect = shrinkCenterCoverRect(computeCenterCoverSlotRect(renderer, coverRect, recentBooks));
   renderer.drawRoundedRect(borderRect.x, borderRect.y, borderRect.width, borderRect.height, kSelectionLineW,
@@ -498,6 +560,7 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
 
   // Always outline the centre cover at its own edge (white ring sits outside the black line);
   // thicker when the carousel row is active
+  registerCarouselCoverTouchTargets(renderer, rect, recentBooks, centerIdx);
   const int outlineW = inCarouselRow ? kSelectionLineW : kThinOutlineW;
   renderer.drawRoundedRect(lastCenterCoverRect.x, lastCenterCoverRect.y, lastCenterCoverRect.width,
                            lastCenterCoverRect.height, outlineW, kCornerRadius, true);
@@ -513,6 +576,7 @@ void LyraCarouselTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int but
   // Rect is retained by the BaseTheme interface; this carousel menu anchors to the screen bottom.
 
   const MenuLayoutMetrics metrics = computeMenuLayout(renderer, buttonCount);
+  registerButtonMenuTouchTargets(renderer, buttonCount);
 
   for (int i = 0; i < buttonCount; ++i) {
     const int tileX = i * metrics.tileW;
@@ -531,13 +595,18 @@ void LyraCarouselTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int but
       const UIIcon icon = rowIcon(i);
       if (icon == UIIcon::BookmarkIcon) {
         drawMenuBookmarkIcon(renderer, iconX, iconY, selected);
+      } else if (icon == UIIcon::Chart) {
+        if (selected)
+          renderer.drawIconInverted(ChartIcon, iconX, iconY, kMenuIconSize, kMenuIconSize);
+        else
+          renderer.drawIcon(ChartIcon, iconX, iconY, kMenuIconSize, kMenuIconSize);
       } else {
-        const uint8_t* bmp = iconForName(icon, kMenuIconSize);
+        const freeink::Icon* bmp = iconForName(icon, kMenuIconSize);
         if (bmp != nullptr) {
           if (selected)
-            renderer.drawIconInverted(bmp, iconX, iconY, kMenuIconSize, kMenuIconSize);
+            drawLucideIcon(renderer, *bmp, iconX, iconY, false);
           else
-            renderer.drawIcon(bmp, iconX, iconY, kMenuIconSize, kMenuIconSize);
+            drawLucideIcon(renderer, *bmp, iconX, iconY);
         }
       }
     }
@@ -554,12 +623,23 @@ void LyraCarouselTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int but
   }
 }
 
+void LyraCarouselTheme::registerButtonMenuTouchTargets(const GfxRenderer& renderer, int buttonCount) const {
+  if (buttonCount <= 0) return;
+  const MenuLayoutMetrics metrics = computeMenuLayout(renderer, buttonCount);
+  for (int i = 0; i < buttonCount; ++i) {
+    TouchRegistry::getInstance().add(
+        Rect{i * metrics.tileW, metrics.labelY, metrics.tileW, metrics.rowY + metrics.tileH - metrics.labelY}, i,
+        TouchRegistry::Item);
+  }
+}
+
 void LyraCarouselTheme::drawButtonMenuSelectionOverlay(const GfxRenderer& renderer, int buttonCount, int selectedIndex,
                                                        const std::function<const char*(int index)>& buttonLabel,
                                                        const std::function<UIIcon(int index)>& rowIcon) const {
   if (buttonCount <= 0 || selectedIndex < 0 || selectedIndex >= buttonCount) return;
 
   const MenuLayoutMetrics metrics = computeMenuLayout(renderer, buttonCount);
+  registerButtonMenuTouchTargets(renderer, buttonCount);
 
   const int tileX = selectedIndex * metrics.tileW;
   const int iconX = tileX + (metrics.tileW - kMenuIconSize) / 2;
@@ -574,10 +654,12 @@ void LyraCarouselTheme::drawButtonMenuSelectionOverlay(const GfxRenderer& render
     const UIIcon icon = rowIcon(selectedIndex);
     if (icon == UIIcon::BookmarkIcon) {
       drawMenuBookmarkIcon(renderer, iconX, iconY, true);
+    } else if (icon == UIIcon::Chart) {
+      renderer.drawIconInverted(ChartIcon, iconX, iconY, kMenuIconSize, kMenuIconSize);
     } else {
-      const uint8_t* bmp = iconForName(icon, kMenuIconSize);
+      const freeink::Icon* bmp = iconForName(icon, kMenuIconSize);
       if (bmp != nullptr) {
-        renderer.drawIconInverted(bmp, iconX, iconY, kMenuIconSize, kMenuIconSize);
+        drawLucideIcon(renderer, *bmp, iconX, iconY, false);
       }
     }
   }
@@ -602,7 +684,9 @@ void LyraCarouselTheme::drawList(const GfxRenderer& renderer, Rect rect, int ite
                                  const std::function<UIIcon(int index)>& rowIcon,
                                  const std::function<std::string(int index)>& rowValue, bool highlightValue,
                                  const std::function<bool(int index)>& rowDimmed,
-                                 const std::function<bool(int index)>& isHeader) const {
+                                 const std::function<bool(int index)>& isHeader, const int rowHeightScale,
+                                 const bool showSelection) const {
   drawListWithMetrics(renderer, rect, itemCount, selectedIndex, rowTitle, rowSubtitle, rowIcon, rowValue,
-                      highlightValue, rowDimmed, isHeader, LyraCarouselMetrics::values, true);
+                      highlightValue, rowDimmed, isHeader, LyraCarouselMetrics::values, true, rowHeightScale,
+                      showSelection);
 }

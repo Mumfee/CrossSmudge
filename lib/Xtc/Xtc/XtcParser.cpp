@@ -10,6 +10,7 @@
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Memory.h>
 
 #include <algorithm>
 #include <cstring>
@@ -157,10 +158,6 @@ XtcError XtcParser::readHeader() {
     return XtcError::CORRUPTED_HEADER;
   }
 
-  LOG_DBG("XTC", "Header: magic=0x%08X (%s), ver=%u.%u, pages=%u, bitDepth=%u", m_header.magic,
-          (m_header.magic == XTCH_MAGIC) ? "XTCH" : "XTC", m_header.versionMajor, m_header.versionMinor,
-          m_header.pageCount, m_bitDepth);
-
   return XtcError::OK;
 }
 
@@ -174,7 +171,6 @@ XtcError XtcParser::readTitle() {
   m_file.read(titleBuf, sizeof(titleBuf) - 1);
   m_title = titleBuf;
 
-  LOG_DBG("XTC", "Title: %s", m_title.c_str());
   return XtcError::OK;
 }
 
@@ -189,7 +185,6 @@ XtcError XtcParser::readAuthor() {
   m_file.read(authorBuf, sizeof(authorBuf) - 1);
   m_author = authorBuf;
 
-  LOG_DBG("XTC", "Author: %s", m_author.c_str());
   return XtcError::OK;
 }
 
@@ -231,7 +226,6 @@ XtcError XtcParser::readFirstPageInfo() {
   m_defaultWidth = entry.width;
   m_defaultHeight = entry.height;
 
-  LOG_DBG("XTC", "Page table validated: %u pages, default %dx%d", m_header.pageCount, m_defaultWidth, m_defaultHeight);
   return XtcError::OK;
 }
 
@@ -391,7 +385,6 @@ XtcError XtcParser::readChapters() {
     LOG_DBG("XTC", "Chapter table truncated: %u available, %u loaded", static_cast<unsigned int>(chapterCount),
             static_cast<unsigned int>(MAX_XTC_CHAPTERS));
   }
-  LOG_DBG("XTC", "Chapters: %u", static_cast<unsigned int>(m_chapterCount));
   return XtcError::OK;
 }
 
@@ -495,25 +488,25 @@ XtcError XtcParser::loadPageStreaming(uint32_t pageIndex,
                                       std::function<void(const uint8_t* data, size_t size, size_t offset)> callback,
                                       size_t chunkSize) {
   if (!m_isOpen) {
-    return XtcError::FILE_NOT_FOUND;
+    return m_lastError = XtcError::FILE_NOT_FOUND;
   }
 
   if (pageIndex >= m_header.pageCount) {
-    return XtcError::PAGE_OUT_OF_RANGE;
+    return m_lastError = XtcError::PAGE_OUT_OF_RANGE;
   }
 
   PageInfo page;
   if (!readPageTableEntry(pageIndex, page)) {
-    return XtcError::READ_ERROR;
+    return m_lastError = XtcError::READ_ERROR;
   }
 
   if (!ensureFileOpen()) {
-    return XtcError::FILE_NOT_FOUND;
+    return m_lastError = XtcError::FILE_NOT_FOUND;
   }
 
   // Seek to page data
   if (!m_file.seek64(page.offset)) {
-    return XtcError::READ_ERROR;
+    return m_lastError = XtcError::READ_ERROR;
   }
 
   // Read and skip page header (XTG for 1-bit, XTH for 2-bit)
@@ -521,7 +514,7 @@ XtcError XtcParser::loadPageStreaming(uint32_t pageIndex,
   size_t headerRead = m_file.read(reinterpret_cast<uint8_t*>(&pageHeader), sizeof(XtgPageHeader));
   const uint32_t expectedMagic = (m_bitDepth == 2) ? XTH_MAGIC : XTG_MAGIC;
   if (headerRead != sizeof(XtgPageHeader) || pageHeader.magic != expectedMagic) {
-    return XtcError::READ_ERROR;
+    return m_lastError = XtcError::READ_ERROR;
   }
 
   // Calculate bitmap size based on bit depth
@@ -534,23 +527,40 @@ XtcError XtcParser::loadPageStreaming(uint32_t pageIndex,
     bitmapSize = ((pageHeader.width + 7) / 8) * pageHeader.height;
   }
 
-  // Read in chunks
-  std::vector<uint8_t> chunk(chunkSize);
+  // The chunk size is caller-controlled and too large for the task stack. Keep
+  // this allocation fallible so a fragmented C3 heap reports an error instead
+  // of aborting while entering the streaming fallback.
+  if (chunkSize == 0) {
+    return m_lastError = XtcError::MEMORY_ERROR;
+  }
+  if (m_streamChunkSize < chunkSize) {
+    auto chunk = makeUniqueNoThrow<uint8_t[]>(chunkSize);
+    if (!chunk) {
+      LOG_ERR("XTC", "Failed to allocate streaming page chunk (%u bytes)", static_cast<unsigned int>(chunkSize));
+      return m_lastError = XtcError::MEMORY_ERROR;
+    }
+    m_streamChunk = std::move(chunk);
+    m_streamChunkSize = chunkSize;
+  }
+  if (!m_streamChunk) {
+    LOG_ERR("XTC", "Failed to allocate streaming page chunk (%u bytes)", static_cast<unsigned int>(chunkSize));
+    return m_lastError = XtcError::MEMORY_ERROR;
+  }
   size_t totalRead = 0;
 
   while (totalRead < bitmapSize) {
     size_t toRead = std::min(chunkSize, bitmapSize - totalRead);
-    size_t bytesRead = m_file.read(chunk.data(), toRead);
+    size_t bytesRead = m_file.read(m_streamChunk.get(), toRead);
 
     if (bytesRead == 0) {
-      return XtcError::READ_ERROR;
+      return m_lastError = XtcError::READ_ERROR;
     }
 
-    callback(chunk.data(), bytesRead, totalRead);
+    callback(m_streamChunk.get(), bytesRead, totalRead);
     totalRead += bytesRead;
   }
 
-  return XtcError::OK;
+  return m_lastError = XtcError::OK;
 }
 
 bool XtcParser::isValidXtcFile(const char* filepath) {

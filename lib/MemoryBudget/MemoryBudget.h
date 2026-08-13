@@ -6,11 +6,22 @@
 #include <cstdint>
 #include <cstring>
 
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+#include <esp_heap_caps.h>
+#endif
+
 namespace MemoryBudget {
 
 struct HeapSnapshot {
   uint32_t freeHeap;
   uint32_t maxAllocHeap;
+};
+
+struct HeapShapeSnapshot {
+  uint32_t freeHeap;
+  uint32_t maxAllocHeap;
+  uint32_t freeBlocks;
+  uint32_t allocatedBlocks;
 };
 
 struct HeapRequirement {
@@ -20,10 +31,18 @@ struct HeapRequirement {
 
 constexpr uint32_t EPUB_INLINE_IMAGE_MIN_FREE = 72U * 1024U;
 constexpr uint32_t EPUB_INLINE_IMAGE_MIN_MAX_ALLOC = 48U * 1024U;
+constexpr uint32_t EPUB_TEXT_LAYOUT_MIN_FREE = 44U * 1024U;
+constexpr uint32_t EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC = 32U * 1024U;
 constexpr uint32_t EPUB_INLINE_IMAGE_SD_FONT_RELEASE_MIN_FREE = 120U * 1024U;
 constexpr uint32_t EPUB_INLINE_IMAGE_SD_FONT_RELEASE_MIN_MAX_ALLOC = 80U * 1024U;
 constexpr uint32_t OPTIONAL_EPUB_REBUILD_MIN_FREE = 96U * 1024U;
 constexpr uint32_t OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC = 48U * 1024U;
+constexpr uint32_t OPTIONAL_EPUB_PREFETCH_AFTER_SD_FONT_RELEASE_MIN_FREE = 88U * 1024U;
+// Initial C3 guard for switching to a different dictionary .cpfont. Both total
+// free heap and contiguous maxAlloc matter because font metadata and prewarm
+// arenas are separate allocations. Hardware stress logs should tune these.
+constexpr uint32_t DICTIONARY_SD_FONT_MIN_FREE = 64U * 1024U;
+constexpr uint32_t DICTIONARY_SD_FONT_MIN_MAX_ALLOC = 32U * 1024U;
 constexpr uint32_t IMAGE_DECODER_HEADROOM = 16U * 1024U;
 constexpr uint32_t JPEG_DECODER_APPROX_BYTES = 20U * 1024U;
 constexpr uint32_t EPUB_INLINE_JPEG_MIN_FREE = JPEG_DECODER_APPROX_BYTES + IMAGE_DECODER_HEADROOM;
@@ -31,8 +50,44 @@ constexpr uint32_t EPUB_INLINE_JPEG_MIN_MAX_ALLOC = JPEG_DECODER_APPROX_BYTES;
 
 inline HeapSnapshot snapshot() { return {ESP.getFreeHeap(), ESP.getMaxAllocHeap()}; }
 
+inline HeapShapeSnapshot shapeSnapshot() {
+  const auto heap = snapshot();
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+  multi_heap_info_t info{};
+  heap_caps_get_info(&info, MALLOC_CAP_INTERNAL);
+  return {heap.freeHeap, heap.maxAllocHeap, static_cast<uint32_t>(info.free_blocks),
+          static_cast<uint32_t>(info.allocated_blocks)};
+#else
+  return {heap.freeHeap, heap.maxAllocHeap, 0, 0};
+#endif
+}
+
+inline void logHeapShape(const char* stage) {
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+  const auto heap = shapeSnapshot();
+  const uint32_t largestPct = heap.freeHeap == 0 ? 0 : heap.maxAllocHeap * 100U / heap.freeHeap;
+  LOG_DBG("HEAP", "stage=%s free=%u max=%u freeBlocks=%u allocBlocks=%u largestPct=%u", stage, heap.freeHeap,
+          heap.maxAllocHeap, heap.freeBlocks, heap.allocatedBlocks, largestPct);
+#else
+  (void)stage;
+#endif
+}
+
 inline bool hasHeap(const HeapSnapshot heap, const uint32_t minFree, const uint32_t minMaxAlloc) {
   return heap.freeHeap >= minFree && heap.maxAllocHeap >= minMaxAlloc;
+}
+
+// Text layout starts with small, fallible allocations: a 4 KB scratch arena and
+// a ParsedText object. The operations which really need a large contiguous block
+// (table buffering, advance prewarming, and image decoding) each have their own
+// max-allocation gate. Do not reject a whole chapter merely because fragmentation
+// leaves the general 32 KB background-build threshold a few bytes short.
+inline bool hasHeapForEpubTextLayoutStart(const HeapSnapshot heap) {
+  return heap.freeHeap >= EPUB_TEXT_LAYOUT_MIN_FREE;
+}
+
+inline bool hasHeapForDictionarySdFont(const HeapSnapshot heap) {
+  return hasHeap(heap, DICTIONARY_SD_FONT_MIN_FREE, DICTIONARY_SD_FONT_MIN_MAX_ALLOC);
 }
 
 inline char asciiLower(const char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c; }
@@ -77,15 +132,16 @@ inline bool hasHeapForEpubInlineImage(const char* tag, const char* source) {
   return false;
 }
 
-inline bool hasHeapForOptionalEpubRebuild(const char* tag, const char* action, const int spineIndex) {
+inline bool hasHeapForOptionalEpubRebuild(const char* tag, const char* action, const int spineIndex,
+                                          const uint32_t minFree = OPTIONAL_EPUB_REBUILD_MIN_FREE,
+                                          const uint32_t minMaxAlloc = OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC) {
   const auto heap = snapshot();
-  if (hasHeap(heap, OPTIONAL_EPUB_REBUILD_MIN_FREE, OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC)) {
+  if (hasHeap(heap, minFree, minMaxAlloc)) {
     return true;
   }
 
   LOG_DBG(tag, "Skipping %s for spine %d: low heap (free=%u, maxAlloc=%u, need free>=%u maxAlloc>=%u)", action,
-          spineIndex, heap.freeHeap, heap.maxAllocHeap, OPTIONAL_EPUB_REBUILD_MIN_FREE,
-          OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC);
+          spineIndex, heap.freeHeap, heap.maxAllocHeap, minFree, minMaxAlloc);
   return false;
 }
 

@@ -595,8 +595,6 @@ static bool isProgressiveJpeg(FsFile& file) {
 // Internal implementation with configurable target size and bit depth
 bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bmpOut, int targetWidth, int targetHeight,
                                                      bool oneBit, bool crop, bool adaptiveContain) {
-  LOG_DBG("JPG", "Converting JPEG to %s BMP (target: %dx%d)", oneBit ? "1-bit" : "2-bit", targetWidth, targetHeight);
-
   if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
     LOG_ERR("JPG", "Not enough heap for JPEG decoder (%u free, need %u)", ESP.getFreeHeap(), MIN_FREE_HEAP);
     return false;
@@ -625,8 +623,6 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   const int srcWidth = jpeg->getWidth();
   const int srcHeight = jpeg->getHeight();
 
-  LOG_DBG("JPG", "JPEG dimensions: %dx%d%s", srcWidth, srcHeight, progressive ? " (progressive)" : "");
-
   constexpr int MAX_IMAGE_WIDTH = 2048;
   constexpr int MAX_IMAGE_HEIGHT = 3072;
 
@@ -653,9 +649,6 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   const bool smoothUpscale = progressive && needsScaling && geometry.scaleX_fp <= FP_ONE &&
                              geometry.scaleY_fp <= FP_ONE &&
                              (geometry.scaleX_fp < FP_ONE || geometry.scaleY_fp < FP_ONE);
-  LOG_DBG("JPG", "Scaling %dx%d -> %dx%d (target %dx%d, mode=%s, offset %u,%u)", effectiveSrcW, effectiveSrcH, outWidth,
-          outHeight, targetWidth, targetHeight, cropOutput ? "cover" : "contain", geometry.srcXOffset_fp >> 16,
-          geometry.srcYOffset_fp >> 16);
 
   // Write BMP header with output dimensions
   int bytesPerRow;
@@ -787,7 +780,6 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
     return false;
   }
 
-  LOG_DBG("JPG", "Successfully converted JPEG to BMP");
   return true;
 }
 

@@ -79,7 +79,6 @@ bool FileIndex::open(const char* dirPath, AcceptFn accept) {
   }
 
   if (loadExisting(dirPath, signature, dirs, files)) {
-    LOG_DBG("FIDX", "index valid for %s (%u dirs, %u files)", dirPath, hdr.dirCount, hdr.fileCount);
     return true;
   }
 

@@ -12,6 +12,7 @@ namespace BookActions {
 std::vector<FileBrowserActionActivity::MenuItem> buildBookActionItems(const std::string& fullPath,
                                                                       bool includeRemoveFromRecents);
 bool hasClearableBookCache(const std::string& path);
+bool canSendNearby(const std::string& path);
 void clearFileMetadata(const std::string& fullPath);
 bool clearBookCache(const std::string& fullPath);
 bool deleteBookStats(const std::string& fullPath);

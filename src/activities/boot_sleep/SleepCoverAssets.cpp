@@ -74,7 +74,7 @@ bool prepareFullCoverForPath(const std::string& bookPath, const bool cropped, co
 
   if (FsHelpers::hasEpubExtension(bookPath)) {
     Epub epub(bookPath, "/.crosspoint");
-    if (!epub.load(/*buildIfMissing=*/false, /*skipLoadingCss=*/true)) {
+    if (!epub.load(/*buildIfMissing=*/false, /*skipLoadingCss=*/true, Epub::XLocationLoadMode::Skip)) {
       return false;
     }
     return epub.generateCoverBmp(cropped, renderer, readerFontIdForRenderer(renderer));
@@ -100,7 +100,7 @@ bool prepareMinimalCoverForPath(const std::string& bookPath, const GfxRenderer* 
 
   if (FsHelpers::hasEpubExtension(bookPath)) {
     Epub epub(bookPath, "/.crosspoint");
-    if (!epub.load(/*buildIfMissing=*/true, /*skipLoadingCss=*/true)) {
+    if (!epub.load(/*buildIfMissing=*/true, /*skipLoadingCss=*/true, Epub::XLocationLoadMode::Skip)) {
       return false;
     }
     return epub.generateAdaptiveThumbBmp(kMinimalSleepCoverWidth, kMinimalSleepCoverHeight, renderer,
@@ -128,7 +128,7 @@ bool prepareDashboardCoverForPath(const std::string& bookPath, const GfxRenderer
 
   if (FsHelpers::hasEpubExtension(bookPath)) {
     Epub epub(bookPath, "/.crosspoint");
-    if (!epub.load(/*buildIfMissing=*/true, /*skipLoadingCss=*/true)) {
+    if (!epub.load(/*buildIfMissing=*/true, /*skipLoadingCss=*/true, Epub::XLocationLoadMode::Skip)) {
       return false;
     }
     return epub.generateAdaptiveThumbBmp(kDashboardSleepCoverWidth, kDashboardSleepCoverHeight, renderer,

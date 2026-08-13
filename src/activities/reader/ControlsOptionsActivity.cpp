@@ -1,6 +1,7 @@
 #include "ControlsOptionsActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -10,8 +11,10 @@
 #include "MappedInputManager.h"
 #include "SettingsList.h"
 #include "activities/settings/ButtonRemapActivity.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
-#include "fontIds.h"
+
+namespace fui = freeink::ui;
 
 namespace {
 uint8_t enumDisplayIndexForRawValue(const SettingInfo& setting, uint8_t rawValue) {
@@ -42,6 +45,12 @@ void ControlsOptionsActivity::onEnter() {
 
   activeSubmenu = SettingAction::None;
   rebuildSettingsList();
+  uiReady = false;
+  visibleRows = 1;
+  topIndex = 0;
+  app.setTheme(uiThemeTokens(uiTarget));
+  app.on(ACTION_ROW, &ControlsOptionsActivity::onRowEvent, this);
+  app.setScreen(&ControlsOptionsActivity::optionsScreen, this);
   requestUpdate();
 }
 
@@ -56,7 +65,13 @@ void ControlsOptionsActivity::rebuildSettingsList() {
   const auto allSettings = getSettingsList();
   settings = buildControlsSettingsParentList(allSettings);
   powerSettings = buildControlsPowerSettingsList(allSettings);
+#if CROSSSMUDGE_APP_CAP_TOUCH
+  if (!gpio.hasTouch()) {
+    frontButtonSettings = buildControlsFrontButtonSettingsList(allSettings);
+  }
+#else
   frontButtonSettings = buildControlsFrontButtonSettingsList(allSettings);
+#endif
   sideButtonSettings = buildControlsSideButtonSettingsList(allSettings);
 
   setCurrentSettings();
@@ -98,12 +113,14 @@ void ControlsOptionsActivity::openSubmenu(SettingAction action) {
   activeSubmenu = action;
   setCurrentSettings();
   selectedIndex = 0;
+  topIndex = 0;
 }
 
 void ControlsOptionsActivity::closeSubmenu() {
   activeSubmenu = SettingAction::None;
   setCurrentSettings();
   selectedIndex = 0;
+  topIndex = 0;
 }
 
 void ControlsOptionsActivity::moveSelection(bool forward) {
@@ -113,6 +130,7 @@ void ControlsOptionsActivity::moveSelection(bool forward) {
     selectedIndex = forward ? ButtonNavigator::nextIndex(selectedIndex, settingsCount)
                             : ButtonNavigator::previousIndex(selectedIndex, settingsCount);
     if ((*currentSettings)[selectedIndex].type != SettingType::SECTION_HEADER) {
+      topIndex = followListSelection(selectedIndex, topIndex, visibleRows, settingsCount);
       break;
     }
   }
@@ -196,6 +214,41 @@ void ControlsOptionsActivity::toggleCurrentSetting() {
 
 void ControlsOptionsActivity::loop() {
   if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
+  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
+    if (activeSubmenu != SettingAction::None) {
+      closeSubmenu();
+      requestUpdate();
+      return;
+    }
+    SETTINGS.saveToFile();
+    finish();
+    return;
+  }
+  if (mappedInput.wasHomeGesture()) {
+    finish();
+    return;
+  }
+  if (uiReady) {
+    const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
+    if (snap.touchPressed || snap.touchReleased) {
+      const auto event = app.route(snap);
+      if (app.invalidated()) requestUpdate();
+      if (event) return;
+    }
+  }
+
+  if (mappedInput.hasTouch()) {
+    const auto swipe = mappedInput.wasSwipe();
+    if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
+      const int delta = swipe == MappedInputManager::SwipeDir::Up ? visibleRows : -visibleRows;
+      const int next = scrollListBy(topIndex, delta, visibleRows, settingsCount);
+      if (next != topIndex) {
+        topIndex = next;
+        requestUpdate();
+      }
+      return;
+    }
+  }
 
   buttonNavigator.onNextRelease([this] {
     moveSelection(true);
@@ -225,65 +278,104 @@ void ControlsOptionsActivity::loop() {
   }
 }
 
+void ControlsOptionsActivity::optionsScreen(UiApp::ScreenType& screen, void* user) {
+  static_cast<ControlsOptionsActivity*>(user)->buildOptionsScreen(screen);
+}
+
+void ControlsOptionsActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<ControlsOptionsActivity*>(user);
+  if (self->optionPopup.isActive() || event.value < 0 || event.value >= self->settingsCount) return;
+  if ((*self->currentSettings)[event.value].type == SettingType::SECTION_HEADER) return;
+  self->selectedIndex = event.value;
+  self->app.clearTapFlash();
+  self->toggleCurrentSetting();
+}
+
+void ControlsOptionsActivity::buildOptionsScreen(UiApp::ScreenType& screen) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
+  screen.setContentMargin(fui::Insets{
+      static_cast<int16_t>(safe.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput)),
+      static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
+      static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height), static_cast<int16_t>(safe.x)});
+  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+
+  const StrId submenuTitleId = activeSubmenuTitleId();
+  if (submenuTitleId != StrId::STR_NONE_OPT) {
+    fui::TextStyle titleStyle = screen.theme().smallText;
+    titleStyle.bold = true;
+    titleStyle.maxLines = 1;
+    const int16_t titleHeight = screen.target().lineHeight(titleStyle.font);
+    fui::Rect titleRect = screen.takeTop(titleHeight, static_cast<int16_t>(metrics.verticalSpacing));
+    const int16_t sidePadding = static_cast<int16_t>(metrics.contentSidePadding);
+    titleRect.x = static_cast<int16_t>(titleRect.x + sidePadding);
+    titleRect.width = static_cast<int16_t>(titleRect.width > sidePadding * 2 ? titleRect.width - sidePadding * 2 : 0);
+    screen.target().text(titleRect, I18N.get(submenuTitleId), titleStyle);
+  }
+
+  const auto& currentSettingsList = *currentSettings;
+  std::vector<std::string> values(currentSettingsList.size());
+  std::vector<fui::ListItem> items;
+  items.reserve(currentSettingsList.size());
+  for (size_t i = 0; i < currentSettingsList.size(); ++i) {
+    const auto& setting = currentSettingsList[i];
+    if (settingShowsNavigationCaret(setting)) {
+      values[i] = ">";
+    } else if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
+      values[i] = SETTINGS.*(setting.valuePtr) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+    } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
+      const uint8_t displayValue = enumDisplayIndexForRawValue(setting, SETTINGS.*(setting.valuePtr));
+      values[i] = settingEnumOptionLabel(setting, displayValue < settingEnumOptionCount(setting) ? displayValue : 0);
+    } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
+      values[i] = std::to_string(SETTINGS.*(setting.valuePtr));
+    }
+
+    const bool isSectionHeader = setting.type == SettingType::SECTION_HEADER;
+    fui::ListItem item;
+    item.label =
+        isSectionHeader ? uiListSectionHeaderLabel(values[i], I18N.get(setting.nameId)) : I18N.get(setting.nameId);
+    if (!isSectionHeader && !values[i].empty()) item.value = values[i].c_str();
+    item.isHeader = isSectionHeader;
+    item.actionValue = static_cast<int16_t>(i);
+    items.push_back(item);
+  }
+
+  fui::ListProps props;
+  props.items = items.data();
+  props.count = static_cast<uint16_t>(items.size());
+  props.selectedIndex = static_cast<int16_t>(selectedIndex);
+  props.action = ACTION_ROW;
+  props.inputMask = fui::InputTouch;
+  props.valueInset = 8;
+  props.labelText = screen.theme().bodyText;
+  props.labelText.maxLines = 2;
+  configureUiListSectionHeaders(props, screen.theme());
+  const auto rows = configureUiList(props, screen.theme(), screen.body());
+  visibleRows = rows > 0 ? rows : 1;
+  topIndex = scrollListBy(topIndex, 0, visibleRows, settingsCount);
+  props.topIndex = static_cast<uint16_t>(topIndex);
+  screen.list(props);
+}
+
 void ControlsOptionsActivity::render(RenderLock&&) {
   if (optionPopup.processRender(renderer, mappedInput)) return;
 
   renderer.clearScreen();
 
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
-
-  const auto orientation = renderer.getOrientation();
-  const bool isLandscapeCw = orientation == GfxRenderer::Orientation::LandscapeClockwise;
-  const bool isLandscapeCcw = orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
-  const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? metrics.buttonHintsHeight : 0;
-  const int contentX = isLandscapeCw ? hintGutterWidth : 0;
-  const int contentWidth = pageWidth - hintGutterWidth;
-
-  GUI.drawHeader(renderer, Rect{contentX, metrics.topPadding, contentWidth, metrics.headerHeight}, tr(STR_CAT_CONTROLS),
-                 nullptr, true);
-
-  const auto& visibleSettings = *currentSettings;
-  Rect listRect{contentX, metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing, contentWidth,
-                pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.buttonHintsHeight +
-                              metrics.verticalSpacing * 2)};
-  const StrId submenuTitleId = activeSubmenuTitleId();
-  if (submenuTitleId != StrId::STR_NONE_OPT) {
-    constexpr int submenuHeaderFontId = UI_10_FONT_ID;
-    const int headerLineHeight = renderer.getLineHeight(submenuHeaderFontId);
-    const int headerOffset = headerLineHeight + metrics.verticalSpacing;
-    const int headerMaxWidth = listRect.width - metrics.contentSidePadding * 2;
-    const auto headerLabel =
-        renderer.truncatedText(submenuHeaderFontId, I18N.get(submenuTitleId), headerMaxWidth, EpdFontFamily::BOLD);
-    renderer.drawText(submenuHeaderFontId, listRect.x + metrics.contentSidePadding, listRect.y, headerLabel.c_str(),
-                      true, EpdFontFamily::BOLD);
-    listRect.y += headerOffset;
-    listRect.height = std::max(0, listRect.height - headerOffset);
+  Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
+  header.x = safe.x;
+  header.width = safe.width;
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_CAT_CONTROLS), true);
+  } else {
+    GUI.drawHeader(renderer, header, tr(STR_CAT_CONTROLS), nullptr, true);
   }
 
-  GUI.drawList(
-      renderer, listRect, settingsCount, selectedIndex,
-      [&visibleSettings](int i) { return std::string(I18N.get(visibleSettings[i].nameId)); }, nullptr, nullptr,
-      [&visibleSettings](int i) {
-        const auto& setting = visibleSettings[i];
-        std::string valueText;
-        if (setting.type == SettingType::SUBMENU) {
-          valueText = ">";
-        } else if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
-          valueText = SETTINGS.*(setting.valuePtr) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
-        } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
-          const uint8_t value = SETTINGS.*(setting.valuePtr);
-          const uint8_t displayValue = enumDisplayIndexForRawValue(setting, value);
-          const size_t optionCount = settingEnumOptionCount(setting);
-          const uint8_t safeValue = displayValue < optionCount ? displayValue : 0;
-          valueText = settingEnumOptionLabel(setting, safeValue);
-        } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
-          valueText = std::to_string(SETTINGS.*(setting.valuePtr));
-        }
-        return valueText;
-      },
-      true, nullptr, [&visibleSettings](int i) { return visibleSettings[i].type == SettingType::SECTION_HEADER; });
+  uiReady = false;
+  app.render();
+  uiReady = true;
 
   const bool currentIsAction = selectedIndex >= 0 && selectedIndex < settingsCount &&
                                ((*currentSettings)[selectedIndex].type == SettingType::ACTION ||

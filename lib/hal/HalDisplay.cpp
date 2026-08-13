@@ -71,6 +71,20 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
 }
 
+void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {
+  if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
+    einkDisplay.requestResync(1);
+  }
+
+  einkDisplay.displayBufferAsyncNoShadow(convertRefreshMode(mode));
+}
+
+void HalDisplay::waitRefreshComplete() { einkDisplay.waitRefreshComplete(); }
+
+bool HalDisplay::supportsAsyncRefresh() const { return einkDisplay.supportsAsyncRefresh(); }
+
+bool HalDisplay::supportsAsyncGrayscaleBase() const { return !gpio.deviceIsX3() && einkDisplay.supportsAsyncRefresh(); }
+
 void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen) {
   HalSpiBus::Lock spiLock;
 
@@ -88,19 +102,22 @@ void HalDisplay::deepSleep() {
 
 uint8_t* HalDisplay::getFrameBuffer() const { return einkDisplay.getFrameBuffer(); }
 
+uint8_t* HalDisplay::lendFrameBufferStorage(uint32_t* sizeOut) { return einkDisplay.lendBuildStorage(sizeOut); }
+
+void HalDisplay::returnFrameBufferStorage() { einkDisplay.returnBuildStorage(); }
+
 void HalDisplay::copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* msbBuffer) {
   einkDisplay.copyGrayscaleBuffers(lsbBuffer, msbBuffer);
 }
 
 void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) {
-  // X3: a HALF fallback means the caller wants a clean base (e.g. the sleep
-  // cover, a full-screen swap from arbitrary prior content). Without this, the
-  // X3 grayscale base takes its gentle differential happy path and the prior
-  // home/reader frame ghosts through the soft aa_pre_bw_mid waveform. Forcing a
-  // resync makes displayGrayscaleBase clear first, matching displayBuffer(HALF).
-  // The reader's FAST path is deliberately left on the differential path so
-  // per-page grayscale stays cheap.
-  if (gpio.deviceIsX3() && fallback == RefreshMode::HALF_REFRESH) {
+  // X3: a HALF or FULL fallback means the caller wants a clean base (e.g. the
+  // sleep cover, a full-screen swap from arbitrary prior content). Without
+  // this, the X3 grayscale base takes its gentle differential happy path and
+  // the prior home/reader frame ghosts through the soft aa_pre_bw_mid
+  // waveform. Forcing a resync makes displayGrayscaleBase clear first,
+  // matching displayBuffer(HALF)/displayBuffer(FULL).
+  if (gpio.deviceIsX3() && fallback != RefreshMode::FAST_REFRESH) {
     einkDisplay.requestResync(1);
   }
 

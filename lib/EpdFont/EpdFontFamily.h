@@ -14,6 +14,8 @@ class EpdFontFamily {
     STRIKETHROUGH = 8,
     SUP = 16,
     SUB = 32,
+    SMALL_CAPS = 64,
+    RUBY_CONTINUE = 128,
   };
   struct GlyphData {
     const EpdFontData* fontData;
@@ -30,6 +32,9 @@ class EpdFontFamily {
   GlyphData getGlyphData(uint32_t cp, Style style = REGULAR) const;
   const EpdGlyph* getGlyph(uint32_t cp, Style style = REGULAR) const;
   uint32_t getFallbackCodepoint(uint32_t cp, Style style = REGULAR) const;
+  /// Returns true if the resolved style's font can render `cp` directly
+  /// (interval coverage only — see EpdFont::hasCodepoint).
+  bool hasCodepoint(uint32_t cp, Style style = REGULAR) const;
   int8_t getKerning(uint32_t leftCp, uint32_t rightCp, Style style = REGULAR) const;
   uint32_t applyLigatures(uint32_t cp, const char*& text, Style style = REGULAR) const;
 

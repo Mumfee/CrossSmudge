@@ -3,31 +3,36 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
-#include <algorithm>
 #include <cmath>
-#include <cstdio>
 
 #include "MappedInputManager.h"
-#include "activities/home/FileBrowserActionActivity.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
-#include "fontIds.h"
+#include "components/UIThemeTokens.h"
+#include "components/UiAppHelpers.h"
 
-static constexpr int ROW_HEIGHT = 68;
-static constexpr int LIST_START_Y = 60;
-static constexpr unsigned long BOOKMARK_DELETE_HOLD_MS = 1000;
+namespace fui = freeink::ui;
+namespace {
+constexpr unsigned long BOOKMARK_DELETE_HOLD_MS = 1000;
+constexpr fui::ActionId ACTION_ROW = 1;
+}  // namespace
 
-int EpubReaderBookmarkListActivity::getPageItems() const {
-  const auto orientation = renderer.getOrientation();
-  const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
-  const int hintGutterHeight = isPortraitInverted ? 50 : 0;
-  const int startY = LIST_START_Y + hintGutterHeight;
-  const int available = renderer.getScreenHeight() - startY - ROW_HEIGHT;
-  return std::max(1, available / ROW_HEIGHT);
-}
+EpubReaderBookmarkListActivity::EpubReaderBookmarkListActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                                               const std::vector<Bookmark>& bookmarks)
+    : Activity("EpubReaderBookmarkList", renderer, mappedInput),
+      bookmarks(bookmarks),
+      uiTarget(makeUiTarget(renderer)),
+      app(uiTarget, uiTarget.deviceContext()) {}
 
 void EpubReaderBookmarkListActivity::onEnter() {
   Activity::onEnter();
   selectedIndex = 0;
+  topIndex = 0;
+  visibleRows = 1;
+  uiReady = false;
+  app.setTheme(uiThemeTokens(uiTarget));
+  app.on(ACTION_ROW, &EpubReaderBookmarkListActivity::onRowEvent, this);
+  app.setScreen(&EpubReaderBookmarkListActivity::listScreen, this);
   requestUpdate();
 }
 
@@ -35,170 +40,187 @@ void EpubReaderBookmarkListActivity::onExit() { Activity::onExit(); }
 
 void EpubReaderBookmarkListActivity::deleteSelectedBookmark() {
   if (bookmarks.empty() || selectedIndex < 0 || selectedIndex >= static_cast<int>(bookmarks.size())) return;
-
   if (!BOOKMARKS.removeBookmarkAt(static_cast<size_t>(selectedIndex))) return;
-
   bookmarks = BOOKMARKS.getBookmarks();
-  if (bookmarks.empty()) {
+  if (bookmarks.empty())
     selectedIndex = 0;
-  } else if (selectedIndex >= static_cast<int>(bookmarks.size())) {
-    selectedIndex = static_cast<int>(bookmarks.size()) - 1;
-  }
+  else if (selectedIndex >= static_cast<int>(bookmarks.size()))
+    selectedIndex = bookmarks.size() - 1;
+  topIndex = followListSelection(selectedIndex, topIndex, visibleRows, static_cast<int>(bookmarks.size()));
   requestUpdate();
 }
 
-void EpubReaderBookmarkListActivity::showBookmarkActionMenu(bool ignoreInitialConfirmRelease) {
+void EpubReaderBookmarkListActivity::showBookmarkDeletePopup() {
   if (bookmarks.empty() || selectedIndex < 0 || selectedIndex >= static_cast<int>(bookmarks.size())) return;
+  confirmingDelete = true;
+  const char* options[] = {tr(STR_CANCEL), tr(STR_DELETE)};
+  confirmPopup.show(tr(STR_CONFIRM_DELETE_BOOKMARK), options, 2, 0, [this](const int optionIndex) {
+    confirmingDelete = false;
+    if (optionIndex == 1) deleteSelectedBookmark();
+    requestUpdate();
+  });
+  requestUpdate();
+}
 
-  const Bookmark selectedBookmark = bookmarks[selectedIndex];
-  const char* chapter = (selectedBookmark.chapterTitle[0] != '\0') ? selectedBookmark.chapterTitle : tr(STR_BOOKMARKS);
-  std::vector<FileBrowserActionActivity::MenuItem> items;
-  items.reserve(1);
-  items.push_back({FileBrowserAction::Delete, StrId::STR_DELETE});
+void EpubReaderBookmarkListActivity::selectBookmark() {
+  if (bookmarks.empty() || selectedIndex < 0 || selectedIndex >= static_cast<int>(bookmarks.size())) return;
+  setResult(BookmarkResult{bookmarks[selectedIndex].spineIndex, bookmarks[selectedIndex].progress,
+                           bookmarks[selectedIndex].paragraphIndex});
+  finish();
+}
 
-  startActivityForResult(
-      std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, chapter, std::move(items),
-                                                  ignoreInitialConfirmRelease),
-      [this, selectedBookmark](const ActivityResult& result) {
-        longPressConfirmHandled = false;
-        if (result.isCancelled) {
-          requestUpdate();
-          return;
-        }
-
-        const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);
-        if (!actionResult || static_cast<FileBrowserAction>(actionResult->action) != FileBrowserAction::Delete) {
-          requestUpdate();
-          return;
-        }
-
-        const auto it = std::find_if(bookmarks.begin(), bookmarks.end(), [&selectedBookmark](const Bookmark& bm) {
-          return bm.spineIndex == selectedBookmark.spineIndex && bm.progress == selectedBookmark.progress;
-        });
-        if (it != bookmarks.end()) {
-          selectedIndex = static_cast<int>(std::distance(bookmarks.begin(), it));
-          deleteSelectedBookmark();
-        } else {
-          requestUpdate();
-        }
-      });
+void EpubReaderBookmarkListActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<EpubReaderBookmarkListActivity*>(user);
+  if (event.value < 0 || event.value >= static_cast<int16_t>(self->bookmarks.size())) return;
+  self->selectedIndex = event.value;
+  self->app.clearTapFlash();
+  self->selectBookmark();
 }
 
 void EpubReaderBookmarkListActivity::loop() {
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+  if (confirmPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
+  if (confirmingDelete) {
+    confirmingDelete = false;
+    requestUpdate();
+    return;
+  }
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const Rect header{safe.x, safe.y + metrics.topPadding, safe.width,
+                    TouchHeaderBackButton::height(metrics, mappedInput)};
+  if (TouchHeaderBackButton::wasTapped(mappedInput, header) ||
+      mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     ActivityResult result;
     result.isCancelled = true;
     setResult(std::move(result));
     finish();
     return;
   }
-
-  if (!bookmarks.empty() && !longPressConfirmHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+  if (!bookmarks.empty() && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
       mappedInput.getHeldTime() >= BOOKMARK_DELETE_HOLD_MS) {
-    longPressConfirmHandled = true;
-    showBookmarkActionMenu(true);
+    showBookmarkDeletePopup();
     return;
   }
-
+  int tx = 0;
+  int ty = 0;
+  if (mappedInput.isScreenTouchLongPress(tx, ty, BOOKMARK_DELETE_HOLD_MS) && listRowStep > 0 && ty >= listTop &&
+      ty < listBottom) {
+    const int offset = ty - listTop;
+    const int row = offset / listRowStep;
+    const int touched = topIndex + row;
+    if (row < visibleRows && offset % listRowStep < listRowHeight && touched < static_cast<int>(bookmarks.size())) {
+      selectedIndex = touched;
+      mappedInput.suppressNextTouchTap();
+      showBookmarkDeletePopup();
+    }
+    return;
+  }
+  if (uiReady) {
+    const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
+    if (snap.touchPressed || snap.touchReleased) {
+      const auto event = app.route(snap);
+      if (app.invalidated()) requestUpdate();
+      if (event) return;
+    }
+  }
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    if (longPressConfirmHandled) {
-      longPressConfirmHandled = false;
-      return;
-    }
-    if (!bookmarks.empty() && selectedIndex >= 0 && selectedIndex < static_cast<int>(bookmarks.size())) {
-      setResult(BookmarkResult{bookmarks[selectedIndex].spineIndex, bookmarks[selectedIndex].progress,
-                               bookmarks[selectedIndex].paragraphIndex});
-      finish();
+    selectBookmark();
+    return;
+  }
+  const int total = static_cast<int>(bookmarks.size());
+  const auto swipe = mappedInput.wasSwipe();
+  if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
+    const int next = scrollListBy(topIndex, swipe == MappedInputManager::SwipeDir::Up ? visibleRows : -visibleRows,
+                                  visibleRows, total);
+    if (next != topIndex) {
+      topIndex = next;
+      requestUpdate();
     }
     return;
   }
-
-  const int total = static_cast<int>(bookmarks.size());
-  if (total == 0) return;
-
-  const int pageItems = getPageItems();
-
-  buttonNavigator.onNextRelease([this, total] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, total);
+  const auto move = [this, total](const int next) {
+    selectedIndex = next;
+    topIndex = followListSelection(selectedIndex, topIndex, visibleRows, total);
     requestUpdate();
-  });
+  };
+  buttonNavigator.onNextRelease([this, total, &move] { move(ButtonNavigator::nextIndex(selectedIndex, total)); });
+  buttonNavigator.onPreviousRelease(
+      [this, total, &move] { move(ButtonNavigator::previousIndex(selectedIndex, total)); });
+  buttonNavigator.onNextContinuous(
+      [this, total, &move] { move(ButtonNavigator::nextPageIndex(selectedIndex, total, visibleRows)); });
+  buttonNavigator.onPreviousContinuous(
+      [this, total, &move] { move(ButtonNavigator::previousPageIndex(selectedIndex, total, visibleRows)); });
+}
 
-  buttonNavigator.onPreviousRelease([this, total] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, total);
-    requestUpdate();
-  });
+void EpubReaderBookmarkListActivity::listScreen(UiApp::ScreenType& screen, void* user) {
+  static_cast<EpubReaderBookmarkListActivity*>(user)->buildListScreen(screen);
+}
 
-  buttonNavigator.onNextContinuous([this, total, pageItems] {
-    selectedIndex = ButtonNavigator::nextPageIndex(selectedIndex, total, pageItems);
-    requestUpdate();
-  });
-
-  buttonNavigator.onPreviousContinuous([this, total, pageItems] {
-    selectedIndex = ButtonNavigator::previousPageIndex(selectedIndex, total, pageItems);
-    requestUpdate();
-  });
+void EpubReaderBookmarkListActivity::buildListScreen(UiApp::ScreenType& screen) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  screen.setContentMargin(fui::Insets{
+      static_cast<int16_t>(safe.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput)),
+      static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
+      static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height), static_cast<int16_t>(safe.x)});
+  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  if (bookmarks.empty()) {
+    screen.centeredText(tr(STR_NO_BOOKMARKS), screen.theme().bodyText);
+    return;
+  }
+  std::vector<std::string> values(bookmarks.size());
+  std::vector<fui::ListItem> items;
+  items.reserve(bookmarks.size());
+  for (size_t i = 0; i < bookmarks.size(); ++i) {
+    const Bookmark& bookmark = bookmarks[i];
+    values[i] = std::to_string(static_cast<int>(std::lround(bookmark.progress * 100.0))) + "%";
+    fui::ListItem item;
+    item.label = bookmark.snippet[0] != '\0'
+                     ? bookmark.snippet
+                     : (bookmark.chapterTitle[0] != '\0' ? bookmark.chapterTitle : tr(STR_UNKNOWN_CHAPTER));
+    if (bookmark.snippet[0] != '\0') {
+      item.subtitle = bookmark.chapterTitle[0] != '\0' ? bookmark.chapterTitle : tr(STR_UNKNOWN_CHAPTER);
+    }
+    item.value = values[i].c_str();
+    item.actionValue = static_cast<int16_t>(i);
+    items.push_back(item);
+  }
+  fui::ListProps props;
+  props.items = items.data();
+  props.count = static_cast<uint16_t>(items.size());
+  props.selectedIndex = static_cast<int16_t>(selectedIndex);
+  props.action = ACTION_ROW;
+  props.inputMask = fui::InputTouch;
+  props.valueInset = 8;
+  const fui::Rect bounds = screen.body();
+  listTop = bounds.y;
+  listBottom = bounds.bottom();
+  const auto rows = configureUiList(props, screen.theme(), bounds, UiListRowType::WithSubtitle);
+  listRowHeight = props.rowHeight;
+  listRowStep = props.rowHeight + props.rowGap;
+  visibleRows = rows > 0 ? rows : 1;
+  topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(bookmarks.size()));
+  props.topIndex = static_cast<uint16_t>(topIndex);
+  screen.list(props);
 }
 
 void EpubReaderBookmarkListActivity::render(RenderLock&&) {
   renderer.clearScreen();
-
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto orientation = renderer.getOrientation();
-  const bool isLandscapeCw = orientation == GfxRenderer::Orientation::LandscapeClockwise;
-  const bool isLandscapeCcw = orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
-  const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
-  const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? 30 : 0;
-  const int contentX = isLandscapeCw ? hintGutterWidth : 0;
-  const int contentWidth = pageWidth - hintGutterWidth;
-  const int hintGutterHeight = isPortraitInverted ? 50 : 0;
-  const int contentY = hintGutterHeight;
-
-  const int titleX =
-      contentX + (contentWidth - renderer.getTextWidth(UI_12_FONT_ID, tr(STR_BOOKMARKS), EpdFontFamily::BOLD)) / 2;
-  renderer.drawText(UI_12_FONT_ID, titleX, 15 + contentY, tr(STR_BOOKMARKS), true, EpdFontFamily::BOLD);
-
-  if (bookmarks.empty()) {
-    renderer.drawCenteredText(UI_10_FONT_ID, LIST_START_Y + contentY + 20, tr(STR_NO_BOOKMARKS));
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
-    renderer.displayBuffer();
-    return;
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const Rect header{safe.x, safe.y + metrics.topPadding, safe.width,
+                    TouchHeaderBackButton::height(metrics, mappedInput)};
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_BOOKMARKS), true);
+  } else {
+    GUI.drawHeader(renderer, header, tr(STR_BOOKMARKS), nullptr, true);
   }
-
-  const int pageItems = getPageItems();
-  const int total = static_cast<int>(bookmarks.size());
-  const int pageStartIndex = (selectedIndex / pageItems) * pageItems;
-  const int marginLeft = contentX + 20;
-
-  for (int i = 0; i < pageItems; i++) {
-    const int itemIndex = pageStartIndex + i;
-    if (itemIndex >= total) break;
-
-    const int rowY = LIST_START_Y + contentY + i * ROW_HEIGHT;
-    const bool isSelected = (itemIndex == selectedIndex);
-
-    if (isSelected) {
-      renderer.fillRect(contentX, rowY, contentWidth - 1, ROW_HEIGHT, true);
-    }
-
-    const Bookmark& bm = bookmarks[itemIndex];
-    const char* chapter = (bm.chapterTitle[0] != '\0') ? bm.chapterTitle : tr(STR_UNKNOWN_CHAPTER);
-    const bool hasSnippet = bm.snippet[0] != '\0';
-    if (hasSnippet) {
-      const std::string snippetTrunc = renderer.truncatedText(UI_10_FONT_ID, bm.snippet, contentWidth - 40);
-      renderer.drawText(UI_10_FONT_ID, marginLeft, rowY + 5, snippetTrunc.c_str(), !isSelected);
-    }
-
-    const std::string chapterTrunc = renderer.truncatedText(SMALL_FONT_ID, chapter, contentWidth - 40);
-    renderer.drawText(SMALL_FONT_ID, marginLeft, rowY + (hasSnippet ? 27 : 10), chapterTrunc.c_str(), !isSelected);
-
-    char pageBuf[24];
-    snprintf(pageBuf, sizeof(pageBuf), "%d%%", static_cast<int>(std::lround(bm.progress * 100.0)));
-    renderer.drawText(SMALL_FONT_ID, marginLeft, rowY + (hasSnippet ? 47 : 36), pageBuf, !isSelected);
-  }
-
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  uiReady = false;
+  app.render();
+  uiReady = true;
+  if (confirmPopup.processRender(renderer, mappedInput)) return;
+  const auto labels =
+      mappedInput.mapLabels(tr(STR_BACK), bookmarks.empty() ? "" : tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
-
   renderer.displayBuffer();
 }

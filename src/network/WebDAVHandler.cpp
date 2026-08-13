@@ -5,7 +5,6 @@
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
-#include <esp_task_wdt.h>
 
 #include <algorithm>
 #include <cstring>
@@ -99,7 +98,6 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
 
   } else if (raw.status == RAW_WRITE) {
     if (_putFile && _putOk) {
-      esp_task_wdt_reset();
       size_t written = _putFile.write(raw.buf, raw.currentSize);
       if (written != raw.currentSize) {
         _putOk = false;
@@ -255,7 +253,6 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
 
       file.close();
       yield();
-      esp_task_wdt_reset();
       file = root.openNextFile();
     }
   }
@@ -390,7 +387,6 @@ void WebDAVHandler::handlePut(WebServer& s) {
 
   clearBookCachePreservingUserState(path.c_str());
   s.send(_putExisted ? 204 : 201);
-  LOG_DBG("DAV", "PUT complete: %s", path.c_str());
 }
 
 // ── DELETE ───────────────────────────────────────────────────────────────────
@@ -480,7 +476,6 @@ void WebDAVHandler::handleMkcol(WebServer& s) {
 
   if (Storage.mkdir(path.c_str())) {
     s.send(201);
-    LOG_DBG("DAV", "Created directory: %s", path.c_str());
   } else {
     s.send(500, "text/plain", "Failed to create directory");
   }
@@ -639,7 +634,6 @@ void WebDAVHandler::handleCopy(WebServer& s) {
 
   bool copyOk = true;
   while (srcFile.available()) {
-    esp_task_wdt_reset();
     int bytesRead = srcFile.read(buf.get(), COPY_BUFFER_SIZE);
     if (bytesRead <= 0) break;
     size_t written = dstFile.write(buf.get(), bytesRead);

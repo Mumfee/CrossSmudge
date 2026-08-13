@@ -17,6 +17,7 @@ constexpr ThemeMetrics makeValues() {
   v.homeRecentBooksCount = 1;
   v.homeContinueReadingInMenu = false;
   v.homeMenuTopOffset = 0;
+  v.tabBarAppearance = ThemeTabBarAppearance::BorderedText;
   return v;
 }
 
@@ -31,24 +32,30 @@ struct GlobalReadingStats;
 class MinimalTheme : public LyraTheme {
  public:
   static void setHomeButtonHintSelection(int selectedIndex);
+  static Rect buttonMenuPanelRect(const GfxRenderer& renderer, int buttonCount);
   static int compactFileBrowserRowHeightFor(const GfxRenderer& renderer);
   static void drawCompactFileBrowserList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
                                          const std::function<std::string(int index)>& rowTitle,
                                          const std::function<std::string(int index)>& rowSubtitle,
                                          const std::function<UIIcon(int index)>& rowIcon,
                                          const std::function<std::string(int index)>& rowValue,
-                                         const std::function<bool(int index)>& rowDimmed = nullptr);
+                                         const std::function<bool(int index)>& rowDimmed = nullptr,
+                                         bool showSelection = true, bool uniformRowHeight = false,
+                                         bool allowTwoLineTitles = true);
 
   void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle = nullptr,
                   bool readerContext = false) const override;
   void drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
                   bool selected) const override;
+  bool tabIndexFromPoint(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs, int x, int y,
+                         int& index) const override;
   void drawList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
                 const std::function<std::string(int index)>& rowTitle,
                 const std::function<std::string(int index)>& rowSubtitle,
                 const std::function<UIIcon(int index)>& rowIcon, const std::function<std::string(int index)>& rowValue,
                 bool highlightValue, const std::function<bool(int index)>& rowDimmed = nullptr,
-                const std::function<bool(int index)>& isHeader = nullptr) const override;
+                const std::function<bool(int index)>& isHeader = nullptr, int rowHeightScale = 1,
+                bool showSelection = true) const override;
   void drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3, const char* btn4,
                        bool allowInvertedText = false) const override;
   void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,

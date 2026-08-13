@@ -37,12 +37,14 @@ bool ContentOpfParser::setup() {
   if (!itemIndexArena.init(ITEM_INDEX_ARENA_SLAB_BYTES)) {
     LOG_ERR("COF", "Failed to allocate manifest index arena (%u bytes)",
             static_cast<unsigned>(ITEM_INDEX_ARENA_SLAB_BYTES));
+    lowMemoryFailure = true;
     return false;
   }
 
   parser = XML_ParserCreate(nullptr);
   if (!parser) {
     LOG_DBG("COF", "Couldn't allocate memory for parser");
+    lowMemoryFailure = true;
     return false;
   }
 
@@ -76,6 +78,7 @@ size_t ContentOpfParser::write(const uint8_t* buffer, const size_t size) {
 
     if (!buf) {
       LOG_ERR("COF", "Couldn't allocate memory for buffer");
+      lowMemoryFailure = true;
       destroyXmlParser(parser);
       return 0;
     }
@@ -147,6 +150,9 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
       LOG_ERR("COF", "Couldn't open temp items file for reading. This is probably going to be a fatal error.");
     }
 
+    // Sort the compact item index so every idref lookup uses binary search.
+    // The temp file stores hash/length plus href, avoiding a second full copy
+    // of every manifest ID.
     std::sort(self->itemIndex.begin(), self->itemIndex.end(), [](const ItemIndexEntry& a, const ItemIndexEntry& b) {
       return a.idHash < b.idHash || (a.idHash == b.idHash && a.idLen < b.idLen);
     });
@@ -158,7 +164,6 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
   if (self->state == IN_PACKAGE && (strcmp(name, "guide") == 0 || strcmp(name, "opf:guide") == 0)) {
     self->state = IN_GUIDE;
     // TODO Remove print
-    LOG_DBG("COF", "Entering guide state.");
     if (!Storage.openFileForRead("COF", self->cachePath + itemCacheFile, self->tempItemStore)) {
       LOG_ERR("COF", "Couldn't open temp items file for reading. This is probably going to be a fatal error.");
     }
@@ -210,6 +215,7 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
       if (!self->itemIndex.push_back(entry)) {
         LOG_ERR("COF", "Manifest index arena OOM at %zu items", self->itemIndex.size());
         self->parseFailed = true;
+        self->lowMemoryFailure = true;
         if (self->parser) {
           XML_StopParser(self->parser, XML_FALSE);
         }
@@ -243,7 +249,7 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
     }
 
     // Collect CSS files
-    if (mediaType == MEDIA_TYPE_CSS) {
+    if (self->collectCssFiles && mediaType == MEDIA_TYPE_CSS) {
       self->cssFiles.push_back(href);
     }
 
@@ -252,7 +258,6 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
       // Properties is space-separated, check if "nav" is present as a word
       if (properties == "nav" || properties.find("nav ") == 0 || properties.find(" nav") != std::string::npos) {
         self->tocNavPath = href;
-        LOG_DBG("COF", "Found EPUB 3 nav document: %s", href.c_str());
       }
     }
 
@@ -319,11 +324,14 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
       }
     }
     if (!guideHref.empty()) {
-      if (type == "text" || (type == "start" && self->textReferenceHref.empty())) {
+      // EPUB 2 guides often mark every content file as "text", so that type
+      // does not identify a reliable first-reading location. Only use the
+      // explicit "start" semantic; otherwise the reader opens at spine index 0.
+      if (type == "start" && !self->hasExplicitStartReference) {
         LOG_DBG("COF", "Found %s reference in guide: %s", type.c_str(), guideHref.c_str());
         self->textReferenceHref = guideHref;
+        self->hasExplicitStartReference = true;
       } else if ((type == "cover" || type == "cover-page") && self->guideCoverPageHref.empty()) {
-        LOG_DBG("COF", "Found cover reference in guide: %s", guideHref.c_str());
         self->guideCoverPageHref = guideHref;
       }
     }

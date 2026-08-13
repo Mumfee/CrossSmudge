@@ -1,5 +1,6 @@
 #include <Arduino.h>
-#include <Epub.h>
+#include <BoardConfig.h>
+#include <CrossInkHalFrontlight.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <FsHelpers.h>
@@ -13,9 +14,13 @@
 #include <HalTiltSensor.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <SPI.h>
-#include <ScratchWorkspace.h>
+#if !defined(SIMULATOR) && !FREEINK_MCU_C3
+#include <XteinkDetect.h>
+#endif
 #include <builtinFonts/all.h>
+#include <uzlib.h>
 
 #ifdef SIMULATOR
 using esp_reset_reason_t = int;
@@ -62,6 +67,11 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 
 #include <algorithm>
 #include <cstring>
+#include <string>
+
+#ifndef SIMULATOR
+#include <nvs.h>
+#endif
 
 #include "AppVersion.h"
 #include "CrossPointSettings.h"
@@ -72,154 +82,99 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
+#include "SilentRestart.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
-#include "activities/reader/EpubReaderUtils.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "activities/reader/StatsBackup.h"
+#include "activities/settings/FontDownloadActivity.h"
+#include "activities/settings/KOReaderAuthActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
+#include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/UsbSerialFileTransfer.h"
 #ifdef SIMULATOR
+#include <SimulatorLifecycle.h>
+
+#include "simulator/SimulatorHomeKeyInput.h"
 #include "simulator/SimulatorSmokeTest.h"
 #endif
 #include "images/LoadingIcon.h"
 #include "util/ButtonNavigator.h"
+#include "util/Dictionary.h"
+#include "util/DictionaryRegistry.h"
 #include "util/ScreenshotUtil.h"
 
-MappedInputManager mappedInputManager(gpio);
 GfxRenderer renderer(display);
+MappedInputManager mappedInputManager(gpio, renderer);
 ActivityManager activityManager(renderer, mappedInputManager);
 FontDecompressor fontDecompressor;
 SdCardFontSystem sdFontSystem;
+DictionaryRegistry dictionaryRegistry;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
 static unsigned long allowSleepAt = 0;
+static unsigned long lastX4ProPowerClickAt = 0;
+// A held power button can span deep-sleep wake and the first main-loop frame.
+// Do not treat that wake gesture as an in-session shortcut until it has been released.
+static bool powerButtonReleasedSinceWake = false;
+
+namespace {
+constexpr unsigned long X4PRO_POWER_DOUBLE_CLICK_MS = 500;
+constexpr unsigned long X4PRO_POWER_CLICK_MAX_HOLD_MS = 400;
+}  // namespace
+
+static void logBootHeap(const char* stage) {
+  LOG_DBG("BOOTMEM", "%s: free=%u maxAlloc=%u", stage, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+}
 
 // Fonts
-#ifndef OMIT_MEDIUM_FONT
-EpdFont lexenddeca14RegularFont(&lexenddeca_14_regular);
-EpdFont lexenddeca14BoldFont(&lexenddeca_14_bold);
-EpdFont lexenddeca14ItalicFont(&lexenddeca_14_italic);
-EpdFont lexenddeca14BoldItalicFont(&lexenddeca_14_bolditalic);
-EpdFontFamily lexenddeca14FontFamily(&lexenddeca14RegularFont, &lexenddeca14BoldFont, &lexenddeca14ItalicFont,
-                                     &lexenddeca14BoldItalicFont);
-#endif
-#ifndef OMIT_TEENSY_FONT
-EpdFont lexenddeca8RegularFont(&lexenddeca_8_regular);
-EpdFont lexenddeca8BoldFont(&lexenddeca_8_bold);
-EpdFont lexenddeca8ItalicFont(&lexenddeca_8_italic);
-EpdFont lexenddeca8BoldItalicFont(&lexenddeca_8_bolditalic);
-EpdFontFamily lexenddeca8FontFamily(&lexenddeca8RegularFont, &lexenddeca8BoldFont, &lexenddeca8ItalicFont,
-                                    &lexenddeca8BoldItalicFont);
-#endif
-#ifndef OMIT_ITTY_BITTY_FONT
-EpdFont lexenddeca9RegularFont(&lexenddeca_9_regular);
-EpdFont lexenddeca9BoldFont(&lexenddeca_9_bold);
-EpdFont lexenddeca9ItalicFont(&lexenddeca_9_italic);
-EpdFont lexenddeca9BoldItalicFont(&lexenddeca_9_bolditalic);
-EpdFontFamily lexenddeca9FontFamily(&lexenddeca9RegularFont, &lexenddeca9BoldFont, &lexenddeca9ItalicFont,
-                                    &lexenddeca9BoldItalicFont);
-#endif
-#ifndef OMIT_TINY_FONT
 EpdFont lexenddeca10RegularFont(&lexenddeca_10_regular);
 EpdFont lexenddeca10BoldFont(&lexenddeca_10_bold);
 EpdFont lexenddeca10ItalicFont(&lexenddeca_10_italic);
 EpdFont lexenddeca10BoldItalicFont(&lexenddeca_10_bolditalic);
 EpdFontFamily lexenddeca10FontFamily(&lexenddeca10RegularFont, &lexenddeca10BoldFont, &lexenddeca10ItalicFont,
                                      &lexenddeca10BoldItalicFont);
-#endif
-#ifndef OMIT_SMALL_FONT
 EpdFont lexenddeca12RegularFont(&lexenddeca_12_regular);
 EpdFont lexenddeca12BoldFont(&lexenddeca_12_bold);
 EpdFont lexenddeca12ItalicFont(&lexenddeca_12_italic);
 EpdFont lexenddeca12BoldItalicFont(&lexenddeca_12_bolditalic);
 EpdFontFamily lexenddeca12FontFamily(&lexenddeca12RegularFont, &lexenddeca12BoldFont, &lexenddeca12ItalicFont,
                                      &lexenddeca12BoldItalicFont);
-#endif
-#ifndef OMIT_LARGE_FONT
+EpdFont lexenddeca14RegularFont(&lexenddeca_14_regular);
+EpdFont lexenddeca14BoldFont(&lexenddeca_14_bold);
+EpdFont lexenddeca14ItalicFont(&lexenddeca_14_italic);
+EpdFont lexenddeca14BoldItalicFont(&lexenddeca_14_bolditalic);
+EpdFontFamily lexenddeca14FontFamily(&lexenddeca14RegularFont, &lexenddeca14BoldFont, &lexenddeca14ItalicFont,
+                                     &lexenddeca14BoldItalicFont);
 EpdFont lexenddeca16RegularFont(&lexenddeca_16_regular);
 EpdFont lexenddeca16BoldFont(&lexenddeca_16_bold);
 EpdFont lexenddeca16ItalicFont(&lexenddeca_16_italic);
 EpdFont lexenddeca16BoldItalicFont(&lexenddeca_16_bolditalic);
 EpdFontFamily lexenddeca16FontFamily(&lexenddeca16RegularFont, &lexenddeca16BoldFont, &lexenddeca16ItalicFont,
                                      &lexenddeca16BoldItalicFont);
-#endif
-#ifndef OMIT_XLARGE_FONT
-EpdFont lexenddeca18RegularFont(&lexenddeca_18_regular);
-EpdFont lexenddeca18BoldFont(&lexenddeca_18_bold);
-EpdFont lexenddeca18ItalicFont(&lexenddeca_18_italic);
-EpdFont lexenddeca18BoldItalicFont(&lexenddeca_18_bolditalic);
-EpdFontFamily lexenddeca18FontFamily(&lexenddeca18RegularFont, &lexenddeca18BoldFont, &lexenddeca18ItalicFont,
-                                     &lexenddeca18BoldItalicFont);
-#endif
-#ifndef OMIT_HUGE_FONT
-EpdFont lexenddeca20RegularFont(&lexenddeca_20_regular);
-EpdFont lexenddeca20BoldFont(&lexenddeca_20_bold);
-EpdFont lexenddeca20ItalicFont(&lexenddeca_20_italic);
-EpdFont lexenddeca20BoldItalicFont(&lexenddeca_20_bolditalic);
-EpdFontFamily lexenddeca20FontFamily(&lexenddeca20RegularFont, &lexenddeca20BoldFont, &lexenddeca20ItalicFont,
-                                     &lexenddeca20BoldItalicFont);
-#endif
-
-#ifndef OMIT_TEENSY_FONT
-EpdFont bitter8RegularFont(&bitter_8_regular);
-EpdFont bitter8BoldFont(&bitter_8_bold);
-EpdFont bitter8ItalicFont(&bitter_8_italic);
-EpdFont bitter8BoldItalicFont(&bitter_8_bolditalic);
-EpdFontFamily bitter8FontFamily(&bitter8RegularFont, &bitter8BoldFont, &bitter8ItalicFont, &bitter8BoldItalicFont);
-#endif
-#ifndef OMIT_ITTY_BITTY_FONT
-EpdFont bitter9RegularFont(&bitter_9_regular);
-EpdFont bitter9BoldFont(&bitter_9_bold);
-EpdFont bitter9ItalicFont(&bitter_9_italic);
-EpdFont bitter9BoldItalicFont(&bitter_9_bolditalic);
-EpdFontFamily bitter9FontFamily(&bitter9RegularFont, &bitter9BoldFont, &bitter9ItalicFont, &bitter9BoldItalicFont);
-#endif
-#ifndef OMIT_TINY_FONT
 EpdFont bitter10RegularFont(&bitter_10_regular);
 EpdFont bitter10BoldFont(&bitter_10_bold);
 EpdFont bitter10ItalicFont(&bitter_10_italic);
 EpdFont bitter10BoldItalicFont(&bitter_10_bolditalic);
 EpdFontFamily bitter10FontFamily(&bitter10RegularFont, &bitter10BoldFont, &bitter10ItalicFont, &bitter10BoldItalicFont);
-#endif
-#ifndef OMIT_SMALL_FONT
 EpdFont bitter12RegularFont(&bitter_12_regular);
 EpdFont bitter12BoldFont(&bitter_12_bold);
 EpdFont bitter12ItalicFont(&bitter_12_italic);
 EpdFont bitter12BoldItalicFont(&bitter_12_bolditalic);
 EpdFontFamily bitter12FontFamily(&bitter12RegularFont, &bitter12BoldFont, &bitter12ItalicFont, &bitter12BoldItalicFont);
-#endif
-#ifndef OMIT_MEDIUM_FONT
 EpdFont bitter14RegularFont(&bitter_14_regular);
 EpdFont bitter14BoldFont(&bitter_14_bold);
 EpdFont bitter14ItalicFont(&bitter_14_italic);
 EpdFont bitter14BoldItalicFont(&bitter_14_bolditalic);
 EpdFontFamily bitter14FontFamily(&bitter14RegularFont, &bitter14BoldFont, &bitter14ItalicFont, &bitter14BoldItalicFont);
-#endif
-#ifndef OMIT_LARGE_FONT
 EpdFont bitter16RegularFont(&bitter_16_regular);
 EpdFont bitter16BoldFont(&bitter_16_bold);
 EpdFont bitter16ItalicFont(&bitter_16_italic);
 EpdFont bitter16BoldItalicFont(&bitter_16_bolditalic);
 EpdFontFamily bitter16FontFamily(&bitter16RegularFont, &bitter16BoldFont, &bitter16ItalicFont, &bitter16BoldItalicFont);
-#endif
-#ifndef OMIT_XLARGE_FONT
-EpdFont bitter18RegularFont(&bitter_18_regular);
-EpdFont bitter18BoldFont(&bitter_18_bold);
-EpdFont bitter18ItalicFont(&bitter_18_italic);
-EpdFont bitter18BoldItalicFont(&bitter_18_bolditalic);
-EpdFontFamily bitter18FontFamily(&bitter18RegularFont, &bitter18BoldFont, &bitter18ItalicFont, &bitter18BoldItalicFont);
-#endif
-#ifndef OMIT_HUGE_FONT
-EpdFont bitter20RegularFont(&bitter_20_regular);
-EpdFont bitter20BoldFont(&bitter_20_bold);
-EpdFont bitter20ItalicFont(&bitter_20_italic);
-EpdFont bitter20BoldItalicFont(&bitter_20_bolditalic);
-EpdFontFamily bitter20FontFamily(&bitter20RegularFont, &bitter20BoldFont, &bitter20ItalicFont, &bitter20BoldItalicFont);
-#endif
 
 EpdFont smallFont(&inter_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
@@ -325,12 +280,32 @@ const char* wakeupRouteName(const HalGPIO::WakeupReason reason) {
   }
 }
 
+void logMemoryStats(const char* phase) {
+#if defined(BOARD_HAS_PSRAM)
+  LOG_INF("MEM", "%s: heap free=%u total=%u min=%u maxAlloc=%u psram free=%u total=%u min=%u maxAlloc=%u", phase,
+          ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), ESP.getFreePsram(),
+          ESP.getPsramSize(), ESP.getMinFreePsram(), ESP.getMaxAllocPsram());
+#else
+  LOG_INF("MEM", "%s: heap free=%u total=%u min=%u maxAlloc=%u", phase, ESP.getFreeHeap(), ESP.getHeapSize(),
+          ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+#endif
+}
+
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
 RTC_NOINIT_ATTR uint32_t silentRebootTarget;
+RTC_NOINIT_ATTR uint32_t silentRebootPayload;
+RTC_NOINIT_ATTR uint32_t silentReaderPageBuildMagic;
+RTC_NOINIT_ATTR uint32_t silentReaderPageBuildBookHash;
+RTC_NOINIT_ATTR uint32_t silentReaderPageBuildPackedTarget;
+RTC_NOINIT_ATTR uint32_t silentReaderPageBuildFlags;
 constexpr uint32_t SILENT_REBOOT_MAGIC = 0xC1EAB007;
 constexpr uint32_t SILENT_REBOOT_TARGET_HOME = 0;
 constexpr uint32_t SILENT_REBOOT_TARGET_READER = 1;
+constexpr uint32_t SILENT_READER_PAGE_BUILD_MAGIC = 0xC1EAB017;
+constexpr uint32_t SILENT_READER_PAGE_BUILD_AUTO_TURN = 1U << 0;
+constexpr uint32_t NETWORK_RENDER_TASK_STACK_BYTES = 8192;
+constexpr uint32_t READER_RENDER_TASK_STACK_BYTES = 16384;
 
 // How the device is coming back to life, resolved once at boot. Both resume
 // flows suppress the splash and leave the panel holding its pre-boot frame; a
@@ -338,6 +313,7 @@ constexpr uint32_t SILENT_REBOOT_TARGET_READER = 1;
 enum class BootResume : uint8_t {
   Splash,       // cold boot, flash, panic, or plain reboot
   Silent,       // heap-defrag ESP.restart() (RTC flag; lost on power loss)
+  Network,      // minimal boot directly into a memory-intensive network activity
   QuickResume,  // wake from a quick-resume deep sleep (SD flag; survives power loss)
 };
 
@@ -349,9 +325,29 @@ enum class BootResume : uint8_t {
 // startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
 static bool deepSleepInProgress = false;
 
+static void restartWithSilentToken() {
+#ifdef SIMULATOR
+  SimulatorLifecycle::setSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
+#endif
+  ESP.restart();
+}
+
+static uint32_t silentRestartBookHash(const std::string& bookPath) {
+  return uzlib_crc32(bookPath.data(), static_cast<unsigned int>(bookPath.size()), 0);
+}
+
+static void clearSilentRestartReaderPageBuild() {
+  silentReaderPageBuildMagic = 0;
+  silentReaderPageBuildBookHash = 0;
+  silentReaderPageBuildPackedTarget = 0;
+  silentReaderPageBuildFlags = 0;
+}
+
 void silentRestart() {
   if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
+  clearSilentRestartReaderPageBuild();
   silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
+  silentRebootPayload = 0;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Silent restart (target=home)");
   // E-ink retains the previous frame until Home's first paint lands (~2-3s).
@@ -360,18 +356,60 @@ void silentRestart() {
   // book, looking like a trampoline back to the reader they just exited.
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
-  ESP.restart();
+  restartWithSilentToken();
+}
+
+void armSilentRestartReaderPageBuild(const std::string& bookPath, const uint16_t spineIndex, const uint16_t targetPage,
+                                     const bool autoPageTurnActive) {
+  silentReaderPageBuildBookHash = silentRestartBookHash(bookPath);
+  silentReaderPageBuildPackedTarget = (static_cast<uint32_t>(spineIndex) << 16) | targetPage;
+  silentReaderPageBuildFlags = autoPageTurnActive ? SILENT_READER_PAGE_BUILD_AUTO_TURN : 0;
+  silentReaderPageBuildMagic = SILENT_READER_PAGE_BUILD_MAGIC;
+}
+
+bool consumeSilentRestartReaderPageBuild(const std::string& bookPath, uint16_t& spineIndex, uint16_t& targetPage,
+                                         bool& autoPageTurnActive) {
+  const bool matches = silentReaderPageBuildMagic == SILENT_READER_PAGE_BUILD_MAGIC &&
+                       silentReaderPageBuildBookHash == silentRestartBookHash(bookPath);
+  const uint32_t packedTarget = silentReaderPageBuildPackedTarget;
+  const uint32_t flags = silentReaderPageBuildFlags;
+  clearSilentRestartReaderPageBuild();
+  if (!matches) {
+    autoPageTurnActive = false;
+    return false;
+  }
+
+  spineIndex = static_cast<uint16_t>(packedTarget >> 16);
+  targetPage = static_cast<uint16_t>(packedTarget & 0xFFFFU);
+  autoPageTurnActive = (flags & SILENT_READER_PAGE_BUILD_AUTO_TURN) != 0;
+  return true;
 }
 
 void silentRestartToReader() {
   if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
   silentRebootTarget = SILENT_REBOOT_TARGET_READER;
+  silentRebootPayload = 0;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Silent restart (target=reader)");
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
-  ESP.restart();
+  restartWithSilentToken();
 }
+
+void silentRestartToNetwork(const NetworkBootTarget target, const uint32_t payload) {
+  if (deepSleepInProgress) return;
+  clearSilentRestartReaderPageBuild();
+  silentRebootTarget = static_cast<uint32_t>(target);
+  silentRebootPayload = payload;
+  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  LOG_DBG("MAIN", "Silent restart (target=network/%lu payload=%lu)", static_cast<unsigned long>(silentRebootTarget),
+          static_cast<unsigned long>(payload));
+  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  delay(50);
+  restartWithSilentToken();
+}
+
+void silentRestartToManageFonts() { silentRestartToNetwork(NetworkBootTarget::MANAGE_FONTS); }
 
 void waitForPowerRelease() {
   gpio.update();
@@ -385,57 +423,52 @@ bool isGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action) {
   return isPowerButtonActionAvailableOutsideReader(action);
 }
 
-bool startGlobalSyncProgress() {
+bool startGlobalSyncProgress(const bool networkBootReady = false) {
+  if (activityManager.hasActivityNamed(KOReaderSyncActivity::NAME)) {
+    LOG_DBG("MAIN", "Ignoring KOReader sync shortcut while sync is already active");
+    return true;
+  }
+
   if (!KOREADER_STORE.hasCredentials()) {
+    if (networkBootReady) return false;
     activityManager.pushActivity(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInputManager));
     return true;
   }
 
-  const std::string epubPath = APP_STATE.openEpubPath;
+  std::string epubPath = APP_STATE.openEpubPath;
   if (epubPath.empty() || !FsHelpers::hasEpubExtension(epubPath) || !Storage.exists(epubPath.c_str())) {
+    if (networkBootReady) return false;
     LOG_DBG("MAIN", "No syncable EPUB open, opening KOReader settings instead");
     activityManager.pushActivity(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInputManager));
     return true;
   }
 
-  auto epub = std::make_shared<Epub>(epubPath, "/.crosspoint");
-  if (!epub->load(true, SETTINGS.embeddedStyle == 0)) {
-    LOG_ERR("MAIN", "Failed to load EPUB for global sync: %s", epubPath.c_str());
-    activityManager.pushActivity(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInputManager));
+  if (!networkBootReady) {
+    silentRestartToNetwork(NetworkBootTarget::KOREADER_SYNC);
     return true;
   }
 
-  epub->setupCacheDir();
-
-  int spineIndex = 0;
-  int pageNumber = 0;
-  int totalPagesInSpine = 1;
-  EpubReaderUtils::Progress progress;
-  if (EpubReaderUtils::loadProgress(*epub, progress, "MAIN")) {
-    spineIndex = progress.spineIndex;
-    pageNumber = progress.pageNumber;
-    if (progress.hasPageCount) {
-      totalPagesInSpine = std::max(1, progress.pageCount);
-    }
+  const DocumentMatchMethod matchMethod = KOREADER_STORE.getMatchMethod();
+  auto syncActivity =
+      makeUniqueNoThrow<KOReaderSyncActivity>(renderer, mappedInputManager, std::move(epubPath), matchMethod);
+  if (!syncActivity) {
+    LOG_ERR("MAIN", "OOM: KOReader sync activity (free=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    return false;
   }
-
-  if (spineIndex < 0 || spineIndex >= epub->getSpineItemsCount()) {
-    spineIndex = 0;
-  }
-
-  CrossPointPosition localPos = {spineIndex, pageNumber, totalPagesInSpine};
-  KOReaderPosition localKoPos = ProgressMapper::toKOReader(epub, localPos);
-  const int tocIdx = epub->getTocIndexForSpineIndex(spineIndex);
-  std::string localChapterName = (tocIdx >= 0) ? epub->getTocItem(tocIdx).title : "";
-
-  activityManager.pushActivity(
-      std::make_unique<KOReaderSyncActivity>(renderer, mappedInputManager, epubPath, spineIndex, pageNumber,
-                                             totalPagesInSpine, std::move(localKoPos), std::move(localChapterName)));
+  activityManager.replaceActivity(std::move(syncActivity));
   return true;
 }
 
 CrossPointSettings::SHORT_PWRBTN getPowerButtonAction() {
   static bool longPowerButtonHandled = false;
+
+  if (activityManager.readerPowerButtonOpensSettings()) {
+    if (mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
+      longPowerButtonHandled = false;
+      screenshotComboHandled = false;
+    }
+    return CrossPointSettings::SHORT_PWRBTN::IGNORE;
+  }
 
   if (mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
     if (longPowerButtonHandled) {
@@ -474,7 +507,9 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
       enterDeepSleep();
       return true;
     case CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH: {
-      LOG_DBG("MAIN", "Manual screen refresh triggered");
+      if (SETTINGS.textAntiAliasing && activityManager.requestManualReaderRefresh()) {
+        return true;
+      }
       RenderLock lock;
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
       return true;
@@ -539,6 +574,35 @@ void putTiltSensorToSleepForDeepSleep() {
   }
   LOG_ERR("MAIN", "Tilt sensor did not confirm sleep before deep sleep");
 }
+
+bool handleX4ProFrontlightDoubleClick() {
+#ifdef SIMULATOR
+  return false;
+#else
+  if (!BoardConfig::isX4Pro() || !gpio.wasReleased(HalGPIO::BTN_POWER)) {
+    return false;
+  }
+
+  const unsigned long now = millis();
+  if (gpio.getPowerButtonHeldTime() > X4PRO_POWER_CLICK_MAX_HOLD_MS) {
+    lastX4ProPowerClickAt = 0;
+    return false;
+  }
+
+  if (lastX4ProPowerClickAt == 0 || now - lastX4ProPowerClickAt > X4PRO_POWER_DOUBLE_CLICK_MS) {
+    lastX4ProPowerClickAt = now;
+    return false;
+  }
+
+  lastX4ProPowerClickAt = 0;
+  const bool lightOn = !Frontlight.isOn();
+  Frontlight.setOn(lightOn);
+  SETTINGS.frontlightOn = lightOn ? 1 : 0;
+  SETTINGS.saveToFile();
+  LOG_INF("LIGHT", "Frontlight toggled %s by power-button double-click", lightOn ? "on" : "off");
+  return true;
+#endif
+}
 }  // namespace
 
 constexpr char SLEEP_FRAME_FILE[] = "/.crosspoint/sleep_frame.bin";
@@ -562,6 +626,42 @@ static bool loadSleepFrameBuffer() {
   }
   Storage.remove(SLEEP_FRAME_FILE);
   return true;
+}
+
+// The wake-hold verification runs before the SD card is mounted (see setup()),
+// so the one setting it needs — "short press = sleep", which makes any tap a
+// valid wake — is mirrored into NVS. Written at sleep entry (the value that
+// matters is the one in force when the device went down) and re-synced after
+// each settings load in case the device lost power without a clean sleep.
+constexpr char WAKE_NVS_NAMESPACE[] = "crosspoint";
+constexpr char WAKE_SHORT_PRESS_KEY[] = "wakeShortPr";
+
+bool readWakeShortPressFromNvs() {
+#ifdef SIMULATOR
+  return false;
+#else
+  nvs_handle_t h;
+  if (nvs_open(WAKE_NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) return false;
+  uint8_t v = 0;
+  const esp_err_t e = nvs_get_u8(h, WAKE_SHORT_PRESS_KEY, &v);
+  nvs_close(h);
+  return e == ESP_OK && v != 0;
+#endif
+}
+
+void mirrorWakeShortPressToNvs() {
+#ifndef SIMULATOR
+  const uint8_t want = (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) ? 1 : 0;
+  nvs_handle_t h;
+  if (nvs_open(WAKE_NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) return;
+  uint8_t cur = 0;
+  const bool have = nvs_get_u8(h, WAKE_SHORT_PRESS_KEY, &cur) == ESP_OK;
+  if (!have || cur != want) {  // skip the flash write when unchanged
+    nvs_set_u8(h, WAKE_SHORT_PRESS_KEY, want);
+    nvs_commit(h);
+  }
+  nvs_close(h);
+#endif
 }
 
 // Enter deep sleep mode
@@ -588,7 +688,7 @@ void enterDeepSleep(bool fromTimeout) {
     delay(POST_SLEEP_SCREEN_SETTLE_MS);
   }
 
-  if (gpio.deviceIsX3() && SETTINGS.autoBackupStats != 0) {
+  if (halClock.isAvailable() && SETTINGS.autoBackupStats != 0) {
     ReadingStatsDateTime now;
     if (getCurrentLocalReadingStatsDateTime(now) && !backupGlobalStats(false)) {
       LOG_ERR("MAIN", "Automatic reading-stats backup failed before deep sleep");
@@ -597,12 +697,26 @@ void enterDeepSleep(bool fromTimeout) {
 
   putTiltSensorToSleepForDeepSleep();
   display.deepSleep();
+  mirrorWakeShortPressToNvs();  // next boot's wake-hold check reads this pre-SD
   LOG_DBG("MAIN", "Entering deep sleep");
 
   powerManager.startDeepSleep(gpio);
 }
 
-void setupDisplayAndFonts(bool seamless = false) {
+void setupDisplayAndFonts(const bool seamless = false, const bool loadReaderResources = true) {
+#if !defined(SIMULATOR) && !FREEINK_MCU_C3
+  // C3 X3/X4 detection already runs in HalGPIO::begin() before SPI owns the
+  // panel pins. S3 boards initialize display SPI inside display.begin(), so an
+  // X4 Pro must resolve a UC8179 replacement panel here, before driver selection.
+  static bool controllerResolved = false;
+  if (!controllerResolved) {
+    controllerResolved = true;
+    if (freeink::applyXteinkDisplayController()) {
+      LOG_DBG("MAIN", "Panel controller: UltraChip UC81xx variant detected");
+    }
+  }
+#endif
+
 #ifdef SIMULATOR
   (void)seamless;
   display.begin();
@@ -610,11 +724,10 @@ void setupDisplayAndFonts(bool seamless = false) {
   display.begin(seamless);
 #endif
   renderer.begin();
-  if (!ScratchWorkspace::initialize()) {
-    LOG_ERR("MAIN", "Scratch workspace init failed");
-  }
-  activityManager.begin();
-  LOG_DBG("MAIN", "Display initialized");
+  // FreeInkUI headers need more than 4 KB once the render loop and nested
+  // screen builders share the task stack. Every lightweight network target
+  // uses this shared 8 KB budget; reader rendering retains its 16 KB budget.
+  activityManager.begin(loadReaderResources ? READER_RENDER_TASK_STACK_BYTES : NETWORK_RENDER_TASK_STACK_BYTES);
 
   // Initialize font decompressor for compressed reader fonts
   if (!fontDecompressor.init()) {
@@ -623,66 +736,31 @@ void setupDisplayAndFonts(bool seamless = false) {
   fontCacheManager.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCacheManager);
 
-#ifndef OMIT_TEENSY_FONT
-  renderer.insertFont(LEXENDDECA_8_FONT_ID, lexenddeca8FontFamily);
-#endif
-#ifndef OMIT_ITTY_BITTY_FONT
-  renderer.insertFont(LEXENDDECA_9_FONT_ID, lexenddeca9FontFamily);
-#endif
-#ifndef OMIT_TINY_FONT
   renderer.insertFont(LEXENDDECA_10_FONT_ID, lexenddeca10FontFamily);
-#endif
-#ifndef OMIT_SMALL_FONT
   renderer.insertFont(LEXENDDECA_12_FONT_ID, lexenddeca12FontFamily);
-#endif
-#ifndef OMIT_MEDIUM_FONT
   renderer.insertFont(LEXENDDECA_14_FONT_ID, lexenddeca14FontFamily);
-#endif
-#ifndef OMIT_LARGE_FONT
   renderer.insertFont(LEXENDDECA_16_FONT_ID, lexenddeca16FontFamily);
-#endif
-#ifndef OMIT_XLARGE_FONT
-  renderer.insertFont(LEXENDDECA_18_FONT_ID, lexenddeca18FontFamily);
-#endif
-#ifndef OMIT_HUGE_FONT
-  renderer.insertFont(LEXENDDECA_20_FONT_ID, lexenddeca20FontFamily);
-#endif
-
-#ifndef OMIT_TEENSY_FONT
-  renderer.insertFont(BITTER_8_FONT_ID, bitter8FontFamily);
-#endif
-#ifndef OMIT_ITTY_BITTY_FONT
-  renderer.insertFont(BITTER_9_FONT_ID, bitter9FontFamily);
-#endif
-#ifndef OMIT_TINY_FONT
   renderer.insertFont(BITTER_10_FONT_ID, bitter10FontFamily);
-#endif
-#ifndef OMIT_SMALL_FONT
   renderer.insertFont(BITTER_12_FONT_ID, bitter12FontFamily);
-#endif
-#ifndef OMIT_MEDIUM_FONT
   renderer.insertFont(BITTER_14_FONT_ID, bitter14FontFamily);
-#endif
-#ifndef OMIT_LARGE_FONT
   renderer.insertFont(BITTER_16_FONT_ID, bitter16FontFamily);
-#endif
-#ifndef OMIT_XLARGE_FONT
-  renderer.insertFont(BITTER_18_FONT_ID, bitter18FontFamily);
-#endif
-#ifndef OMIT_HUGE_FONT
-  renderer.insertFont(BITTER_20_FONT_ID, bitter20FontFamily);
-#endif
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
 
-  // Discover and load SD card fonts
-  sdFontSystem.begin(renderer);
-
-  LOG_DBG("MAIN", "Fonts setup");
+  if (loadReaderResources) {
+    sdFontSystem.begin(renderer);
+  } else {
+    LOG_DBG("MAIN", "Skipping EPUB scratch workspace and SD fonts for minimal network boot");
+  }
 }
 
 void setup() {
+#ifdef SIMULATOR
+  SimulatorLifecycle::restoreSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
+#endif
+  BoardConfig::holdPowerRails();
+
   t1 = millis();
 
   const esp_reset_reason_t rawResetReason = esp_reset_reason();
@@ -703,7 +781,7 @@ void setup() {
    logSerial.setTxBufferSize(1024);
   #endif
   Serial.begin(115200);
-#ifndef SIMULATOR
+#if !defined(SIMULATOR) && LOG_SERIAL_HAS_TX_TIMEOUT
   logSerial.setTxTimeoutMs(1);  // This is a load-bearing 1. Do not modify.
 #endif
 #endif
@@ -713,57 +791,64 @@ void setup() {
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
 
   // Read-and-clear so a panic later in setup() doesn't loop into silent reboot.
-  // Bound the target range too — RTC_NOINIT memory is uninitialized on cold boot.
+  // Validate the target too — RTC_NOINIT memory is uninitialized on cold boot.
   const bool isSilentReboot = (silentRebootMagic == SILENT_REBOOT_MAGIC);
-  const uint32_t snapshotTarget =
-      (isSilentReboot && silentRebootTarget <= SILENT_REBOOT_TARGET_READER) ? silentRebootTarget : 0;
+  const bool isValidSilentTarget =
+      silentRebootTarget <= SILENT_REBOOT_TARGET_READER || isNetworkBootTargetValue(silentRebootTarget);
+  const uint32_t snapshotTarget = (isSilentReboot && isValidSilentTarget) ? silentRebootTarget : 0;
+  const uint32_t snapshotPayload = isSilentReboot ? silentRebootPayload : 0;
+  const bool isNetworkResume = snapshotTarget >= static_cast<uint32_t>(NetworkBootTarget::OTA);
   silentRebootMagic = 0;
   silentRebootTarget = 0;
+  silentRebootPayload = 0;
+  if (!isSilentReboot || snapshotTarget != SILENT_REBOOT_TARGET_READER) {
+    clearSilentRestartReaderPageBuild();
+  }
 
   gpio.begin();
+  // Sticky shares Confirm and Power on one GPIO. Emit Power first so the
+  // configured shortcut wins; MappedInputManager mirrors it back to Confirm
+  // only on screens that explicitly allow the fallback.
+  gpio.setSharedConfirmPowerShortPressEmitsPower(true);
   powerManager.begin();
   halTiltSensor.begin();
   halClock.begin();
 
+#if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
   LOG_INF("BOOT", "Post-GPIO diagnostic: device=%s usb=%d silentReboot=%d silentTarget=%lu",
           gpio.deviceIsX3() ? "X3" : "X4", gpio.isUsbConnected() ? 1 : 0, isSilentReboot ? 1 : 0,
           static_cast<unsigned long>(snapshotTarget));
+#else
+#ifdef SIMULATOR
+  LOG_INF("MAIN", "Device: Simulator");
+#else
+  LOG_INF("MAIN", "Device: %s", BoardConfig::ACTIVE.name);
+#endif
+#endif
 
-  // SD Card Initialization
-  // We need 6 open files concurrently when parsing a new chapter
-  if (!Storage.begin()) {
-    LOG_ERR("MAIN", "SD card initialization failed");
-    setupDisplayAndFonts(isSilentReboot);
-    activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
-    return;
-  }
-
-  HalSystem::checkPanic();
-
-  SETTINGS.loadFromFile();
-  #ifndef SIMULATOR
-   Storage.installDateTimeCallback(&SETTINGS.clockUtcOffsetQ);
-  #endif
-  APP_STATE.loadFromFile();
-  RECENT_BOOKS.loadFromFile();
-  I18N.setLanguage(static_cast<Language>(SETTINGS.language));
-  KOREADER_STORE.loadFromFile();
-  OPDS_STORE.loadFromFile();
-  UITheme::getInstance().reload();
-  ButtonNavigator::setMappedInputManager(mappedInputManager);
-
-  // Check wake duration before the remaining file loads so the user does not
-  // have to hold the power button across all of the SD reads below.
+  // Verify the wake reason BEFORE the SD mount and settings loads. The power
+  // button must still be held when the check runs (released = back to sleep),
+  // so everything ahead of it extends the real-world hold requirement — and
+  // the SD mount (per-attempt power-cycle retries on some boards) is the
+  // slowest, most variable stage of boot. Verifying here needs only gpio +
+  // powerManager; the one setting involved ("short press = sleep" makes any
+  // tap a valid wake) comes from its NVS mirror since SETTINGS lives on the
+  // not-yet-mounted SD card.
   const auto wakeupReason = gpio.getWakeupReason();
   LOG_INF("BOOT", "Wake route: %s", wakeupRouteName(wakeupReason));
   switch (wakeupReason) {
-    case HalGPIO::WakeupReason::PowerButton:
-      LOG_INF("BOOT", "Power-button wake: verifying duration required=%u shortAllowed=%d",
-              SETTINGS.getPowerButtonWakeDuration(), SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
-      gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonWakeDuration(),
-                                   SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
+    case HalGPIO::WakeupReason::PowerButton: {
+      const bool shortPressWakes = readWakeShortPressFromNvs();
+      const uint16_t requiredDuration = shortPressWakes ? CrossPointSettings::POWER_BUTTON_WAKE_SHORT_MS
+                                                        : CrossPointSettings::POWER_BUTTON_WAKE_LONG_MS;
+      LOG_INF("BOOT", "Power-button wake: verifying duration required=%u shortAllowed=%d", requiredDuration,
+              shortPressWakes);
+      if (!gpio.verifyPowerButtonWakeup(requiredDuration, shortPressWakes)) {
+        powerManager.startDeepSleep(gpio);
+      }
       break;
+    }
     case HalGPIO::WakeupReason::AfterUSBPower:
       // TEMP: continue booting while diagnosing post-flash/reset behavior.
       // Normal behavior is to go back to sleep when USB power causes a cold boot.
@@ -779,9 +864,53 @@ void setup() {
       break;
   }
 
-  // Recovery firmware mode: hold left side button (BTN_UP) together with the power button at
-  // boot to skip directly to the SD-card firmware update screen. Useful on devices where USB
-  // flashing has been locked down (e.g. recent X3 firmware).
+  // SD Card Initialization
+  // We need 6 open files concurrently when parsing a new chapter
+  if (!Storage.begin()) {
+    LOG_ERR("MAIN", "SD card initialization failed");
+    setupDisplayAndFonts(isSilentReboot, !isNetworkResume);
+    activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
+    return;
+  }
+  logBootHeap("storage ready");
+
+  HalSystem::checkPanic();
+
+  SETTINGS.loadFromFile();
+  Storage.installDateTimeCallback(&SETTINGS.clockUtcOffsetQ);
+  APP_STATE.loadFromFile();
+  I18N.setLanguage(static_cast<Language>(SETTINGS.language));
+  if (!isNetworkResume) {
+    RECENT_BOOKS.loadFromFile();
+    logBootHeap("settings and recent books loaded");
+    KOREADER_STORE.loadFromFile();
+    logBootHeap("sync credentials loaded");
+    Dictionary::isValidDictionary();
+  } else if (snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::KOREADER_SYNC) ||
+             snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::KOREADER_AUTH) ||
+             snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::FILE_TRANSFER)) {
+    KOREADER_STORE.loadFromFile();
+  }
+  UITheme::getInstance().reload();
+  ButtonNavigator::setMappedInputManager(mappedInputManager);
+  logBootHeap("boot state ready");
+  // Frontlight PWM up (no-op on boards without one). Brightness + warmth are always
+  // restored from persisted settings. The on/off state defaults to OFF at wake/boot —
+  // so the user isn't greeted by a surprise glow (or a silent battery drain) — unless
+  // "Restore Light on Wake" is enabled, which brings back the pre-sleep on/off state too.
+  // Silent/network restarts are automated transitions rather than deliberate
+  // sleep, so preserve the light state across them regardless of that setting.
+  const bool restoreLightOn = SETTINGS.frontlightOn != 0 && (SETTINGS.frontlightRestoreOnWake != 0 || isSilentReboot);
+  Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
+
+  // Re-sync the wake-hold NVS mirror with the freshly-loaded settings, covering
+  // a setting change followed by power loss without a clean sleep. (The wake
+  // verification itself already ran, pre-SD, further up.)
+  mirrorWakeShortPressToNvs();
+
+  // Recovery firmware mode: hold a side button together with Power to open the
+  // SD-card firmware update screen. X4 Pro uses BTN_DOWN because BTN_UP is GPIO0,
+  // an S3 strap pin that can read low during boot and false-trigger recovery.
   bool recoveryFirmwareMode = false;
   if (wakeupReason == HalGPIO::WakeupReason::PowerButton) {
     // Refresh the cached button state a few times — isPressed() needs ~half a second to settle
@@ -792,29 +921,39 @@ void setup() {
       gpio.update();
       delay(10);
     }
-    if (gpio.isPressed(HalGPIO::BTN_UP)) {
+    const bool recoveryButtonHeld =
+        BoardConfig::isX4Pro() ? gpio.isPressed(HalGPIO::BTN_DOWN) : gpio.isPressed(HalGPIO::BTN_UP);
+    if (recoveryButtonHeld) {
       recoveryFirmwareMode = true;
-      LOG_INF("MAIN", "Recovery firmware mode (UP + POWER held at boot)");
+      LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)", BoardConfig::isX4Pro() ? "DOWN" : "UP");
     }
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
-  LOG_DBG("MAIN", "Starting CrossSmudge version " CROSSINKY_VERSION);
+  LOG_DBG("MAIN", "Starting CrossSmudge version " CROSSSMUDGE_VERSION);
+  logMemoryStats("Boot");
 
   // Resolve the single boot-presentation decision. Skipping the splash also
   // skips the panel-clearing pass and the X3 initial-full-sync arming (see
   // HalDisplay::begin), so the first paint is FAST_REFRESH (~500ms) over the
   // retained frame and input dispatches against a visible UI.
-  const BootResume resume = isSilentReboot              ? BootResume::Silent
+  const BootResume resume = isNetworkResume             ? BootResume::Network
+                            : isSilentReboot            ? BootResume::Silent
                             : !APP_STATE.showBootScreen ? BootResume::QuickResume
                                                         : BootResume::Splash;
+  bool allowFastInitialReaderRefresh = false;
 
-  setupDisplayAndFonts(resume != BootResume::Splash);
+  setupDisplayAndFonts(resume != BootResume::Splash, resume != BootResume::Network);
+  logBootHeap("display and selected fonts ready");
 
   switch (resume) {
     case BootResume::Silent:
       // Splash skipped: the routing block below picks the target activity; the
       // panel keeps showing the pre-reboot popup until that first paint lands.
+      break;
+    case BootResume::Network:
+      LOG_INF("BOOT", "Minimal network boot ready: target=%lu free=%u maxAlloc=%u",
+              static_cast<unsigned long>(snapshotTarget), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       break;
     case BootResume::QuickResume:
       // One-shot flag: re-arm the splash for the next non-quick-resume boot. Save
@@ -823,7 +962,13 @@ void setup() {
       APP_STATE.showBootScreen = true;
       APP_STATE.saveToFile();
       if (loadSleepFrameBuffer()) {
-        // Frame restored: swap the sleep moon for the loading icon.
+        const bool useDifferentialRefresh = gpio.deviceIsX3();
+        if (useDifferentialRefresh) {
+          // begin() clears the X3 controller RAM, so restore the saved frame as
+          // the baseline before replacing the moon with the loading icon.
+          renderer.cleanupGrayscaleWithFrameBuffer();
+        }
+
         const auto pageHeight = renderer.getScreenHeight();
         if (SETTINGS.readerDarkMode != 0) {
           renderer.drawImageInverted(LoadingIcon, 0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH,
@@ -831,7 +976,12 @@ void setup() {
         } else {
           renderer.drawImage(LoadingIcon, 0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT);
         }
-        renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+        if (useDifferentialRefresh) {
+          renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+          allowFastInitialReaderRefresh = true;
+        } else {
+          renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+        }
       } else {
         activityManager.goToBoot();  // frame file missing, fall back to the splash
       }
@@ -848,6 +998,58 @@ void setup() {
   } else if (HalSystem::isRebootFromPanic()) {
     // If we rebooted from a panic, go to crash report screen to show the panic info
     activityManager.goToCrashReport();
+  } else if (resume == BootResume::Network) {
+    bool launched = false;
+    switch (static_cast<NetworkBootTarget>(snapshotTarget)) {
+      case NetworkBootTarget::OTA: {
+        auto otaActivity = makeUniqueNoThrow<OtaUpdateActivity>(renderer, mappedInputManager);
+        if (otaActivity) {
+          activityManager.replaceActivity(std::move(otaActivity));
+          launched = true;
+        } else {
+          LOG_ERR("MAIN", "OOM: OTA activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+                  ESP.getMaxAllocHeap());
+        }
+        break;
+      }
+      case NetworkBootTarget::OPDS:
+        launched = activityManager.goToOpdsServer(snapshotPayload, true);
+        break;
+      case NetworkBootTarget::KOREADER_SYNC:
+        launched = startGlobalSyncProgress(true);
+        break;
+      case NetworkBootTarget::KOREADER_AUTH: {
+        const auto mode =
+            snapshotPayload == 1 ? KOReaderAuthActivity::Mode::SIGN_UP : KOReaderAuthActivity::Mode::AUTHENTICATE;
+        auto authActivity = makeUniqueNoThrow<KOReaderAuthActivity>(renderer, mappedInputManager, mode);
+        if (authActivity) {
+          activityManager.replaceActivity(std::move(authActivity));
+          launched = true;
+        } else {
+          LOG_ERR("MAIN", "OOM: KOReader auth activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+                  ESP.getMaxAllocHeap());
+        }
+        break;
+      }
+      case NetworkBootTarget::FILE_TRANSFER:
+        launched = activityManager.resumeFileTransferFromNetworkBoot(snapshotPayload);
+        break;
+      case NetworkBootTarget::MANAGE_FONTS: {
+        auto fontsActivity = makeUniqueNoThrow<FontDownloadActivity>(renderer, mappedInputManager);
+        if (fontsActivity) {
+          activityManager.replaceActivity(std::move(fontsActivity));
+          launched = true;
+        } else {
+          LOG_ERR("MAIN", "OOM: Manage Fonts activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+                  ESP.getMaxAllocHeap());
+        }
+        break;
+      }
+    }
+    if (!launched) {
+      LOG_ERR("MAIN", "Minimal network boot target failed; returning home");
+      silentRestart();
+    }
   } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_READER &&
              !APP_STATE.openEpubPath.empty()) {
     activityManager.goToReader(APP_STATE.openEpubPath);
@@ -855,7 +1057,7 @@ void setup() {
     // target == home (or reader with no open book): land on home — don't fall
     // through to the sleep-wake "resume reader" logic, which fires on stale
     // openEpubPath + lastSleepFromReader from a prior session.
-    activityManager.goHome();
+    activityManager.goHome(HomeMenuItem::NONE, true);
   } else if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
              mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
     // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
@@ -867,10 +1069,10 @@ void setup() {
     APP_STATE.openEpubPath = "";
     APP_STATE.readerActivityLoadCount++;
     APP_STATE.saveToFile();
-    activityManager.goToReader(path);
+    activityManager.goToReader(path, false, allowFastInitialReaderRefresh);
   }
 
-  if (resume == BootResume::Silent) {
+  if (resume == BootResume::Silent || resume == BootResume::Network) {
     // Block until the first paint physically completes. refreshDisplay()
     // waits on the panel BUSY pin so when this returns the user can see the
     // new activity. Without the wait, an edge captured by gpio.update()
@@ -898,14 +1100,16 @@ void loop() {
   static unsigned long lastMemPrint = 0;
 
   gpio.update();
+#ifdef SIMULATOR
+  simulatorHomeKeyInput.update();
+#endif
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.tiltPageTurnDirection, SETTINGS.orientation,
                        activityManager.isReaderActivity());
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
   if (Serial && millis() - lastMemPrint >= 10000) {
-    LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
-            ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+    logMemoryStats("Periodic");
     lastMemPrint = millis();
   }
 
@@ -920,15 +1124,19 @@ void loop() {
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
-  if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || halTiltSensor.hadActivity() ||
-      activityManager.preventAutoSleep()) {
+  if (gpio.wasAnyPressed() || gpio.wasAnyReleased()
+#if CROSSSMUDGE_APP_CAP_TOUCH
+      || gpio.wasTouchActivity()
+#endif
+      || halTiltSensor.hadActivity() || activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }
 
   static bool screenshotButtonsReleased = true;
   static bool screenshotComboActive = false;
-  if (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
+  if (!activityManager.readerPowerButtonOpensSettings() && gpio.isPressed(HalGPIO::BTN_POWER) &&
+      gpio.isPressed(HalGPIO::BTN_DOWN)) {
     screenshotComboActive = true;
     if (screenshotButtonsReleased) {
       screenshotButtonsReleased = false;
@@ -959,6 +1167,11 @@ void loop() {
     return;
   }
 #endif
+  // X4 Pro-only frontlight shortcut. Consume the second release so a configured
+  // short-power action does not also run for the click that toggled the light.
+  if (handleX4ProFrontlightDoubleClick()) {
+    return;
+  }
 
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
   if (sleepTimeoutMs > 0 && millis() - lastActivityTime >= sleepTimeoutMs) {
@@ -971,7 +1184,14 @@ void loop() {
     return;
   }
 
-  if (millis() >= allowSleepAt && handleGlobalPowerButtonAction(getPowerButtonAction())) {
+  // Do not feed the wake gesture into getPowerButtonAction(). In particular,
+  // the release edge can otherwise run the configured short/long Power action
+  // in the same loop that arms the post-wake guard.
+  if (!powerButtonReleasedSinceWake) {
+    if (!gpio.isPressed(HalGPIO::BTN_POWER)) {
+      powerButtonReleasedSinceWake = true;
+    }
+  } else if (millis() >= allowSleepAt && handleGlobalPowerButtonAction(getPowerButtonAction())) {
     lastActivityTime = millis();
     return;
   }
@@ -980,6 +1200,23 @@ void loop() {
   // Placed after sleep guards so we never queue a render that won't be processed.
   if (gpio.wasUsbStateChanged()) {
     activityManager.requestUpdate();
+  }
+
+  // While on external power the percent climbs with no user interaction to
+  // repaint it (gauge boards like the X4 Pro report SoC continuously), so poll
+  // for a change once a minute. Off-charger the percent moves too slowly to
+  // justify unsolicited e-ink refreshes.
+  if (gpio.isUsbConnected()) {
+    static unsigned long lastBatteryPollTime = 0UL;
+    static uint16_t lastBatteryPercent = 0xFFFF;
+    if (millis() - lastBatteryPollTime >= 60000UL) {
+      lastBatteryPollTime = millis();
+      const uint16_t percent = powerManager.getBatteryPercentage();
+      if (lastBatteryPercent != 0xFFFF && percent != lastBatteryPercent) {
+        activityManager.requestUpdate();
+      }
+      lastBatteryPercent = percent;
+    }
   }
 
   const unsigned long activityStartTime = millis();

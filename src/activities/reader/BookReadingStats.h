@@ -36,7 +36,7 @@ struct BookReadingStats {
   // Updates the running reading pace with one forward page dwell sample.
   void recordForwardPageRead(uint32_t seconds);
 
-  // Attributes reading time to the X3 local date/time buckets when RTC data exists.
+  // Attributes reading time to local date/time buckets when RTC data exists.
   void recordReadingSpan(const ReadingStatsDateTime& localStart, uint32_t seconds);
 
   // Formats a duration in seconds into a human-readable string.

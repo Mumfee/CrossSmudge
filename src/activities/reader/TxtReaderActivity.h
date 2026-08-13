@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "ReaderProgressSaveDebouncer.h"
 #include "activities/Activity.h"
 
 class TxtReaderActivity final : public Activity {
@@ -17,6 +18,7 @@ class TxtReaderActivity final : public Activity {
   bool frontButtonLongPressHandled = false;
   bool longPowerButtonHandled = false;
   bool longPressBackHandled = false;
+  ReaderProgressSaveDebouncer progressSaveDebouncer;
 
   // Streaming text reader - stores file offsets for each page
   std::vector<size_t> pageOffsets;  // File offset for start of each page
@@ -42,23 +44,34 @@ class TxtReaderActivity final : public Activity {
   void buildPageIndex();
   bool loadPageIndexCache();
   void savePageIndexCache() const;
-  void saveProgress() const;
+  bool saveProgress(int page);
+  bool queueProgressSave();
+  bool flushQueuedProgress();
   void loadProgress();
   void toggleDarkMode();
   bool consumeLongPowerButtonRelease();
   bool consumeLongPowerButtonHold();
   bool executePowerButtonAction();
   bool executeLongPressBackAction();
+  void openReaderMenu();
 
  public:
-  explicit TxtReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Txt> txt)
-      : Activity("TxtReader", renderer, mappedInput), txt(std::move(txt)) {}
+  explicit TxtReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Txt> txt,
+                             int initialRefreshCountdown)
+      : Activity("TxtReader", renderer, mappedInput),
+        txt(std::move(txt)),
+        pagesUntilFullRefresh(initialRefreshCountdown) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool prepareManualRefresh() override {
+    pagesUntilFullRefresh = 1;
+    return true;
+  }
   bool isReaderActivity() const override { return true; }
   bool canSnapshotForSleepOverlay() const override { return true; }
+  bool handlesReaderPowerSettingsOverride() const override { return true; }
   std::string getCurrentBookPath() const override { return txt ? txt->getPath() : std::string{}; }
 
   // Renders the last saved page to the frame buffer without flushing to display.

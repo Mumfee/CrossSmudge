@@ -1,6 +1,7 @@
 #pragma once
 
 #include "activities/Activity.h"
+#include "activities/ScreenTransitionRefresh.h"
 
 // Manual NTP resync action. Runs a forced sync (bypassing the once-per-device debounce),
 // reports success/failure, then waits for Back. If WiFi is not connected yet, it reuses the
@@ -19,6 +20,7 @@ class ClockSyncActivity final : public Activity {
  private:
   enum State { SYNCING, SUCCESS, NO_WIFI, FAILED };
   State state = SYNCING;
+  ScreenTransitionRefresh screenTransitionRefresh;
   char syncedTime[16] = {0};
   bool shouldTearDownWifiOnExit = false;
 

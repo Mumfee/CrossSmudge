@@ -97,6 +97,8 @@ class XtcParser {
   bool m_chaptersLoaded;
   size_t m_chapterCount;
   XtcError m_lastError;
+  std::unique_ptr<uint8_t[]> m_streamChunk;
+  size_t m_streamChunkSize = 0;
 
   // Internal helper functions
   XtcError readHeader();

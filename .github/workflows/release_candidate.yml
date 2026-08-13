@@ -77,18 +77,18 @@ jobs:
           escaped_version=$(printf '%s\n' "$VERSION" | sed 's/[&|]/\\&/g')
           sed -i "s|^crosssmudge_version = .*|crosssmudge_version = ${escaped_version}|" platformio.ini
 
-      - name: Build CrossPoint
+      - name: Build CrossSmudge
         shell: bash
         env:
-          CROSSPOINT_RC_ARTIFACTS: "1"
-          CROSSPOINT_RC_BRANCH: ${{ env.RC_BRANCH_RAW }}
-          CROSSPOINT_RC_HASH: ${{ env.RC_HASH_SHORT }}
+          CROSSSMUDGE_RELEASE_VERSION: "1"
+          CROSSSMUDGE_RC_BRANCH: ${{ env.RC_BRANCH_RAW }}
+          CROSSSMUDGE_RC_HASH: ${{ env.RC_HASH_SHORT }}
         run: |
           build_args=()
           for env_name in $RC_ENVS; do
             build_args+=(-e "$env_name")
           done
-          pio run "${build_args[@]}"
+          pio run -j1 "${build_args[@]}"
 
       - name: Create GitHub RC Prerelease
         uses: softprops/action-gh-release@v3
@@ -102,5 +102,5 @@ jobs:
           draft: true
           prerelease: true
           files: |
-            .pio/build/tiny/firmware-tiny-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
-            .pio/build/xlarge/firmware-xlarge-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
+            .pio/build/default/firmware-x3-x4-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
+            .pio/build/sticky/firmware-sticky-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin

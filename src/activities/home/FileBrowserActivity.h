@@ -1,8 +1,11 @@
 #pragma once
 
 #include <FileIndex.h>
+#include <FreeInkApp.h>
+#include <FreeInkUIGfxRenderer.h>
 
 #include <array>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
@@ -14,10 +17,14 @@
 
 class FileBrowserActivity final : public Activity {
  public:
-  // Books = standard reader browser; PickFirmware = filter to .bin only and return path via ActivityResult.
-  enum class Mode { Books, PickFirmware };
+  // Picker modes return their selected path via ActivityResult.
+  enum class Mode { Books, PickFirmware, PickDirectory };
 
  private:
+  // FreeInkApp hosts the file list (themed rows, icons, touch routing); the
+  // header stays on GUI.drawHeader for the battery indicator.
+  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+
   // Deletion
   void promptDeleteFile(const std::string& fullPath, const std::string& entry);
   void promptDeleteDirectory(const std::string& fullPath, const std::string& entry,
@@ -35,6 +42,7 @@ class FileBrowserActivity final : public Activity {
   ButtonNavigator buttonNavigator;
 
   size_t selectorIndex = 0;
+  bool showFileSelection = true;
 
   bool lockLongPressBack = false;
   bool longPressBackHandled = false;
@@ -60,6 +68,20 @@ class FileBrowserActivity final : public Activity {
   bool usingIndex = false;
   bool fileListMemoryLimited = false;
 
+  freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
+  UiApp app;
+  // render() rebuilds the app's interaction table; loop() only routes touch
+  // snapshots against it while this is true (the two run on different tasks).
+  std::atomic<bool> uiReady{false};
+  int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
+  int topIndex = 0;     // viewport scroll position, decoupled from the selection
+
+  static void listScreen(UiApp::ScreenType& screen, void* user);
+  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  void buildListScreen(UiApp::ScreenType& screen);
+  void activateSelected();
+  void navigateBack();
+
   // Data loading
   void clearIndexNameCache();
   void loadFiles();
@@ -71,10 +93,7 @@ class FileBrowserActivity final : public Activity {
 
  public:
   explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",
-                               Mode mode = Mode::Books)
-      : Activity("FileBrowser", renderer, mappedInput),
-        mode(mode),
-        basepath(initialPath.empty() ? "/" : std::move(initialPath)) {}
+                               Mode mode = Mode::Books);
   void onEnter() override;
   void onExit() override;
   void loop() override;

@@ -1,12 +1,17 @@
+---
+title: Troubleshooting
+nav_order: 14
+---
+
 # Troubleshooting
 
 This document shows common issues and possible solutions while using the device features.
 
 - [Troubleshooting](#troubleshooting)
-    - [Cannot See the Device on the Network](#cannot-see-the-device-on-the-network)
-    - [Connection Drops or Times Out](#connection-drops-or-times-out)
-    - [Upload Fails](#upload-fails)
-    - [Saved Password Not Working](#saved-password-not-working)
+  - [Cannot See the Device on the Network](#cannot-see-the-device-on-the-network)
+  - [Connection Drops or Times Out](#connection-drops-or-times-out)
+  - [Upload Fails](#upload-fails)
+  - [Saved Password Not Working](#saved-password-not-working)
 
 ### Cannot See the Device on the Network
 
@@ -14,7 +19,7 @@ This document shows common issues and possible solutions while using the device 
 
 **Solutions:**
 
-1. Verify both devices are on the correct network
+1. Verify both devices are on the correct network (must be a 2.4ghz network)
    - Check your computer/phone Wi-Fi settings
    - In **Join Network** mode, your computer/phone and CrossSmudge must be on the same Wi-Fi network
    - In **Create Hotspot** mode, your computer/phone must be connected to the `CrossPoint-Reader` hotspot
@@ -34,7 +39,7 @@ This document shows common issues and possible solutions while using the device 
 1. Move closer to the Wi-Fi router, or use Create Hotspot mode for a direct connection
 2. Check signal strength on the device (should be at least `||` or better)
 3. Avoid interference from other devices
-4. Try a different Wi-Fi network if available
+4. Try a different Wi-Fi network if available (must be a 2.4ghz network)
 
 ### Upload Fails
 
@@ -50,7 +55,7 @@ This document shows common issues and possible solutions while using the device 
 
 ### Saved Password Not Working
 
-**Problem:** Device fails to connect with saved credentials
+**Problem:** Device fails to connect with saved credentials. This often happens when swapping between firmwares or devices due to the password hashing mechanism.
 
 **Solutions:**
 

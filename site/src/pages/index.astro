@@ -1,0 +1,49 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+import { getDocs } from '../lib/docs';
+
+const docs = await getDocs();
+const featuredDocs = docs.filter((doc) =>
+  ['user-guide', 'installation', 'reader-features', 'webserver'].includes(doc.slug)
+);
+---
+
+<SiteLayout
+  title="CrossSmudge"
+  description="Modern open-source e-reader firmware for Xteink X4 and X3 devices."
+  pageClass="home"
+>
+  <section slot="hero" class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">A personal fork of <a href="https://crosspointreader.com/">CrossPoint</a></p>
+      <h1>Cross<span class="crosssmudge-serif">I</span>nk</h1>
+      <p class="hero-text">
+        Minimal reading stats and improved UX.
+      </p>
+      <div class="hero-actions">
+        <a class="button primary" href="/installation.html">Installation Instructions</a>
+        <a class="button" href="/reader-features.html">Explore features</a>
+      </div>
+    </div>
+    <img
+      src="/images/bitter-small-15-margin.jpg"
+      alt="CrossSmudge on an X4 using 10pt Bitter font"
+      class="hero-image"
+      loading="eager"
+    />
+  </section>
+
+  <section class="section-heading">
+    <p class="eyebrow">Start here</p>
+    <h2>Useful docs</h2>
+  </section>
+  <nav class="useful-docs" aria-label="Useful documentation">
+    {
+      featuredDocs.map((doc) => (
+        <a href={doc.url}>
+          <span>{doc.title}</span>
+        </a>
+      ))
+    }
+  </nav>
+</SiteLayout>

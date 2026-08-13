@@ -306,6 +306,30 @@ void formatReadingStatsMonthToken(const ReadingStatsDate& date, char* buf, const
   snprintf(buf, len, "%s", MONTH_NAMES[date.month - 1]);
 }
 
+void formatCompactReadingDuration(const uint32_t seconds, char* buf, const size_t len) {
+  if (!buf || len == 0) {
+    return;
+  }
+  if (seconds < 60) {
+    snprintf(buf, len, "<1m");
+    return;
+  }
+
+  const uint32_t minutes = (seconds + 30U) / 60U;
+  if (minutes < 60) {
+    snprintf(buf, len, "%lum", static_cast<unsigned long>(minutes));
+    return;
+  }
+
+  const uint32_t hours = minutes / 60U;
+  const uint32_t remainingMinutes = minutes % 60U;
+  if (remainingMinutes == 0) {
+    snprintf(buf, len, "%luh", static_cast<unsigned long>(hours));
+  } else {
+    snprintf(buf, len, "%luh %lum", static_cast<unsigned long>(hours), static_cast<unsigned long>(remainingMinutes));
+  }
+}
+
 void recordReadingSpanIntoBuckets(std::array<uint32_t, READING_TIME_BUCKET_COUNT>& timeOfDaySeconds,
                                   std::array<uint32_t, READING_DAY_OF_WEEK_COUNT>& dayOfWeekSeconds,
                                   const ReadingStatsDateTime& localStart, const uint32_t seconds) {

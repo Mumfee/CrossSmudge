@@ -25,12 +25,15 @@ class TextBlock final : public Block {
 
   const uint16_t* textOffArr = nullptr;
   const int16_t* xposArr = nullptr;
-  const uint16_t* bionicSuffixXArr = nullptr;    // null when !bionicPresent
+  // Distance from the word's left edge to the second visual run. The suffix is
+  // second for LTR words; the bold logical prefix is second for RTL words.
+  const uint16_t* bionicRunOffsetArr = nullptr;  // null when !bionicPresent
   const uint16_t* guideDotXOffsetArr = nullptr;  // null when !guideDotsPresent
   const uint8_t* stylesArr = nullptr;
   const uint8_t* bionicBoundaryArr = nullptr;  // null when !bionicPresent
   const uint8_t* wordFlagsArr = nullptr;       // null when !wordFlagsPresent
   const char* textArr = nullptr;
+  std::vector<std::string> rubyTexts;
 
   TextBlock() = default;  // deserialize() fills the fields directly.
   static size_t arenaSize(uint16_t wordCount, bool hasBionic, bool hasGuideDots, bool hasWordFlags, uint16_t textBytes);
@@ -39,11 +42,14 @@ class TextBlock final : public Block {
  public:
   static constexpr uint8_t WORD_FLAG_BACKGROUND_BLACK = 0x01;
   static constexpr uint8_t WORD_FLAG_INSERTED_HYPHEN = 0x02;
+  static constexpr uint8_t WORD_FLAG_LINK_ID_SHIFT = 2;
+  static constexpr uint8_t WORD_FLAG_LINK_ID_MASK = 0xFC;
 
   explicit TextBlock(const std::vector<std::string>& words, const std::vector<int16_t>& wordXpos,
                      const std::vector<EpdFontFamily::Style>& wordStyles, const std::vector<uint8_t>& bionicBoundary,
-                     const std::vector<uint16_t>& bionicSuffixX, const std::vector<uint16_t>& guideDotXOffset,
-                     const std::vector<uint8_t>& wordFlags, const BlockStyle& blockStyle = BlockStyle());
+                     const std::vector<uint16_t>& bionicRunOffset, const std::vector<uint16_t>& guideDotXOffset,
+                     const std::vector<uint8_t>& wordFlags, const BlockStyle& blockStyle = BlockStyle(),
+                     std::vector<std::string> rubyTexts = {});
   ~TextBlock() override = default;
   TextBlock(const TextBlock&) = delete;
   TextBlock& operator=(const TextBlock&) = delete;
@@ -61,10 +67,16 @@ class TextBlock final : public Block {
   int16_t wordXpos(const uint16_t i) const { return xposArr[i]; }
   EpdFontFamily::Style wordStyle(const uint16_t i) const { return static_cast<EpdFontFamily::Style>(stylesArr[i]); }
   uint8_t bionicBoundary(const uint16_t i) const { return bionicPresent ? bionicBoundaryArr[i] : 0; }
-  uint16_t bionicSuffixX(const uint16_t i) const { return bionicPresent ? bionicSuffixXArr[i] : 0; }
+  uint16_t bionicRunOffset(const uint16_t i) const { return bionicPresent ? bionicRunOffsetArr[i] : 0; }
   uint16_t guideDotXOffset(const uint16_t i) const { return guideDotsPresent ? guideDotXOffsetArr[i] : 0; }
   uint8_t wordFlags(const uint16_t i) const { return wordFlagsPresent ? wordFlagsArr[i] : 0; }
+  uint8_t wordLinkId(const uint16_t i) const {
+    return static_cast<uint8_t>((wordFlags(i) & WORD_FLAG_LINK_ID_MASK) >> WORD_FLAG_LINK_ID_SHIFT);
+  }
   bool wordEndsWithInsertedHyphen(const uint16_t i) const { return (wordFlags(i) & WORD_FLAG_INSERTED_HYPHEN) != 0; }
+  bool hasRuby() const;
+  int getRubyShift(int ascender) const { return hasRuby() ? (ascender / 2) : 0; }
+  const std::vector<std::string>& getRubyTexts() const { return rubyTexts; }
 
   void render(const GfxRenderer& renderer, int fontId, int x, int y, bool foregroundBlack = true) const;
   BlockType getType() override { return TEXT_BLOCK; }

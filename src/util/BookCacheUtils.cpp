@@ -22,10 +22,15 @@ constexpr PreservedCacheFile EPUB_USER_STATE_FILES[] = {
     {"progress.bin", "upload_preserve_progress.bin"},
     {"progress.bin.bak", "upload_preserve_progress.bin.bak"},
     {"reader_settings.bin", "upload_preserve_reader_settings.bin"},
+    {"dictionary_history.txt", "upload_preserve_dictionary_history.txt"},
 };
 
 constexpr PreservedCacheFile PAGE_PROGRESS_FILES[] = {
     {"progress.bin", "upload_preserve_progress.bin"},
+};
+
+constexpr PreservedCacheFile CACHE_CLEAR_USER_STATE_FILES[] = {
+    {"dictionary_history.txt", "clear_preserve_dictionary_history.txt"},
 };
 
 struct ResolvedPreservedCacheFile {
@@ -262,7 +267,6 @@ bool clearCacheDirectoryPreservingFiles(const std::string& cachePath, const Pres
   }
 
   if (!Storage.exists(cachePath.c_str())) {
-    LOG_DBG("BookCache", "Cache does not exist, no action needed: %s", cachePath.c_str());
     return true;
   }
 
@@ -339,11 +343,11 @@ bool clearBookCachePreservingUserState(const std::string& path) {
   const bool clearOk = clearBookCacheForPath(path);
   const bool restoreOk = restorePreservedFiles(cachePath, resolvedFiles, movedFiles);
   if (clearOk) {
-    LOG_DBG("BookCache", "Done checking metadata cache for: %s", path.c_str());
   }
   return clearOk && restoreOk;
 }
 
 bool clearBookCacheDirectoryPreservingStats(const std::string& cachePath) {
-  return clearCacheDirectoryPreservingFiles(cachePath, nullptr, 0, true, "clear_preserve_");
+  return clearCacheDirectoryPreservingFiles(cachePath, CACHE_CLEAR_USER_STATE_FILES,
+                                            std::size(CACHE_CLEAR_USER_STATE_FILES), true, "clear_preserve_");
 }

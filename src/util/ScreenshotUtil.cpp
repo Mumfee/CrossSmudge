@@ -86,19 +86,26 @@ void ScreenshotUtil::takeScreenshot(GfxRenderer& renderer) {
     return;
   }
 
-  // Display a border around the screen to indicate a screenshot was taken
-  if (renderer.storeBwBuffer()) {
-    int marginTop, marginRight, marginBottom, marginLeft;
-    renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
-    int width = renderer.getScreenWidth() - marginLeft - marginRight - 1;
-    int height = renderer.getScreenHeight() - marginTop - marginBottom - 1;
-    // Add extra margin to the border to make it more visible
-    renderer.drawRect(marginLeft + 1, marginTop + 1, width - 2, height - 2, 2, true);
-    renderer.displayBuffer();
-    delay(1000);
-    renderer.restoreBwBuffer();
-    renderer.displayBuffer(HalDisplay::RefreshMode::HALF_REFRESH);
-  }
+  // Invert only the border so feedback never depends on allocating a second
+  // framebuffer. Applying the same operation again restores the exact pixels.
+  int marginTop, marginRight, marginBottom, marginLeft;
+  renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
+  constexpr int borderWidth = 2;
+  const int x = marginLeft + 1;
+  const int y = marginTop + 1;
+  const int width = renderer.getScreenWidth() - marginLeft - marginRight - 3;
+  const int height = renderer.getScreenHeight() - marginTop - marginBottom - 3;
+  const auto invertBorder = [&renderer, x, y, width, height]() {
+    renderer.invertRect(x, y, width, borderWidth);
+    renderer.invertRect(x, y + height - borderWidth, width, borderWidth);
+    renderer.invertRect(x, y + borderWidth, borderWidth, height - borderWidth * 2);
+    renderer.invertRect(x + width - borderWidth, y + borderWidth, borderWidth, height - borderWidth * 2);
+  };
+  invertBorder();
+  renderer.displayBuffer();
+  delay(1000);
+  invertBorder();
+  renderer.displayBuffer(HalDisplay::RefreshMode::HALF_REFRESH);
 }
 
 bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* framebuffer, int width, int height) {

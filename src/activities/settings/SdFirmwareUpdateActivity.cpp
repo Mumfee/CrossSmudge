@@ -10,6 +10,7 @@
 #include "MappedInputManager.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/util/ConfirmationActivity.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/FirmwareFlasher.h"
@@ -103,6 +104,8 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
       errorMessage = tr(STR_FIRMWARE_TOO_LARGE);
     } else if (vr == firmware_flash::Result::TOO_SMALL) {
       errorMessage = tr(STR_FIRMWARE_TOO_SMALL);
+    } else if (vr == firmware_flash::Result::BAD_CHIP) {
+      errorMessage = tr(STR_FIRMWARE_WRONG_DEVICE);
     } else {
       errorMessage = tr(STR_INVALID_FIRMWARE);
     }
@@ -167,7 +170,8 @@ void SdFirmwareUpdateActivity::performUpdate() {
   const auto result = firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
   if (result != firmware_flash::Result::OK) {
     LOG_ERR("FW", "flash failed: %s", firmware_flash::resultName(result));
-    errorMessage = tr(STR_FIRMWARE_WRITE_FAILED);
+    errorMessage =
+        result == firmware_flash::Result::BAD_CHIP ? tr(STR_FIRMWARE_WRONG_DEVICE) : tr(STR_FIRMWARE_WRITE_FAILED);
     RenderLock lock(*this);
     state = State::FAILED;
     requestUpdate();
@@ -186,8 +190,11 @@ void SdFirmwareUpdateActivity::performUpdate() {
 
 void SdFirmwareUpdateActivity::loop() {
   if (state == State::FAILED) {
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
-        mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    int x = 0;
+    int y = 0;
+    if (TouchHeaderBackButton::wasTapped(mappedInput, renderer) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Back) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(x, y)) {
       if (recoveryMode) {
         // Go back to picker so user can try a different .bin
         state = State::PICKING;
@@ -207,7 +214,12 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const char* headerText = recoveryMode ? tr(STR_RECOVERY_MODE) : tr(STR_SD_FIRMWARE_UPDATE);
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, headerText);
+  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  if (state == State::FAILED && mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, header, headerText, false);
+  } else {
+    GUI.drawHeader(renderer, header, headerText);
+  }
 
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = (pageHeight - lineHeight) / 2;
@@ -236,18 +248,36 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
     renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF));
   } else if (state == State::SUCCESS) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing, tr(STR_RESTARTING_HINT));
+    const auto hintLines =
+        renderer.wrappedText(UI_10_FONT_ID, tr(STR_RESTARTING_HINT), pageWidth - metrics.contentSidePadding * 2, 3);
+    int hintY = top + lineHeight + metrics.verticalSpacing;
+    for (const auto& line : hintLines) {
+      renderer.drawCenteredText(UI_10_FONT_ID, hintY, line.c_str());
+      hintY += lineHeight;
+    }
   } else if (state == State::FAILED) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_FAILED), true, EpdFontFamily::BOLD);
     if (!errorMessage.empty()) {
-      renderer.drawCenteredText(UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing, errorMessage.c_str());
+      const auto errorLines =
+          renderer.wrappedText(UI_10_FONT_ID, errorMessage.c_str(), pageWidth - metrics.contentSidePadding * 2, 3);
+      int errorY = top + lineHeight + metrics.verticalSpacing;
+      for (const auto& line : errorLines) {
+        renderer.drawCenteredText(UI_10_FONT_ID, errorY, line.c_str());
+        errorY += lineHeight;
+      }
     }
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else {
     // PICKING / CONFIRMING: a sub-activity is on top, nothing to draw.
     if (recoveryMode) {
-      renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_RECOVERY_MODE_HINT));
+      const auto hintLines = renderer.wrappedText(UI_10_FONT_ID, tr(STR_RECOVERY_MODE_HINT),
+                                                  pageWidth - metrics.contentSidePadding * 2, 3);
+      int hintY = top;
+      for (const auto& line : hintLines) {
+        renderer.drawCenteredText(UI_10_FONT_ID, hintY, line.c_str());
+        hintY += lineHeight;
+      }
     }
   }
 

@@ -5,7 +5,9 @@
 #include <esp_mac.h>
 #include <mbedtls/base64.h>
 
+#include <array>
 #include <cstring>
+#include <limits>
 
 namespace obfuscation {
 
@@ -17,15 +19,15 @@ constexpr size_t CHECKSUM_LEN = 4;
 constexpr uint32_t FNV_OFFSET_BASIS = 2166136261UL;
 constexpr uint32_t FNV_PRIME = 16777619UL;
 
-// Simple lazy init — no thread-safety concern on single-core ESP32-C3.
 const uint8_t* getHwKey() {
-  static uint8_t key[HW_KEY_LEN] = {};
-  static bool initialized = false;
-  if (!initialized) {
-    esp_efuse_mac_get_default(key);
-    initialized = true;
-  }
-  return key;
+  // Function-local static initialization is synchronized by C++, including
+  // on dual-core S3 targets.
+  static const std::array<uint8_t, HW_KEY_LEN> key = [] {
+    std::array<uint8_t, HW_KEY_LEN> value{};
+    esp_efuse_mac_get_default(value.data());
+    return value;
+  }();
+  return key.data();
 }
 
 void appendUint32LE(std::string& data, uint32_t value) {
@@ -115,6 +117,10 @@ std::string deobfuscateFromBase64(const char* encoded, bool* ok) {
 }
 
 std::string deobfuscateFromBase64(const char* encoded, DecodeStatus* status) {
+  return deobfuscateFromBase64(encoded, std::numeric_limits<size_t>::max(), status);
+}
+
+std::string deobfuscateFromBase64(const char* encoded, const size_t maxPlaintextLength, DecodeStatus* status) {
   if (status) *status = DecodeStatus::INVALID;
   if (encoded == nullptr || encoded[0] == '\0') {
     if (status) *status = DecodeStatus::EMPTY;
@@ -126,6 +132,15 @@ std::string deobfuscateFromBase64(const char* encoded, DecodeStatus* status) {
   int ret = mbedtls_base64_decode(nullptr, 0, &decodedLen, reinterpret_cast<const unsigned char*>(encoded), encodedLen);
   if (ret != 0 && ret != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL) {
     LOG_ERR("OBF", "Base64 decode size query failed (ret=%d)", ret);
+    return "";
+  }
+  const size_t maxPayloadLength =
+      maxPlaintextLength > std::numeric_limits<size_t>::max() - VALIDATED_PREFIX_LEN - CHECKSUM_LEN
+          ? std::numeric_limits<size_t>::max()
+          : maxPlaintextLength + VALIDATED_PREFIX_LEN + CHECKSUM_LEN;
+  if (decodedLen > maxPayloadLength) {
+    LOG_ERR("OBF", "Decoded credential exceeds %zu byte limit", maxPlaintextLength);
+    if (status) *status = DecodeStatus::TOO_LONG;
     return "";
   }
   std::string result(decodedLen, '\0');
@@ -143,9 +158,20 @@ std::string deobfuscateFromBase64(const char* encoded, DecodeStatus* status) {
     if (!decodeValidatedPayload(result, plaintext)) {
       return "";
     }
+    if (plaintext.size() > maxPlaintextLength) {
+      LOG_ERR("OBF", "Decoded credential exceeds %zu byte limit", maxPlaintextLength);
+      if (status) *status = DecodeStatus::TOO_LONG;
+      return "";
+    }
 
     if (status) *status = DecodeStatus::VALIDATED;
     return plaintext;
+  }
+
+  if (result.size() > maxPlaintextLength) {
+    LOG_ERR("OBF", "Decoded legacy credential exceeds %zu byte limit", maxPlaintextLength);
+    if (status) *status = DecodeStatus::TOO_LONG;
+    return "";
   }
 
   if (status) *status = DecodeStatus::LEGACY;
@@ -200,7 +226,6 @@ void selfTest() {
     allPassed = false;
   }
   if (allPassed) {
-    LOG_DBG("OBF", "Obfuscation self-test PASSED");
   }
 }
 

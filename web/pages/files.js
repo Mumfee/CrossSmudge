@@ -265,22 +265,14 @@ function handleFileActionClick(event) {
 
 // Modal functions
 function openUploadModal() {
-  // Reset converter variables to defaults
-  ENABLE_GRAYSCALE = true;
-  JPEG_QUALITY = 85;
-  HANDEDNESS = "right";
-  OVERLAP_PERCENT = 5;
   imageStates = {};
+  restoreUploadSettingsFromStorage();
 
   // Hide convert options when opening modal (no files selected initially)
   const convertOptions = document.getElementById("convertOptions");
   if (convertOptions) {
     convertOptions.style.display = "none";
   }
-
-  // Reset rotation and overlap UI
-  setHandedness("right");
-  setOverlap(5);
 
   // Hide log section from previous session
   const logSection = document.getElementById("log-section");
@@ -346,7 +338,8 @@ function closeUploadModal() {
   document.getElementById("progress-container").style.display = "none";
   document.getElementById("progress-fill").style.width = "0%";
   document.getElementById("progress-fill").style.backgroundColor = "#27ae60";
-  document.getElementById("convertBeforeUpload").checked = false;
+  const convertOptions = document.getElementById("convertOptions");
+  if (convertOptions) convertOptions.style.display = "none";
   document.getElementById("convertInfo").style.display = "none";
   document.getElementById("convertWarning").style.display = "none";
   // Clear image picker cache and reset layout
@@ -368,15 +361,7 @@ function closeUploadModal() {
     advancedOptionsToggle.style.opacity = "0.5";
     advancedOptionsToggle.style.pointerEvents = "none";
   }
-  // Reset to defaults
-  document.getElementById("qualitySlider").value = 85;
-  document.getElementById("qualityInput").value = 85;
-  const referenceCharactersInput = document.getElementById("referenceCharactersInput");
-  if (referenceCharactersInput) referenceCharactersInput.value = X_DEFAULT_REFERENCE_CHARACTERS_PER_PAGE;
-  setHandedness("right");
-  setOverlap(5);
-  // Update converter variables
-  updateQualitySettings();
+  applyUploadSettings();
 }
 
 function updateBatchModeUI(isBatch) {
@@ -413,6 +398,7 @@ function toggleConvertOptions() {
     advancedOptionsToggle.style.opacity = checked ? "1" : "0.5";
     advancedOptionsToggle.style.pointerEvents = checked ? "auto" : "none";
   }
+  updateUploadSettingsPersistence();
 }
 
 function toggleAdvancedOptions() {
@@ -450,12 +436,8 @@ function toggleAdvancedOptions() {
 function setQualityPreset(value) {
   document.getElementById("qualitySlider").value = value;
   document.getElementById("qualityInput").value = value;
-  // Update active preset
   document.querySelectorAll(".quality-preset").forEach((btn) => {
-    btn.classList.remove("active");
-    if (parseInt(btn.dataset.value, 10) === value) {
-      btn.classList.add("active");
-    }
+    btn.classList.toggle("active", parseInt(btn.dataset.value, 10) === value);
   });
   updateQualitySettings();
 }
@@ -475,6 +457,7 @@ function updateQualitySettings() {
   // Update converter variables (used by processImage and applyGrayscale)
   JPEG_QUALITY = parseInt(quality, 10);
   ENABLE_GRAYSCALE = true; // Always grayscale for e-ink
+  updateUploadSettingsPersistence();
 }
 
 function setHandedness(value) {
@@ -487,6 +470,7 @@ function setHandedness(value) {
   if (document.getElementById("imagePickerSection").style.display !== "none") {
     renderImageGrid();
   }
+  updateUploadSettingsPersistence();
 }
 
 function setOverlap(value) {
@@ -495,6 +479,7 @@ function setOverlap(value) {
   document.querySelectorAll(".overlap-btn").forEach((btn) => {
     btn.classList.toggle("active", parseInt(btn.dataset.value) === value);
   });
+  updateUploadSettingsPersistence();
 }
 
 // ============================================================================
@@ -1118,8 +1103,13 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   if (qualitySlider && qualityInput) {
-    // Initialize converter variables with UI default values
-    updateQualitySettings();
+    // Initialize converter variables without overwriting remembered settings.
+    suppressUploadSettingsSave = true;
+    try {
+      updateQualitySettings();
+    } finally {
+      suppressUploadSettingsSave = false;
+    }
 
     // Deselect all presets when slider is manually changed
     const deselectPresets = function () {
@@ -1373,15 +1363,13 @@ function validateFile() {
   const hasEpub = Array.from(files).some((f) => f.name.toLowerCase().endsWith(".epub"));
   if (files.length > 0 && hasEpub) {
     convertOptions.style.display = "block";
+    toggleConvertOptions();
   } else {
     convertOptions.style.display = "none";
-    // Clear stale checkbox state so the "Optimize & Upload" button doesn't linger
-    // when the user re-picks a non-EPUB after having ticked Optimize for an EPUB.
-    const cb = document.getElementById("convertBeforeUpload");
-    if (cb && cb.checked) {
-      cb.checked = false;
-      toggleConvertOptions();
-    }
+    uploadBtn.textContent = "Upload";
+    uploadBtn.classList.remove("optimize");
+    document.getElementById("convertInfo").style.display = "none";
+    document.getElementById("convertWarning").style.display = "none";
     if (files.length === 0) clearImagePicker();
   }
 
@@ -1426,7 +1414,10 @@ let operationCancelled = false; // Set by Cancel to stop conversion loops and up
 let uploadGeneration = 0; // Incremented each uploadFile() call; guards stale restoreAfterCancel()
 let currentUploadWs = null; // Active WebSocket reference for external abort
 let currentUploadXhr = null; // Active XHR reference for external abort
-const WS_PORT = 81;
+// On-device HTTP uses port 80 and WebSocket uses 81. The simulator maps the
+// same adjacent-port contract to an unprivileged host pair such as 8080/8081.
+const HTTP_PORT = Number(window.location.port || 80);
+const WS_PORT = HTTP_PORT + 1;
 const WS_CHUNK_SIZE = 4096; // 4KB chunks - smaller for ESP32 stability
 
 // ============================================================================
@@ -1445,6 +1436,7 @@ const DEFAULT_MAX_WIDTH = DEVICE_PROFILES[DEFAULT_DEVICE].width;
 const DEFAULT_MAX_HEIGHT = DEVICE_PROFILES[DEFAULT_DEVICE].height;
 const DEFAULT_JPEG_QUALITY = 85;
 const DEFAULT_ENABLE_GRAYSCALE = true;
+const X_DEFAULT_REFERENCE_CHARACTERS_PER_PAGE = 1500;
 // Note: Overlap is now always centered distribution (min 5%)
 
 // Dynamic conversion settings (updated by UI)
@@ -1457,6 +1449,83 @@ let JPEG_QUALITY = DEFAULT_JPEG_QUALITY;
 let ENABLE_GRAYSCALE = DEFAULT_ENABLE_GRAYSCALE;
 let HANDEDNESS = "right"; // 'right' = clockwise (right-handed), 'left' = counter-clockwise (left-handed)
 let OVERLAP_PERCENT = 5; // Minimum overlap percentage for splits (5%, 10%, 15%)
+const UPLOAD_SETTINGS_STORAGE_KEY = "crosssmudge.files.uploadSettings.v1";
+const DEFAULT_UPLOAD_SETTINGS = Object.freeze({
+  convertBeforeUpload: false,
+  renameFromMetadata: false,
+  splitLongSections: true,
+  quality: DEFAULT_JPEG_QUALITY,
+  referenceCharacters: X_DEFAULT_REFERENCE_CHARACTERS_PER_PAGE,
+  deviceTarget: "auto",
+  handedness: "right",
+  overlap: 5,
+  exportLog: false,
+});
+let suppressUploadSettingsSave = false;
+
+function getCurrentUploadSettings() {
+  return {
+    convertBeforeUpload: !!document.getElementById("convertBeforeUpload")?.checked,
+    renameFromMetadata: !!document.getElementById("renameFromMetadataToggle")?.checked,
+    splitLongSections: !!document.getElementById("splitLongSectionsToggle")?.checked,
+    quality: parseInt(document.getElementById("qualitySlider")?.value || JPEG_QUALITY, 10),
+    referenceCharacters: parseInt(
+      document.getElementById("referenceCharactersInput")?.value || X_DEFAULT_REFERENCE_CHARACTERS_PER_PAGE,
+      10,
+    ),
+    deviceTarget: DEVICE_TARGET,
+    handedness: HANDEDNESS,
+    overlap: OVERLAP_PERCENT,
+    exportLog: !!document.getElementById("export-log-checkbox")?.checked,
+  };
+}
+
+function applyUploadSettings(settings = {}) {
+  const merged = { ...DEFAULT_UPLOAD_SETTINGS, ...settings };
+  suppressUploadSettingsSave = true;
+  try {
+    document.getElementById("convertBeforeUpload").checked = !!merged.convertBeforeUpload;
+    document.getElementById("renameFromMetadataToggle").checked = !!merged.renameFromMetadata;
+    document.getElementById("splitLongSectionsToggle").checked = !!merged.splitLongSections;
+    document.getElementById("export-log-checkbox").checked = !!merged.exportLog;
+    document.getElementById("rememberUploadSettings").checked = !!settings.rememberSettings;
+    document.getElementById("referenceCharactersInput").value = normalizedReferenceCharactersPerPage(
+      merged.referenceCharacters,
+    );
+
+    setQualityPreset(Math.max(1, Math.min(95, parseInt(merged.quality, 10) || DEFAULT_JPEG_QUALITY)));
+    setDeviceTarget(["auto", "X3", "X4"].includes(merged.deviceTarget) ? merged.deviceTarget : "auto");
+    setHandedness(merged.handedness === "left" ? "left" : "right");
+    setOverlap([5, 10, 15].includes(Number(merged.overlap)) ? Number(merged.overlap) : 5);
+    toggleConvertOptions();
+  } finally {
+    suppressUploadSettingsSave = false;
+  }
+}
+
+function restoreUploadSettingsFromStorage() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(UPLOAD_SETTINGS_STORAGE_KEY) || "null");
+    applyUploadSettings(saved?.rememberSettings ? saved : undefined);
+  } catch (error) {
+    console.warn("Could not read remembered upload settings:", error);
+    applyUploadSettings();
+  }
+}
+
+function updateUploadSettingsPersistence() {
+  if (suppressUploadSettingsSave) return;
+  try {
+    if (!document.getElementById("rememberUploadSettings")?.checked) {
+      localStorage.removeItem(UPLOAD_SETTINGS_STORAGE_KEY);
+      return;
+    }
+    const settings = { ...getCurrentUploadSettings(), rememberSettings: true };
+    localStorage.setItem(UPLOAD_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch (error) {
+    console.warn("Could not save upload settings:", error);
+  }
+}
 
 // ============================================================================
 // Image Picker State Management
@@ -1542,6 +1611,7 @@ function applyDeviceTarget() {
 function setDeviceTarget(value) {
   DEVICE_TARGET = value;
   applyDeviceTarget();
+  updateUploadSettingsPersistence();
 }
 
 // Batch logging system for multiple files
@@ -1945,7 +2015,10 @@ const DEFENSIVE_STYLE =
   '<style type="text/css">img,svg{max-width:100%;height:auto}body{overflow-wrap:break-word}table{max-width:100%;table-layout:fixed}pre,code{white-space:pre-wrap;word-wrap:break-word}*{box-sizing:border-box}</style>';
 const X_LOCATION_MANIFEST_PATH = "META-INF/x-locations.json";
 const X_LOCATION_WORDS_PER_UNIT = 64;
-const X_DEFAULT_REFERENCE_CHARACTERS_PER_PAGE = 1500;
+const SECTION_SPLIT_WORD_THRESHOLD = 8000;
+const SECTION_SPLIT_BYTE_THRESHOLD = 32768;
+const SECTION_SPLIT_HARD_BYTE_LIMIT = 49152;
+const SECTION_SPLIT_SUFFIX_RE = /__ci_section_\d{3}(?=\.[^.]+$)/i;
 const XHTML_NS = "http://www.w3.org/1999/xhtml";
 const OPF_NS = "http://www.idpf.org/2007/opf";
 const DEFLATE_OPTS = { compression: "DEFLATE", compressionOptions: { level: 8 }, createFolders: false };
@@ -2085,6 +2158,110 @@ async function findOPFPath(zip) {
   return fallback;
 }
 
+function sanitizeMetadataFilenamePart(value) {
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (text.normalize ? text.normalize("NFC") : text)
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^[. ]+/g, "")
+    .replace(/[. ]+$/g, "")
+    .trim();
+}
+
+function buildMetadataFilename(title, author) {
+  title = sanitizeMetadataFilenamePart(title);
+  author = sanitizeMetadataFilenamePart(author);
+  if (!title) return "";
+  let base = author ? `${title} - ${author}` : title;
+  if (base.length > 180) {
+    base =
+      base
+        .substring(0, 180)
+        .replace(/\s+\S*$/g, "")
+        .trim() || base.substring(0, 180).trim();
+  }
+  return `${base}.epub`;
+}
+
+async function getMetadataFilenameForEpub(file) {
+  if (typeof JSZip === "undefined") return "";
+  const zip = await JSZip.loadAsync(file);
+  const opfPath = await findOPFPath(zip);
+  if (!opfPath || !zip.files[opfPath]) return "";
+
+  const doc = new DOMParser().parseFromString(await safeReadText(zip.files[opfPath]), "application/xml");
+  if (doc.querySelector("parsererror")) return "";
+
+  const title = doc.getElementsByTagNameNS("*", "title")[0]?.textContent || "";
+  const creators = Array.from(doc.getElementsByTagNameNS("*", "creator"));
+  const getCreatorRole = (element) =>
+    (
+      element.getAttribute("role") ||
+      element.getAttribute("opf:role") ||
+      element.getAttributeNS("http://www.idpf.org/2007/opf", "role") ||
+      ""
+    ).toLowerCase();
+  const authorElement =
+    creators.find((element) => getCreatorRole(element) === "aut") ||
+    creators.find((element) => !getCreatorRole(element));
+  const authorText = authorElement?.textContent?.trim();
+  const author =
+    authorText ||
+    authorElement?.getAttribute("file-as") ||
+    authorElement?.getAttribute("opf:file-as") ||
+    authorElement?.getAttributeNS("http://www.idpf.org/2007/opf", "file-as") ||
+    "";
+  return buildMetadataFilename(title, author);
+}
+
+async function maybeRenameEbookFile(file) {
+  const renameToggle = document.getElementById("renameFromMetadataToggle");
+  if (!renameToggle || !renameToggle.checked || !file.name.toLowerCase().endsWith(".epub")) return file;
+
+  try {
+    const metadataName = await getMetadataFilenameForEpub(file);
+    if (!metadataName || metadataName === file.name) return file;
+    return new File([file], metadataName, {
+      type: file.type || "application/epub+zip",
+      lastModified: file.lastModified,
+    });
+  } catch (error) {
+    console.warn("Could not rename EPUB from metadata:", error);
+    return file;
+  }
+}
+
+function reserveAvailableUploadFilename(fileName, usedFileNames) {
+  const normalize = (name) => name.toLowerCase();
+  if (!usedFileNames.has(normalize(fileName))) {
+    usedFileNames.add(normalize(fileName));
+    return fileName;
+  }
+
+  const dotIndex = fileName.lastIndexOf(".");
+  const extensionIndex = dotIndex > 0 ? dotIndex : fileName.length;
+  const baseName = fileName.substring(0, extensionIndex);
+  const extension = fileName.substring(extensionIndex);
+  let nextSuffix = 2;
+  let candidateName;
+  do {
+    candidateName = `${baseName} (${nextSuffix})${extension}`;
+    nextSuffix++;
+  } while (usedFileNames.has(normalize(candidateName)));
+
+  usedFileNames.add(normalize(candidateName));
+  return candidateName;
+}
+
+async function fetchExistingUploadNames() {
+  const response = await fetch(`/api/files?path=${encodeURIComponent(currentPath)}&_=${Date.now()}`);
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  const entries = await response.json();
+  return new Set(entries.map((entry) => entry.name.toLowerCase()));
+}
+
 /**
  * Resolve a relative href against a base file path.
  * Handles multiple ../, ./, absolute /, and bare relative paths.
@@ -2127,13 +2304,16 @@ function renamedImageSrc(src, xhtmlPath, renamed, splitImages = {}) {
 
 function rewriteImageSrcReferences(content, xhtmlPath, renamed, splitImages = {}) {
   let changed = false;
-  const rewritten = content.replace(/(<(?:\w+:)?img\b[^>]*?\bsrc\s*=\s*)(["'])([^"']+)\2/gi, (match, prefix, quote, src) => {
-    const renamedSrc = renamedImageSrc(src, xhtmlPath, renamed, splitImages);
-    if (!renamedSrc.changed) return match;
+  const rewritten = content.replace(
+    /(<(?:\w+:)?img\b[^>]*?\bsrc\s*=\s*)(["'])([^"']+)\2/gi,
+    (match, prefix, quote, src) => {
+      const renamedSrc = renamedImageSrc(src, xhtmlPath, renamed, splitImages);
+      if (!renamedSrc.changed) return match;
 
-    changed = true;
-    return `${prefix}${quote}${renamedSrc.src}${quote}`;
-  });
+      changed = true;
+      return `${prefix}${quote}${renamedSrc.src}${quote}`;
+    },
+  );
 
   return { content: rewritten, changed };
 }
@@ -2214,7 +2394,7 @@ function findXmlRootElementStart(content) {
 
 function protectWhitespaceOnlyTextNodes(content) {
   const preserved = [];
-  const tokenPrefix = "__CROSSINKY_PRESERVE_WS_";
+  const tokenPrefix = "__CROSSSMUDGE_PRESERVE_WS_";
   const rootStart = findXmlRootElementStart(content);
   const protectedContent = content.replace(/>([\s\u00a0]+)</g, (match, whitespace, offset) => {
     if (offset < rootStart) return match;
@@ -2380,6 +2560,371 @@ function countReferenceCharacters(text) {
   return Array.from(text.replace(/\s+/g, " ").trim()).length;
 }
 
+function utf8ByteLength(text) {
+  return new TextEncoder().encode(text).length;
+}
+
+function isSafeSectionSplitElement(node) {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE) return true;
+  return [
+    "p",
+    "div",
+    "section",
+    "article",
+    "aside",
+    "blockquote",
+    "ul",
+    "ol",
+    "li",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "hr",
+  ].includes(localName(node));
+}
+
+function isHeadingElement(node) {
+  return node && node.nodeType === Node.ELEMENT_NODE && /^h[1-6]$/i.test(localName(node));
+}
+
+function isIgnorableSectionSplitNode(node) {
+  return node?.nodeType === Node.TEXT_NODE && !(node.textContent || "").trim();
+}
+
+function chunkHasReaderContent(nodes) {
+  const visit = (node, hidden) => {
+    if (node.nodeType === Node.TEXT_NODE) return !hidden && !!(node.textContent || "").trim();
+    if (node.nodeType !== Node.ELEMENT_NODE) return false;
+    const name = localName(node);
+    const nextHidden =
+      hidden || node.hasAttribute("data-AmznRemoved-M8") || ["script", "style", "svg", "metadata"].includes(name);
+    if (nextHidden) return false;
+    if (name === "img") return true;
+    return Array.from(node.childNodes).some((child) => visit(child, nextHidden));
+  };
+  return nodes.some((node) => visit(node, false));
+}
+
+function shouldKeepSectionSplitCluster(node) {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+  const name = localName(node);
+  return ["table", "figure", "svg"].includes(name) || !!node.querySelector?.("table,figure,svg");
+}
+
+function isAtomicSectionSplitContainer(node) {
+  return node?.nodeType === Node.ELEMENT_NODE && ["table", "figure", "svg"].includes(localName(node));
+}
+
+function findSectionSplitContainer(body) {
+  let container = body;
+  const childPath = [];
+  while (true) {
+    const children = Array.from(container.childNodes);
+    const elementChildren = children
+      .map((child, index) => ({ child, index }))
+      .filter(({ child }) => child.nodeType === Node.ELEMENT_NODE);
+    if (elementChildren.length >= 2) return { container, childPath };
+    if (elementChildren.length !== 1 || isAtomicSectionSplitContainer(elementChildren[0].child)) return null;
+    childPath.push(elementChildren[0].index);
+    container = elementChildren[0].child;
+  }
+}
+
+function makeSectionSplitPath(path, partIndex) {
+  if (partIndex === 0) return path;
+  const dot = path.lastIndexOf(".");
+  const suffix = `__ci_section_${String(partIndex + 1).padStart(3, "0")}`;
+  return dot > 0 ? `${path.substring(0, dot)}${suffix}${path.substring(dot)}` : `${path}${suffix}.xhtml`;
+}
+
+function splitBaseHref(href) {
+  return href.replace(SECTION_SPLIT_SUFFIX_RE, "");
+}
+
+function readerSectionIdentity(content) {
+  const doc = new DOMParser().parseFromString(content, "application/xhtml+xml");
+  if (doc.querySelector("parsererror") || !doc.body) return null;
+  const id = doc.body.getAttribute("id") || "";
+  const title = doc.querySelector("title")?.textContent?.trim() || "";
+  return id && title ? `${id}\u0000${title}` : null;
+}
+
+function hasReaderContent(content) {
+  const doc = new DOMParser().parseFromString(content, "application/xhtml+xml");
+  if (doc.querySelector("parsererror") || !doc.body) return true;
+  const body = doc.body.cloneNode(true);
+  body.querySelectorAll("script,style,svg,metadata,[data-AmznRemoved-M8]").forEach((node) => node.remove());
+  return !!(body.textContent || "").trim() || !!body.querySelector("img");
+}
+
+function collapseReaderEmptySpineItems(xhtmlFiles, opfContent, opfPath) {
+  const doc = new DOMParser().parseFromString(opfContent, "application/xml");
+  const redirects = new Map();
+  if (doc.querySelector("parsererror")) return { opfContent, redirects };
+  const manifestById = new Map(
+    Array.from(doc.getElementsByTagNameNS("*", "item")).map((item) => [item.getAttribute("id"), item]),
+  );
+  const spine = doc.getElementsByTagNameNS("*", "spine")[0];
+  if (!spine) return { opfContent, redirects };
+  const refs = Array.from(spine.getElementsByTagNameNS("*", "itemref"));
+  for (let index = 0; index + 1 < refs.length; index++) {
+    const item = manifestById.get(refs[index].getAttribute("idref"));
+    const nextItem = manifestById.get(refs[index + 1].getAttribute("idref"));
+    const href = item?.getAttribute("href");
+    const nextHref = nextItem?.getAttribute("href");
+    if (!href || !nextHref) continue;
+    const path = resolvePath(opfPath, decodeHref(href.split("#")[0]));
+    const nextPath = resolvePath(opfPath, decodeHref(nextHref.split("#")[0]));
+    const content = xhtmlFiles[path];
+    const nextContent = xhtmlFiles[nextPath];
+    if (!content || !nextContent || hasReaderContent(content) || !hasReaderContent(nextContent)) continue;
+    const identity = readerSectionIdentity(content);
+    if (!identity || identity !== readerSectionIdentity(nextContent)) continue;
+    redirects.set(path, nextPath);
+    spine.removeChild(refs[index]);
+  }
+  return { opfContent: safeSerialize(doc, opfContent), redirects };
+}
+
+function rewriteCollapsedSpineReferences(content, sourcePath, redirects) {
+  if (redirects.size === 0) return content;
+  const doc = new DOMParser().parseFromString(content, "application/xml");
+  if (doc.querySelector("parsererror")) return content;
+  let changed = false;
+  for (const element of Array.from(doc.getElementsByTagName("*"))) {
+    for (const attribute of ["href", "src", "xlink:href"]) {
+      const value = element.getAttribute(attribute);
+      if (!value || value.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(value)) continue;
+      const [href, fragment = ""] = value.split(/#(.*)/s, 2);
+      const target = redirects.get(resolvePath(sourcePath, decodeHref(href)));
+      if (!target) continue;
+      element.setAttribute(attribute, `${relativeZipPath(sourcePath, target)}${fragment ? `#${fragment}` : ""}`);
+      changed = true;
+    }
+  }
+  return changed ? safeSerialize(doc, content) : content;
+}
+
+function rewriteSplitSectionReferences(content, sourcePath, anchorTargets) {
+  if (anchorTargets.size === 0) return content;
+  const doc = new DOMParser().parseFromString(content, "application/xml");
+  if (doc.querySelector("parsererror")) return content;
+  let changed = false;
+  for (const element of Array.from(doc.getElementsByTagName("*"))) {
+    for (const attribute of ["href", "xlink:href"]) {
+      const value = element.getAttribute(attribute);
+      if (!value || /^[a-z][a-z0-9+.-]*:/i.test(value)) continue;
+      const [href, fragment = ""] = value.split(/#(.*)/s, 2);
+      if (!fragment) continue;
+      const targetPath = href ? resolvePath(sourcePath, decodeHref(href)) : sourcePath;
+      const partPath = anchorTargets.get(targetPath)?.get(decodeHref(fragment));
+      if (!partPath) continue;
+      element.setAttribute(attribute, `${relativeZipPath(sourcePath, partPath)}#${fragment}`);
+      changed = true;
+    }
+  }
+  return changed ? safeSerialize(doc, content) : content;
+}
+
+function splitLongXhtmlSections(xhtmlFiles, opfContent, opfPath, enabled) {
+  if (!enabled) return { files: xhtmlFiles, splitSections: {}, anchorTargets: new Map(), sourceSpineMap: null };
+
+  const parser = new DOMParser();
+  const serializer = new XMLSerializer();
+  const out = {};
+  const splitSections = {};
+  const anchorTargets = new Map();
+  const originalSpineHrefs = parseOpfSpineHrefs(opfContent, opfPath);
+  const spinePaths = new Set(originalSpineHrefs);
+  const sourceByHref = {};
+  originalSpineHrefs.forEach((href, sourceSpineIndex) => {
+    sourceByHref[href] = { sourceSpineIndex };
+  });
+
+  for (const [path, content] of Object.entries(xhtmlFiles)) {
+    if (!spinePaths.has(path)) {
+      out[path] = content;
+      continue;
+    }
+    const totalWords = countLocationWords(extractLocationText(content));
+    const totalBytes = utf8ByteLength(content);
+    if (totalWords <= SECTION_SPLIT_WORD_THRESHOLD && totalBytes <= SECTION_SPLIT_BYTE_THRESHOLD) {
+      out[path] = content;
+      continue;
+    }
+
+    const doc = parser.parseFromString(content, "application/xhtml+xml");
+    if (doc.querySelector("parsererror") || !doc.body) {
+      out[path] = content;
+      continue;
+    }
+    const splitContainer = findSectionSplitContainer(doc.body);
+    if (!splitContainer) {
+      out[path] = content;
+      continue;
+    }
+    const splitChildren = Array.from(splitContainer.container.childNodes);
+    const fixedBytes = Math.max(
+      0,
+      totalBytes - splitChildren.reduce((sum, child) => sum + utf8ByteLength(serializer.serializeToString(child)), 0),
+    );
+
+    const chunks = [];
+    let current = [];
+    let currentWords = 0;
+    let currentBytes = fixedBytes;
+    const flush = () => {
+      if (current.length === 0) return;
+      chunks.push(current);
+      current = [];
+      currentWords = 0;
+      currentBytes = fixedBytes;
+    };
+
+    for (const child of splitChildren) {
+      const childWords = countLocationWords(child.textContent || "");
+      const childBytes = utf8ByteLength(serializer.serializeToString(child));
+      const lastContentNode = [...current].reverse().find((node) => !isIgnorableSectionSplitNode(node));
+      const wouldExceed =
+        !!lastContentNode &&
+        (currentWords + childWords > SECTION_SPLIT_WORD_THRESHOLD ||
+          currentBytes + childBytes > SECTION_SPLIT_BYTE_THRESHOLD);
+      const canBreakBefore =
+        !!lastContentNode &&
+        isSafeSectionSplitElement(child) &&
+        !shouldKeepSectionSplitCluster(child) &&
+        !isHeadingElement(lastContentNode);
+      if (wouldExceed && canBreakBefore) flush();
+
+      current.push(child);
+      currentWords += childWords;
+      currentBytes += childBytes;
+
+      const canBreakAfter =
+        !isIgnorableSectionSplitNode(child) &&
+        isSafeSectionSplitElement(child) &&
+        !shouldKeepSectionSplitCluster(child) &&
+        !isHeadingElement(child);
+      if (currentBytes >= SECTION_SPLIT_HARD_BYTE_LIMIT && canBreakAfter) flush();
+    }
+    flush();
+    const mergedChunks = [];
+    let pending = [];
+    for (const chunk of chunks) {
+      if (chunkHasReaderContent(chunk)) {
+        mergedChunks.push([...pending, ...chunk]);
+        pending = [];
+      } else {
+        pending.push(...chunk);
+      }
+    }
+    if (pending.length && mergedChunks.length) mergedChunks[mergedChunks.length - 1].push(...pending);
+    chunks.splice(0, chunks.length, ...mergedChunks);
+
+    if (chunks.length < 2) {
+      out[path] = content;
+      continue;
+    }
+
+    splitSections[path] = [];
+    const sectionAnchors = new Map();
+    anchorTargets.set(path, sectionAnchors);
+    const tagOffsets = new Map();
+    chunks.forEach((chunk, partIndex) => {
+      const partPath = makeSectionSplitPath(path, partIndex);
+      const partDoc = doc.cloneNode(true);
+      let partContainer = partDoc.body;
+      for (const childIndex of splitContainer.childPath) partContainer = partContainer.childNodes[childIndex];
+      while (partContainer.firstChild) partContainer.removeChild(partContainer.firstChild);
+      for (const node of chunk) partContainer.appendChild(partDoc.importNode(node, true));
+      for (const element of Array.from(partDoc.getElementsByTagName("*"))) {
+        const anchor = element.getAttribute("id") || (localName(element) === "a" ? element.getAttribute("name") : null);
+        if (anchor && !sectionAnchors.has(anchor)) sectionAnchors.set(anchor, partPath);
+      }
+      out[partPath] = safeSerialize(partDoc, content);
+      splitSections[path].push(partPath);
+      const rangesByName = new Map();
+      for (const node of chunk) {
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        const name = localName(node);
+        const range = rangesByName.get(name) || { name, offset: tagOffsets.get(name) || 0, count: 0 };
+        range.count++;
+        rangesByName.set(name, range);
+        tagOffsets.set(name, (tagOffsets.get(name) || 0) + 1);
+      }
+      sourceByHref[partPath] = {
+        sourceSpineIndex: originalSpineHrefs.indexOf(path),
+        containerDepth: splitContainer.childPath.length,
+        childRanges: Array.from(rangesByName.values()),
+      };
+    });
+  }
+
+  const hasSplits = Object.keys(splitSections).length > 0;
+  return {
+    files: out,
+    splitSections,
+    anchorTargets,
+    sourceSpineMap: hasSplits ? { version: 1, spineCount: originalSpineHrefs.length, sourceByHref } : null,
+  };
+}
+
+function addSplitSectionsToOpf(opfContent, opfPath, splitSections) {
+  if (Object.keys(splitSections).length === 0) return opfContent;
+
+  const doc = new DOMParser().parseFromString(opfContent, "application/xml");
+  if (doc.querySelector("parsererror")) return opfContent;
+  const manifest = doc.getElementsByTagNameNS("*", "manifest")[0];
+  const spine = doc.getElementsByTagNameNS("*", "spine")[0];
+  if (!manifest || !spine) return opfContent;
+
+  const byPath = new Map();
+  const items = Array.from(doc.getElementsByTagNameNS("*", "item"));
+  for (const item of items) {
+    const id = item.getAttribute("id");
+    const href = item.getAttribute("href");
+    if (id && href) byPath.set(resolvePath(opfPath, decodeHref(href.split("#")[0])), { id, item });
+  }
+  const usedIds = new Set(items.map((item) => item.getAttribute("id") || ""));
+
+  for (const [originalPath, parts] of Object.entries(splitSections)) {
+    const original = byPath.get(originalPath);
+    if (!original || parts.length < 2) continue;
+
+    const addedIds = [];
+    for (let index = 1; index < parts.length; index++) {
+      let id = `${original.id}-ci-${index + 1}`;
+      while (usedIds.has(id)) id += "x";
+      usedIds.add(id);
+
+      const item = doc.createElementNS(manifest.namespaceURI || OPF_NS, "item");
+      item.setAttribute("id", id);
+      item.setAttribute("href", relativeZipPath(opfPath, parts[index]));
+      item.setAttribute("media-type", "application/xhtml+xml");
+      manifest.appendChild(item);
+      addedIds.push(id);
+    }
+
+    const itemref = Array.from(doc.getElementsByTagNameNS("*", "itemref")).find(
+      (ref) => ref.getAttribute("idref") === original.id,
+    );
+    if (!itemref) continue;
+    let insertAfter = itemref;
+    for (const id of addedIds) {
+      const ref = doc.createElementNS(spine.namespaceURI || OPF_NS, "itemref");
+      ref.setAttribute("idref", id);
+      if (insertAfter.nextSibling) spine.insertBefore(ref, insertAfter.nextSibling);
+      else spine.appendChild(ref);
+      insertAfter = ref;
+    }
+  }
+
+  return safeSerialize(doc, opfContent);
+}
+
 function resolveXhtmlContentForLocation(path, xhtmlFiles) {
   if (xhtmlFiles[path]) return xhtmlFiles[path];
   const decoded = decodeHref(path);
@@ -2396,12 +2941,25 @@ function normalizedReferenceCharactersPerPage(value) {
   return Number.isFinite(parsed) ? Math.max(1, Math.min(10000, parsed)) : X_DEFAULT_REFERENCE_CHARACTERS_PER_PAGE;
 }
 
-function buildXLocationManifest(opfContent, opfPath, xhtmlFiles, charactersPerReferencePage = X_DEFAULT_REFERENCE_CHARACTERS_PER_PAGE) {
+function buildXLocationManifest(
+  opfContent,
+  opfPath,
+  xhtmlFiles,
+  charactersPerReferencePage = X_DEFAULT_REFERENCE_CHARACTERS_PER_PAGE,
+  sourceSpineMap = null,
+) {
   charactersPerReferencePage = normalizedReferenceCharactersPerPage(charactersPerReferencePage);
   const spineHrefs = parseOpfSpineHrefs(opfContent, opfPath);
   if (spineHrefs.length === 0) return null;
 
   const spine = [];
+  const splitBases = new Set(spineHrefs.map(splitBaseHref).filter((base, index) => base !== spineHrefs[index]));
+  const groupByBase = new Map(
+    Array.from(splitBases)
+      .sort()
+      .map((base, index) => [base, index]),
+  );
+  const chapterGroups = new Map();
   let totalWords = 0;
   let totalCharacters = 0;
   let nextLocation = 1;
@@ -2419,7 +2977,7 @@ function buildXLocationManifest(opfContent, opfPath, xhtmlFiles, charactersPerRe
     const endReferencePage =
       characterCount > 0 ? Math.ceil((totalCharacters + characterCount) / charactersPerReferencePage) : 0;
 
-    spine.push({
+    const spineEntry = {
       index,
       href,
       wordStart: totalWords,
@@ -2430,14 +2988,47 @@ function buildXLocationManifest(opfContent, opfPath, xhtmlFiles, charactersPerRe
       endLocation,
       startReferencePage,
       endReferencePage,
-    });
+    };
+    const baseHref = splitBaseHref(href);
+    const chapterGroup = groupByBase.get(baseHref);
+    if (chapterGroup !== undefined) {
+      spineEntry.chapterGroup = chapterGroup;
+      const group = chapterGroups.get(chapterGroup) || {
+        index: chapterGroup,
+        title: basename(baseHref).replace(/\.[^.]+$/, ""),
+        firstSpineIndex: index,
+        lastSpineIndex: index,
+        startLocation,
+        endLocation,
+        wordStart: totalWords,
+        wordCount: 0,
+        characterStart: totalCharacters,
+        characterCount: 0,
+        referencePageStart: startReferencePage,
+        referencePageEnd: endReferencePage,
+      };
+      group.firstSpineIndex = Math.min(group.firstSpineIndex, index);
+      group.lastSpineIndex = Math.max(group.lastSpineIndex, index);
+      if (startLocation > 0 && (group.startLocation === 0 || startLocation < group.startLocation)) {
+        group.startLocation = startLocation;
+      }
+      group.endLocation = Math.max(group.endLocation, endLocation);
+      group.wordCount += wordCount;
+      group.characterCount += characterCount;
+      if (startReferencePage > 0 && (group.referencePageStart === 0 || startReferencePage < group.referencePageStart)) {
+        group.referencePageStart = startReferencePage;
+      }
+      group.referencePageEnd = Math.max(group.referencePageEnd, endReferencePage);
+      chapterGroups.set(chapterGroup, group);
+    }
+    spine.push(spineEntry);
 
     totalWords += wordCount;
     totalCharacters += characterCount;
     nextLocation += locationCount;
   }
 
-  return {
+  const manifest = {
     format: "x-locations",
     version: 1,
     generator: "crosssmudge-web-uploader",
@@ -2451,6 +3042,20 @@ function buildXLocationManifest(opfContent, opfPath, xhtmlFiles, charactersPerRe
     totalReferencePages: Math.ceil(totalCharacters / charactersPerReferencePage),
     spine,
   };
+  if (chapterGroups.size > 0) {
+    manifest.chapterGroups = Array.from(chapterGroups.values()).sort((a, b) => a.index - b.index);
+  }
+  if (sourceSpineMap) {
+    const mappedSpine = spineHrefs.map((href, index) => ({ index, ...sourceSpineMap.sourceByHref[href] }));
+    if (mappedSpine.every((entry) => Number.isInteger(entry.sourceSpineIndex))) {
+      manifest.sourceSpineMap = {
+        version: sourceSpineMap.version,
+        spineCount: sourceSpineMap.spineCount,
+        spine: mappedSpine,
+      };
+    }
+  }
+  return manifest;
 }
 
 /**
@@ -3653,6 +4258,36 @@ async function convertEpubFile(file, progressCallback) {
     processedXhtmlFiles[xhtmlPath] = t;
   }
 
+  const collapseResult = collapseReaderEmptySpineItems(processedXhtmlFiles, opfContent, opfPath);
+  opfContent = collapseResult.opfContent;
+  for (const [xhtmlPath, content] of Object.entries(processedXhtmlFiles)) {
+    processedXhtmlFiles[xhtmlPath] = rewriteCollapsedSpineReferences(content, xhtmlPath, collapseResult.redirects);
+  }
+  if (collapseResult.redirects.size > 0) {
+    logFix("EPUB sections", `Collapsed ${collapseResult.redirects.size} empty chapter stubs`);
+  }
+
+  const splitLongSections = !!document.getElementById("splitLongSectionsToggle")?.checked;
+  const sectionSplitResult = splitLongXhtmlSections(processedXhtmlFiles, opfContent, opfPath, splitLongSections);
+  processedXhtmlFiles = sectionSplitResult.files;
+  for (const [xhtmlPath, content] of Object.entries(processedXhtmlFiles)) {
+    processedXhtmlFiles[xhtmlPath] = rewriteSplitSectionReferences(
+      content,
+      xhtmlPath,
+      sectionSplitResult.anchorTargets,
+    );
+  }
+  if (Object.keys(sectionSplitResult.splitSections).length > 0) {
+    const splitPartCount = Object.values(sectionSplitResult.splitSections).reduce(
+      (sum, parts) => sum + parts.length,
+      0,
+    );
+    logFix(
+      "EPUB sections",
+      `${splitPartCount} parts from ${Object.keys(sectionSplitResult.splitSections).length} long sections`,
+    );
+  }
+
   // Extract main identifier from OPF using DOMParser with regex fallback
   if (opfContent) {
     mainIdentifier = extractIdentifier(opfContent);
@@ -3662,7 +4297,12 @@ async function convertEpubFile(file, progressCallback) {
     if (fileObj.dir || path === "mimetype") continue;
     const low = path.toLowerCase();
     if (low.endsWith(".ncx") || low.match(/\.(xml|svg)$/)) {
-      extraTextFiles[path] = scrubEpubTextResource(path, await safeReadText(fileObj));
+      const content = rewriteCollapsedSpineReferences(
+        scrubEpubTextResource(path, await safeReadText(fileObj)),
+        path,
+        collapseResult.redirects,
+      );
+      extraTextFiles[path] = rewriteSplitSectionReferences(content, path, sectionSplitResult.anchorTargets);
     }
   }
 
@@ -3674,13 +4314,21 @@ async function convertEpubFile(file, progressCallback) {
     }
     const opfDir = opfPath.includes("/") ? opfPath.substring(0, opfPath.lastIndexOf("/")) : "";
     t = fixOPF(t, opfContent, opfDir, splitImages);
+    t = addSplitSectionsToOpf(t, opfPath, sectionSplitResult.splitSections);
+    t = rewriteSplitSectionReferences(t, opfPath, sectionSplitResult.anchorTargets);
     if (t !== opfContent) logFix("OPF", "manifest updated");
     out.file(opfPath, t, DEFLATE_OPTS);
 
     const referenceCharactersInput = document.getElementById("referenceCharactersInput");
     const referenceCharactersPerPage = normalizedReferenceCharactersPerPage(referenceCharactersInput?.value);
     if (referenceCharactersInput) referenceCharactersInput.value = referenceCharactersPerPage;
-    const locationManifest = buildXLocationManifest(t, opfPath, processedXhtmlFiles, referenceCharactersPerPage);
+    const locationManifest = buildXLocationManifest(
+      t,
+      opfPath,
+      processedXhtmlFiles,
+      referenceCharactersPerPage,
+      sectionSplitResult.sourceSpineMap,
+    );
     if (locationManifest) {
       out.file(X_LOCATION_MANIFEST_PATH, JSON.stringify(locationManifest), DEFLATE_OPTS);
       logFix(
@@ -3906,7 +4554,7 @@ function uploadFileHTTP(file, onProgress, onComplete, onError) {
   });
 }
 
-function uploadFile() {
+async function uploadFile() {
   if (isUploadInProgress) return;
 
   const fileInput = document.getElementById("fileInput");
@@ -3918,8 +4566,17 @@ function uploadFile() {
     return;
   }
 
-  // Prevent modal close during upload
   isUploadInProgress = true;
+  let usedFileNames;
+  try {
+    usedFileNames = await fetchExistingUploadNames();
+  } catch (error) {
+    isUploadInProgress = false;
+    alert(`Failed to check existing files: ${error.message}`);
+    return;
+  }
+
+  // Prevent modal close during upload
   uploadGeneration++;
   const myGeneration = uploadGeneration;
   document.getElementById("uploadModalClose").classList.add("disabled");
@@ -4009,6 +4666,23 @@ function uploadFile() {
     let conversionFailed = false; // Track if conversion actually failed
     let convOriginalSize = 0; // Picked-file size; 0 unless conversion succeeded
     let convNewSize = 0; // Generated blob size; 0 unless conversion succeeded
+
+    if (isEpub && document.getElementById("renameFromMetadataToggle").checked) {
+      const originalName = file.name;
+      progressText.style.color = "";
+      progressText.textContent = `Reading metadata for ${file.name} (${currentIndex + 1}/${files.length})...`;
+      file = await maybeRenameEbookFile(file);
+      if (file.name !== originalName) console.log(`[Upload] Renamed from metadata: ${originalName} -> ${file.name}`);
+    }
+
+    const availableName = reserveAvailableUploadFilename(file.name, usedFileNames);
+    if (availableName !== file.name) {
+      console.log(`[Upload] Renamed to avoid collision: ${file.name} -> ${availableName}`);
+      file = new File([file], availableName, {
+        type: file.type,
+        lastModified: file.lastModified,
+      });
+    }
 
     const methodText = useWebSocket ? " [WS]" : " [HTTP]";
     const stageText = needsConversion ? "Converting & uploading" : "Uploading";

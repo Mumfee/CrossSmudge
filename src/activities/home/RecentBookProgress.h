@@ -2,6 +2,7 @@
 
 #include <string>
 
+class Epub;
 struct RecentBook;
 
 // Helpers for loading and displaying recent-book reading progress.
@@ -14,6 +15,13 @@ namespace RecentBookProgress {
 // Loads the saved reading percentage for a recent EPUB, XTC, TXT, or Markdown book.
 // Returns -1.0f when progress is unavailable or the cache cannot be read.
 float loadPercent(const RecentBook& book);
+// Loads the cached EPUB reading percentage without opening the EPUB.
+// Returns -1.0f when progress is unavailable or the cache cannot be read.
+float loadCachedEpubPercent(const RecentBook& book);
+// Saves a cached EPUB reading percentage for fast Home screen rendering.
+void saveCachedEpubPercent(const std::string& cachePath, float progress);
+// Calculates and saves cached EPUB progress from a reader position.
+void saveCachedEpubPercent(const Epub& epub, int spineIndex, int currentPage, int pageCount);
 // Returns true when progress contains a known 0-100 percentage.
 bool hasPercent(float progress);
 // Formats progress as a rounded percentage string such as "42%".

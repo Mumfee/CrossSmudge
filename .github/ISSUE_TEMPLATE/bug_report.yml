@@ -14,9 +14,10 @@ body:
       label: Device
       description: Which device is this affecting?
       options:
+        - "--- Select ---"
         - X4
         - X3
-        - Both
+        - Seeed Sticky
     validations:
       required: true
 
@@ -35,6 +36,7 @@ body:
       label: EPUB Optimization
       description: Is your EPUB optimized?
       options:
+        - "--- Select ---"
         - No / Not Applicable
         - Yes, using the built-in web transfer EPUB optimizer
         - Yes, using a different EPUB optimizer
@@ -48,6 +50,7 @@ body:
       label: Cache State
       description: Have you attempted to clear any cached data?
       options:
+        - "--- Select ---"
         - No / Not Applicable
         - Yes, book cache (Reader menu > Delete Book Cache)
         - Yes, reading cache (Settings > System > Clear Reading Cache)
@@ -61,7 +64,6 @@ body:
     attributes:
       label: Describe the Bug
       description: A clear and concise description of what the bug is.
-      placeholder:
     validations:
       required: true
 
@@ -82,6 +84,19 @@ body:
     attributes:
       label: Expected Behavior
       description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: epub-attachment
+    attributes:
+      label: File Provided
+      description: If your issue is related to a specific file (EPUB, XTC, etc.), please make sure to attach the exact file in this ticket or email it to julia@uxj.io and reference your issue number. **_EPUBs and XTC files need to be zipped to be attached._**
+      options:
+        - "--- Select ---"
+        - Not Applicable
+        - I've attached it
+        - I've emailed it
     validations:
       required: true
 

@@ -1,14 +1,16 @@
 #pragma once
+#include <ArduinoJson.h>
+#include <PersistableStore.h>
+
 #include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <string>
 
-class CrossPointState {
+class CrossPointState : public PersistableStore<CrossPointState> {
   mutable std::mutex _mutex;
-
-  // Static instance
-  static CrossPointState instance;
+  CrossPointState() = default;
+  friend class PersistableStore<CrossPointState>;
 
  public:
   // Access the state mutex for protecting multi-field reads/writes from other cores.
@@ -34,12 +36,12 @@ class CrossPointState {
   void clearRecentSleepHistory();
   ~CrossPointState() = default;
 
-  // Get singleton instance
-  static CrossPointState& getInstance() { return instance; }
-
   bool saveToFile() const;
 
   bool loadFromFile();
+  static const char* getFilePath() { return "/.crosspoint/state.json"; }
+  void toJson(JsonDocument& doc) const;
+  bool fromJson(JsonVariantConst doc);
   uint16_t pendingBookmarkSpine = UINT16_MAX;
   float pendingBookmarkProgress = -1.0f;
   uint16_t pendingBookmarkParagraphIndex = UINT16_MAX;

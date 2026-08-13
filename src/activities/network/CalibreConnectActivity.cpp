@@ -60,7 +60,11 @@ void CalibreConnectActivity::onExit() {
   if (WiFi.getMode() != WIFI_MODE_NULL) {
     WiFi.disconnect(false);
     delay(30);
-    silentRestart();
+    if (returnToReader) {
+      silentRestartToReader();
+    } else {
+      silentRestart();
+    }
   }
 }
 
@@ -231,5 +235,5 @@ void CalibreConnectActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(tr(STR_EXIT), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
-  renderer.displayBuffer();
+  renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }

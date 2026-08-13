@@ -1,7 +1,10 @@
 #pragma once
 
+#include <FreeInkApp.h>
+#include <FreeInkUIGfxRenderer.h>
 #include <SdCardFontRegistry.h>
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -22,6 +25,7 @@ class FontSelectionActivity final : public Activity {
 
  private:
   void handleSelection();
+  void activateSelected();
   int getFontIdForPreview(int index) const;
   void renderPreviewPane(int top, int height, int fontId, const char* fontName) const;
 
@@ -44,4 +48,15 @@ class FontSelectionActivity final : public Activity {
   int bottomReserved = 0;
   int usableHeight = 0;
   int previewHeight = 0;
+  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  freeink::ui::GfxRendererTarget uiTarget_;
+  UiApp app_;
+  std::atomic<bool> uiReady_{false};
+  int visibleRows_ = 1;
+  int topIndex_ = 0;
+  bool initialViewportPending_ = true;
+
+  static void listScreen(UiApp::ScreenType& screen, void* user);
+  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  void buildListScreen(UiApp::ScreenType& screen);
 };

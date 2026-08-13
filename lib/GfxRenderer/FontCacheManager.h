@@ -11,12 +11,15 @@ class SdCardFont;
 
 class FontCacheManager {
  public:
+  enum class PreparationPolicy : uint8_t { Normal, DictionaryLean };
+
   FontCacheManager(const std::map<int, EpdFontFamily>& fontMap, const std::map<int, SdCardFont*>& sdCardFonts);
 
   void setFontDecompressor(FontDecompressor* d);
 
   void clearCache();
-  bool prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F);
+  bool prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F,
+                    PreparationPolicy policy = PreparationPolicy::Normal);
   void logStats(const char* label = "render");
   void resetStats();
 
@@ -30,7 +33,7 @@ class FontCacheManager {
   // RAII scope for two-pass prewarm pattern
   class PrewarmScope {
    public:
-    explicit PrewarmScope(FontCacheManager& manager);
+    explicit PrewarmScope(FontCacheManager& manager, PreparationPolicy policy);
     ~PrewarmScope();
     bool endScanAndPrewarm();
     PrewarmScope(PrewarmScope&& other) noexcept;
@@ -40,9 +43,10 @@ class FontCacheManager {
 
    private:
     FontCacheManager* manager_;
+    PreparationPolicy policy_;
     bool active_ = true;
   };
-  PrewarmScope createPrewarmScope();
+  PrewarmScope createPrewarmScope(PreparationPolicy policy = PreparationPolicy::Normal);
 
  private:
   const std::map<int, EpdFontFamily>& fontMap_;

@@ -39,6 +39,20 @@ class HalDisplay {
                             bool fromProgmem = false) const;
 
   void displayBuffer(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
+  // Non-blocking refresh (shadow-free): starts the panel waveform and returns
+  // while the panel refreshes on its own. The framebuffer must stay untouched
+  // until waitRefreshComplete(), and the caller must rebuild the differential
+  // baseline before the next differential update (the tiled grayscale cleanup
+  // does). Panels without deferral fall back to a blocking refresh.
+  void displayBufferAsync(RefreshMode mode = RefreshMode::FAST_REFRESH);
+  // Block until a pending deferred refresh completes (no-op when none is).
+  void waitRefreshComplete();
+  // True when displayBufferAsync() genuinely overlaps (panel driver defers);
+  // false where it falls back to a blocking refresh.
+  bool supportsAsyncRefresh() const;
+  // True when the normal async refresh is equivalent to the panel's grayscale
+  // base pass. X3 has a dedicated grayscale waveform and must stay blocking.
+  bool supportsAsyncGrayscaleBase() const;
   void refreshDisplay(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
 
   // Power management
@@ -46,6 +60,14 @@ class HalDisplay {
 
   // Access to frame buffer
   uint8_t* getFrameBuffer() const;
+
+  // Lend the framebuffer's ~48 KB STORAGE to a memory-hungry phase (chapter
+  // builds) without freeing it: the allocation never moves, so repeated loans
+  // cannot fragment the heap (free+realloc measurably did). No display calls
+  // between lend and return; the panel keeps its last refreshed image. The
+  // buffer comes back white — redraw fully. Returns nullptr if already lent.
+  uint8_t* lendFrameBufferStorage(uint32_t* sizeOut);
+  void returnFrameBufferStorage();
 
   // X3 grayscale preconditioning (OEM "AA-pre-BW(mid)" settle pass), windowed
   // to the gray region in physical panel coordinates (no-arg = full frame).
@@ -57,7 +79,9 @@ class HalDisplay {
   // Display the framebuffer as the base frame for a grayscale overlay that
   // follows. X3 uses the OEM differential base waveform ("AA-pre-BW(mid)");
   // other panels display normally with `fallback` mode (previous behavior).
-  // Deliberately does NOT force the X3 resync that displayBuffer(HALF) does.
+  // Forces the same X3 resync that displayBuffer(HALF)/displayBuffer(FULL) do
+  // whenever `fallback` isn't FAST_REFRESH, so a HALF/FULL caller gets a clean
+  // base instead of ghosting through the differential waveform.
   void displayGrayscaleBase(RefreshMode fallback = HALF_REFRESH, bool turnOffScreen = false);
 
   void copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* msbBuffer);

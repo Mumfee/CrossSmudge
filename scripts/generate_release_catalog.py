@@ -3,7 +3,7 @@
 Generate public firmware manifests consumed by external apps and OTA.
 
 The catalog follows the simple schema requested by downstream clients and now
-emits one entry per firmware build variant.
+emits one entry per firmware device type.
 """
 
 import argparse
@@ -14,7 +14,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-VARIANT_ORDER = ('tiny', 'xlarge')
+DEVICE_TYPE_ORDER = ('x3-x4', 'sticky')
+DEFAULT_SUPPORTED_DEVICES = {
+    'x3-x4': ['x4', 'x3'],
+    'sticky': ['sticky'],
+}
 FIRMWARE_NAME_PATTERN = re.compile(r'^firmware-(?P<variant>.+?)-v[^/]+\.bin$')
 
 
@@ -42,7 +46,7 @@ def parse_args():
         required=True,
         action='append',
         type=Path,
-        help='Path to a firmware .bin artifact. Pass once per build variant.',
+        help='Path to a firmware .bin artifact. Pass once per firmware device type.',
     )
     parser.add_argument('--output', required=True, type=Path, help='Output catalog path. Use "catalog" for /catalog.')
     parser.add_argument('--repo', required=True, help='GitHub repository in owner/name form.')
@@ -65,52 +69,52 @@ def parse_args():
     return parser.parse_args()
 
 
-def parse_variant(firmware_path):
+def parse_device_type(firmware_path):
     match = FIRMWARE_NAME_PATTERN.match(firmware_path.name)
     if match:
         return match.group('variant')
     return firmware_path.parent.name
 
 
-def sort_key_for_variant(variant):
+def sort_key_for_device_type(device_type):
     try:
-        return (VARIANT_ORDER.index(variant), variant)
+        return (DEVICE_TYPE_ORDER.index(device_type), device_type)
     except ValueError:
-        return (len(VARIANT_ORDER), variant)
+        return (len(DEVICE_TYPE_ORDER), device_type)
 
 
 def main():
     args = parse_args()
     version = normalize_version(args.version)
-    supported_devices = args.supported_devices or ['x4', 'x3']
     notes = args.notes or f'CrossSmudge {version} {args.channel} firmware'
     firmware_base_url = args.firmware_base_url or f'https://github.com/{args.repo}/releases/download/v{version}/'
     firmware_base_url = firmware_base_url.rstrip('/') + '/'
 
     releases = []
-    seen_variants = set()
-    firmware_paths = sorted(args.firmware, key=lambda path: sort_key_for_variant(parse_variant(path)))
+    seen_device_types = set()
+    firmware_paths = sorted(args.firmware, key=lambda path: sort_key_for_device_type(parse_device_type(path)))
 
     for firmware_path in firmware_paths:
         if not firmware_path.is_file():
             raise SystemExit(f'Firmware artifact not found: {firmware_path}')
 
         filename = firmware_path.name
-        variant = parse_variant(firmware_path)
+        device_type = parse_device_type(firmware_path)
+        supported_devices = args.supported_devices or DEFAULT_SUPPORTED_DEVICES.get(device_type, [])
         firmware_url = f'{firmware_base_url}{filename}'
         firmware_sha256 = sha256_file(firmware_path)
         firmware_size = firmware_path.stat().st_size
-        if variant in seen_variants:
-            raise SystemExit(f'Duplicate firmware variant supplied: {variant}')
-        seen_variants.add(variant)
+        if device_type in seen_device_types:
+            raise SystemExit(f'Duplicate firmware device type supplied: {device_type}')
+        seen_device_types.add(device_type)
 
         releases.append(
             {
-                'id': f'{args.channel}-{version}-{variant}',
+                'id': f'{args.channel}-{version}-{device_type}',
                 'channel': args.channel,
                 'name': version,
                 'version': version,
-                'variant': variant,
+                'variant': device_type,
                 'released_at': args.released_at,
                 'notes': notes,
                 'firmware_url': firmware_url,

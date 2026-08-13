@@ -1,6 +1,7 @@
 #pragma once
 
-#include <HardwareSerial.h>
+#include <Arduino.h>
+#include <BoardConfig.h>
 
 #include <string>
 
@@ -19,15 +20,16 @@ special formatting), use the underlying logSerial object directly:
     logSerial.printf("Special case: %d\n", value);
     logSerial.write(binaryData, length);
 
-The logSerial reference (defined below) points to the real Serial object and
-won't trigger deprecation warnings.
+The logSerial reference (defined below) points to the board's physical USB
+serial transport and won't trigger deprecation warnings.
 */
 
 #ifndef LOG_LEVEL
 #define LOG_LEVEL 0
 #endif
 
-static HWCDC& logSerial = Serial;
+static auto& logSerial = BoardConfig::serialTransport();
+#define LOG_SERIAL_HAS_TX_TIMEOUT FREEINK_SERIAL_HAS_TX_TIMEOUT
 
 void logPrintf(const char* level, const char* origin, const char* format, ...);
 

@@ -1,0 +1,34 @@
+# Manifest for src/components/icons/listIcons.h — regenerate with:
+#   python3 <freeink-sdk>/libs/assets/Icons/tools/gen_icons.py \
+#     --manifest src/components/icons/listIcons.manifest \
+#     --svgdir <freeink-sdk>/libs/assets/Icons/lucide/icons \
+#     --sizes 24,32 --out src/components/icons/listIcons.h
+# then clang-format -i the output.
+folder = folder
+file-text = file-text
+image = image
+book-open = book-open
+book = book
+book-marked = book-marked
+file = file
+wifi = wifi
+library = library
+lyra-library = library-big
+radio-tower = radio-tower
+sun = sun
+sun-dim = sun-dim
+history = history
+settings = settings
+lyra-settings = settings-2
+cog = cog
+transfer = arrow-left-right
+lyra-transfer = send-horizontal
+chevrons-left-right-ellipsis = chevrons-left-right-ellipsis
+menu = menu
+home = house
+search = search
+pointer = pointer
+pointer-off = pointer-off
+chevron-up = chevron-up
+chevron-down = chevron-down
+sliders-horizontal = sliders-horizontal

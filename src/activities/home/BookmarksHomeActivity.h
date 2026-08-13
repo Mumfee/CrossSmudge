@@ -1,4 +1,8 @@
 #pragma once
+#include <FreeInkApp.h>
+#include <FreeInkUIGfxRenderer.h>
+
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -8,8 +12,7 @@
 
 class BookmarksHomeActivity final : public Activity {
  public:
-  explicit BookmarksHomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("BookmarksHome", renderer, mappedInput) {}
+  BookmarksHomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
   void onEnter() override;
   void onExit() override;
@@ -21,6 +24,20 @@ class BookmarksHomeActivity final : public Activity {
   int selectedIndex = 0;
   bool longPressOpenHandled = false;
   ButtonNavigator buttonNavigator;
+  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  freeink::ui::GfxRendererTarget uiTarget;
+  UiApp app;
+  std::atomic<bool> uiReady{false};
+  int visibleRows = 1;
+  int topIndex = 0;
+  int listTop = 0;
+  int listBottom = 0;
+  int listRowHeight = 0;
+  int listRowStep = 0;
+
+  static void listScreen(UiApp::ScreenType& screen, void* user);
+  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  void buildListScreen(UiApp::ScreenType& screen);
 
   void reloadBookmarks();
   void openBookmarkList(int bookIndex);

@@ -77,7 +77,7 @@ void TextBlock::bindArenaPointers() {
   xposArr = reinterpret_cast<const int16_t*>(base + wc * 2);
   size_t off = wc * 4;
   if (bionicPresent) {
-    bionicSuffixXArr = reinterpret_cast<const uint16_t*>(base + off);
+    bionicRunOffsetArr = reinterpret_cast<const uint16_t*>(base + off);
     off += wc * 2;
   }
   if (guideDotsPresent) {
@@ -99,22 +99,31 @@ void TextBlock::bindArenaPointers() {
 
 TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<int16_t>& wordXpos,
                      const std::vector<EpdFontFamily::Style>& wordStyles, const std::vector<uint8_t>& bionicBoundary,
-                     const std::vector<uint16_t>& bionicSuffixX, const std::vector<uint16_t>& guideDotXOffset,
-                     const std::vector<uint8_t>& wordFlags, const BlockStyle& blockStyle)
-    : blockStyle(blockStyle) {
+                     const std::vector<uint16_t>& bionicRunOffset, const std::vector<uint16_t>& guideDotXOffset,
+                     const std::vector<uint8_t>& wordFlags, const BlockStyle& blockStyle,
+                     std::vector<std::string> rubyTexts)
+    : blockStyle(blockStyle), rubyTexts(std::move(rubyTexts)) {
+  // A ruby-less line needs no per-word ruby vector. ParsedText passes one for
+  // every extracted line once a book contains any ruby, so free all-empty
+  // vectors before they stay resident with the page.
+  if (!hasRuby()) {
+    this->rubyTexts = std::vector<std::string>{};
+  }
+
   const bool hasBionic = !bionicBoundary.empty();
   const bool hasGuideDots = !guideDotXOffset.empty();
   const bool hasWordFlags = !wordFlags.empty();
   if (words.size() != wordXpos.size() || words.size() != wordStyles.size() || words.size() > MAX_WORDS_PER_TEXT_BLOCK ||
-      (hasBionic && (words.size() != bionicBoundary.size() || words.size() != bionicSuffixX.size())) ||
-      (!hasBionic && !bionicSuffixX.empty()) || (hasGuideDots && words.size() != guideDotXOffset.size()) ||
-      (hasWordFlags && words.size() != wordFlags.size())) {
+      (hasBionic && (words.size() != bionicBoundary.size() || words.size() != bionicRunOffset.size())) ||
+      (!hasBionic && !bionicRunOffset.empty()) || (hasGuideDots && words.size() != guideDotXOffset.size()) ||
+      (hasWordFlags && words.size() != wordFlags.size()) ||
+      (!this->rubyTexts.empty() && words.size() != this->rubyTexts.size())) {
     LOG_ERR("TXB",
-            "Construction failed: size mismatch (words=%u, xpos=%u, styles=%u, boundary=%u, suffixX=%u, "
+            "Construction failed: size mismatch (words=%u, xpos=%u, styles=%u, boundary=%u, runOffset=%u, "
             "dotX=%u, flags=%u)",
             static_cast<uint32_t>(words.size()), static_cast<uint32_t>(wordXpos.size()),
             static_cast<uint32_t>(wordStyles.size()), static_cast<uint32_t>(bionicBoundary.size()),
-            static_cast<uint32_t>(bionicSuffixX.size()), static_cast<uint32_t>(guideDotXOffset.size()),
+            static_cast<uint32_t>(bionicRunOffset.size()), static_cast<uint32_t>(guideDotXOffset.size()),
             static_cast<uint32_t>(wordFlags.size()));
     isValid = false;
     return;
@@ -171,10 +180,10 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
     text[off++] = '\0';
   }
   if (bionicPresent) {
-    auto* suffixX = const_cast<uint16_t*>(bionicSuffixXArr);
+    auto* runOffset = const_cast<uint16_t*>(bionicRunOffsetArr);
     auto* boundary = const_cast<uint8_t*>(bionicBoundaryArr);
     for (uint16_t i = 0; i < numWords; i++) {
-      suffixX[i] = bionicSuffixX[i];
+      runOffset[i] = bionicRunOffset[i];
       boundary[i] = bionicBoundary[i];
     }
   }
@@ -190,6 +199,13 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
       flags[i] = wordFlags[i];
     }
   }
+}
+
+bool TextBlock::hasRuby() const {
+  for (const auto& ruby : rubyTexts) {
+    if (!ruby.empty()) return true;
+  }
+  return false;
 }
 
 void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y,
@@ -217,7 +233,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       }
     }
 
-    int wordY = y;
+    int wordY = y + getRubyShift(ascender);
     if ((currentStyle & EpdFontFamily::SUP) != 0) {
       wordY -= ascender * 2 / 5;
     } else if ((currentStyle & EpdFontFamily::SUB) != 0) {
@@ -231,11 +247,33 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
           std::min<size_t>({static_cast<size_t>(boundary), static_cast<size_t>(wordLen), sizeof(boldBuf) - 1});
       memcpy(boldBuf, word, boldLen);
       boldBuf[boldLen] = '\0';
-      renderer.drawText(fontId, wordX, wordY, boldBuf, foregroundBlack, boldStyle, baseDir);
-      renderer.drawText(fontId, wordX + bionicSuffixX(i), wordY, word + boldLen, foregroundBlack, currentStyle,
-                        baseDir);
+      const int secondRunX = wordX + bionicRunOffset(i);
+      if (baseDir == BidiUtils::BidiBaseDir::RTL) {
+        renderer.drawText(fontId, wordX, wordY, word + boldLen, foregroundBlack, currentStyle, baseDir);
+        renderer.drawText(fontId, secondRunX, wordY, boldBuf, foregroundBlack, boldStyle, baseDir);
+      } else {
+        renderer.drawText(fontId, wordX, wordY, boldBuf, foregroundBlack, boldStyle, baseDir);
+        renderer.drawText(fontId, secondRunX, wordY, word + boldLen, foregroundBlack, currentStyle, baseDir);
+      }
     } else {
       renderer.drawText(fontId, wordX, wordY, word, foregroundBlack, currentStyle, baseDir);
+    }
+
+    if (i < rubyTexts.size() && !rubyTexts[i].empty() && (currentStyle & EpdFontFamily::RUBY_CONTINUE) == 0) {
+      uint16_t groupWords = 1;
+      while (i + groupWords < numWords && (wordStyle(i + groupWords) & EpdFontFamily::RUBY_CONTINUE) != 0) {
+        ++groupWords;
+      }
+      int groupWidth = 0;
+      for (uint16_t j = 0; j < groupWords; ++j) {
+        groupWidth += renderer.getTextAdvanceX(fontId, wordText(i + j), wordStyle(i + j));
+      }
+      const int rubyWidth = renderer.getTextAdvanceX(fontId, rubyTexts[i].c_str(), EpdFontFamily::SUP);
+      // ParsedText reserves any edge overhang in the line layout, so the ruby
+      // can remain centered over its base text without screen-edge clamping.
+      const int rubyX = wordX + (groupWidth - rubyWidth) / 2;
+      renderer.drawText(fontId, rubyX, wordY - ascender, rubyTexts[i].c_str(), foregroundBlack, EpdFontFamily::SUP,
+                        baseDir);
     }
 
     const uint16_t dotOffset = guideDotXOffset(i);
@@ -259,7 +297,19 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         underlineWidth = (underlineWidth + 1) / 2;
       }
 
-      renderer.drawLine(startX, underlineY, startX + underlineWidth, underlineY, 3, foregroundBlack);
+      int underlineEndX = startX + underlineWidth;
+      if (i + 1 < numWords) {
+        const EpdFontFamily::Style nextStyle = wordStyle(i + 1);
+        const bool nextSharesBaseline = (nextStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) ==
+                                        (currentStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB));
+        if ((nextStyle & EpdFontFamily::UNDERLINE) != 0 && nextSharesBaseline) {
+          const int nextStartX = wordXpos(i + 1) + x;
+          underlineEndX = std::max(underlineEndX, nextStartX);
+          startX = std::min(startX, nextStartX);
+        }
+      }
+
+      renderer.drawLine(startX, underlineY, underlineEndX, underlineY, 3, foregroundBlack);
     }
 
     if ((currentStyle & EpdFontFamily::STRIKETHROUGH) != 0) {
@@ -278,7 +328,19 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         strikeWidth = (strikeWidth + 1) / 2;
       }
 
-      renderer.drawLine(startX, strikeY, startX + strikeWidth, strikeY, 3, foregroundBlack);
+      int strikeEndX = startX + strikeWidth;
+      if (i + 1 < numWords) {
+        const EpdFontFamily::Style nextStyle = wordStyle(i + 1);
+        const bool nextSharesBaseline = (nextStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) ==
+                                        (currentStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB));
+        if ((nextStyle & EpdFontFamily::STRIKETHROUGH) != 0 && nextSharesBaseline) {
+          const int nextStartX = wordXpos(i + 1) + x;
+          strikeEndX = std::max(strikeEndX, nextStartX);
+          startX = std::min(startX, nextStartX);
+        }
+      }
+
+      renderer.drawLine(startX, strikeY, strikeEndX, strikeY, 3, foregroundBlack);
     }
   }
 }
@@ -303,6 +365,16 @@ bool TextBlock::serialize(HalFile& file) const {
       LOG_ERR("TXB", "Serialization failed: arena write (%u bytes)", static_cast<uint32_t>(size));
       return false;
     }
+  }
+
+  uint16_t rubyCount = 0;
+  for (uint16_t i = 0; i < numWords && i < rubyTexts.size(); ++i) {
+    if (!rubyTexts[i].empty()) ++rubyCount;
+  }
+  if (!serialization::tryWritePod(file, rubyCount)) return false;
+  for (uint16_t i = 0; i < numWords && i < rubyTexts.size(); ++i) {
+    if (rubyTexts[i].empty()) continue;
+    if (!serialization::tryWritePod(file, i) || !serialization::tryWriteString(file, rubyTexts[i])) return false;
   }
 
   return serialization::tryWritePod(file, blockStyle.alignment) &&
@@ -390,6 +462,22 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
         return nullptr;
       }
     }
+  }
+
+  uint16_t rubyCount = 0;
+  if (!serialization::tryReadPod(file, rubyCount) || rubyCount > wc) {
+    LOG_ERR("TXB", "Deserialization failed: invalid ruby count %u", rubyCount);
+    return nullptr;
+  }
+  if (rubyCount > 0) block->rubyTexts.resize(wc);
+  for (uint16_t i = 0; i < rubyCount; ++i) {
+    uint16_t wordIndex = 0;
+    std::string ruby;
+    if (!serialization::tryReadPod(file, wordIndex) || wordIndex >= wc || !serialization::tryReadString(file, ruby)) {
+      LOG_ERR("TXB", "Deserialization failed: invalid ruby annotation");
+      return nullptr;
+    }
+    block->rubyTexts[wordIndex] = std::move(ruby);
   }
 
   BlockStyle& blockStyle = block->blockStyle;

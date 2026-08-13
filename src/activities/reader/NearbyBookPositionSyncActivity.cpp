@@ -1,5 +1,54 @@
 #include "NearbyBookPositionSyncActivity.h"
 
+#include <GfxRenderer.h>
+#include <I18n.h>
+
+#include <algorithm>
+
+#include "components/TouchHeaderBackButton.h"
+#include "components/UITheme.h"
+#include "fontIds.h"
+
+namespace {
+
+constexpr int TOUCH_ACTION_HEIGHT = 48;
+constexpr int TOUCH_ACTION_GAP = 10;
+
+struct TouchActionLayout {
+  Rect buttons[2];
+  int rowStep;
+  int rowHeight;
+};
+
+TouchActionLayout touchActionLayout(const Rect& screen, const ThemeMetrics& metrics) {
+  const int buttonX = screen.x + metrics.contentSidePadding;
+  const int buttonWidth = std::max(1, screen.width - metrics.contentSidePadding * 2);
+  const int firstButtonY =
+      screen.y + screen.height - metrics.verticalSpacing - TOUCH_ACTION_HEIGHT * 2 - TOUCH_ACTION_GAP;
+  return {
+      {Rect{buttonX, firstButtonY, buttonWidth, TOUCH_ACTION_HEIGHT},
+       Rect{buttonX, firstButtonY + TOUCH_ACTION_HEIGHT + TOUCH_ACTION_GAP, buttonWidth, TOUCH_ACTION_HEIGHT}},
+      TOUCH_ACTION_HEIGHT + TOUCH_ACTION_GAP,
+      TOUCH_ACTION_HEIGHT,
+  };
+}
+
+void drawTouchActionButtons(GfxRenderer& renderer, const Rect& screen, const ThemeMetrics& metrics,
+                            const char* confirmLabel) {
+  const auto actions = touchActionLayout(screen, metrics);
+  const char* labels[] = {tr(STR_CANCEL), confirmLabel};
+  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  for (int action = 0; action < 2; ++action) {
+    const Rect& button = actions.buttons[action];
+    renderer.drawRect(button.x, button.y, button.width, button.height, true);
+    const int textX = button.x + (button.width - renderer.getTextWidth(UI_10_FONT_ID, labels[action])) / 2;
+    const int textY = button.y + (button.height - lineHeight) / 2;
+    renderer.drawText(UI_10_FONT_ID, textX, textY, labels[action]);
+  }
+}
+
+}  // namespace
+
 #ifdef SIMULATOR
 
 #include <Arduino.h>
@@ -31,21 +80,18 @@ float qToPercentage(const uint32_t percentageQ) {
   return static_cast<float>(std::min(percentageQ, SIM_PERCENTAGE_SCALE)) / static_cast<float>(SIM_PERCENTAGE_SCALE);
 }
 
-std::string documentMatchingDetail() {
-  const StrId methodLabel =
-      KOREADER_STORE.getMatchMethod() == DocumentMatchMethod::FILENAME ? StrId::STR_FILENAME : StrId::STR_BINARY;
+std::string documentMatchingDetail(const DocumentMatchMethod matchMethod) {
+  const StrId methodLabel = matchMethod == DocumentMatchMethod::FILENAME ? StrId::STR_FILENAME : StrId::STR_BINARY;
   return std::string(tr(STR_DOCUMENT_MATCHING)) + ": " + I18N.get(methodLabel);
 }
 
 }  // namespace
 
-NearbyBookPositionSyncActivity::NearbyBookPositionSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                                               std::shared_ptr<Epub> epub, const std::string& epubPath,
-                                                               int currentSpineIndex, int currentPage,
-                                                               int totalPagesInSpine, KOReaderPosition localKoPos,
-                                                               std::string localChapterName,
-                                                               std::optional<uint16_t> currentParagraphIndex,
-                                                               std::optional<uint16_t> currentListItemIndex)
+NearbyBookPositionSyncActivity::NearbyBookPositionSyncActivity(
+    GfxRenderer& renderer, MappedInputManager& mappedInput, std::shared_ptr<Epub> epub, const std::string& epubPath,
+    int currentSpineIndex, int currentPage, int totalPagesInSpine, KOReaderPosition localKoPos,
+    std::string localChapterName, const DocumentMatchMethod matchMethod, std::optional<uint16_t> currentParagraphIndex,
+    std::optional<uint16_t> currentListItemIndex)
     : Activity("NearbyBookPositionSync", renderer, mappedInput),
       epub_(std::move(epub)),
       epubPath_(epubPath),
@@ -55,19 +101,52 @@ NearbyBookPositionSyncActivity::NearbyBookPositionSyncActivity(GfxRenderer& rend
       totalPagesInSpine_(totalPagesInSpine),
       currentParagraphIndex_(currentParagraphIndex),
       currentListItemIndex_(currentListItemIndex),
-      localKoPosition_(std::move(localKoPos)) {}
+      localKoPosition_(std::move(localKoPos)),
+      matchMethod_(matchMethod) {}
 
 NearbyBookPositionSyncActivity::~NearbyBookPositionSyncActivity() = default;
 
 void NearbyBookPositionSyncActivity::onEnter() {
   Activity::onEnter();
-  prepareLocalPosition();
+  if (!prepareLocalPosition()) return;
   setState(State::READY);
 }
 
 void NearbyBookPositionSyncActivity::onExit() { Activity::onExit(); }
 
 void NearbyBookPositionSyncActivity::loop() {
+  const auto& headerMetrics = UITheme::getInstance().getMetrics();
+  const Rect headerScreen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const Rect header{headerScreen.x, headerScreen.y + headerMetrics.topPadding, headerScreen.width,
+                    TouchHeaderBackButton::height(headerMetrics, mappedInput)};
+  if (TouchHeaderBackButton::wasTapped(mappedInput, header)) {
+    returnToReader(true);
+    return;
+  }
+
+  const bool canShare = state_ == State::READY || state_ == State::SYNCED || state_ == State::ERROR;
+  const bool canApplyReceivedPosition = state_ == State::SHOWING_RESULT && !sourceMode_;
+  if (mappedInput.hasTouch() && (canShare || canApplyReceivedPosition)) {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+    const auto actions = touchActionLayout(screen, metrics);
+    int touchedAction = -1;
+    const auto touch =
+        mappedInput.rowTouch(touchedAction, actions.buttons[0].y, actions.rowStep, 2, actions.buttons[0].x,
+                             actions.buttons[0].x + actions.buttons[0].width, actions.rowHeight);
+    if (touch == MappedInputManager::RowTouch::Down) return;
+    if (touch == MappedInputManager::RowTouch::Tap) {
+      if (touchedAction == 0) {
+        returnToReader(true);
+      } else if (canShare) {
+        startSync();
+      } else {
+        applyPeerPosition();
+      }
+      return;
+    }
+  }
+
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     returnToReader(true);
     return;
@@ -92,12 +171,17 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{screen.x, screen.y + metrics.topPadding, screen.width, metrics.headerHeight},
-                 tr(STR_NEARBY_POSITION_SYNC));
+  const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
+                    TouchHeaderBackButton::height(metrics, mappedInput)};
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_POSITION_SYNC), true);
+  } else {
+    GUI.drawHeader(renderer, header, tr(STR_NEARBY_POSITION_SYNC));
+  }
 
   if (state_ == State::SHOWING_RESULT) {
     renderComparison();
-    renderer.displayBuffer();
+    renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
     return;
   }
 
@@ -111,7 +195,7 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
     case State::READY:
       primary = tr(STR_NEARBY_POSITION_READY);
       detail = std::string(tr(STR_DEVICE_NAME)) + ": " + SETTINGS.getEffectiveDeviceName();
-      detailSecondary = documentMatchingDetail();
+      detailSecondary = documentMatchingDetail(matchMethod_);
       break;
     case State::DISCOVERING:
       primary = tr(STR_NEARBY_POSITION_SCANNING);
@@ -137,9 +221,13 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
 
   if (state_ == State::READY || state_ == State::SYNCED || state_ == State::ERROR) {
     renderReady(primary, detail, detailSecondary);
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_NEARBY_POSITION_SHARE_BUTTON), "", "");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
-    renderer.displayBuffer();
+    if (mappedInput.hasTouch()) {
+      drawTouchActionButtons(renderer, screen, metrics, tr(STR_NEARBY_POSITION_SHARE_BUTTON));
+    } else {
+      const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_NEARBY_POSITION_SHARE_BUTTON), "", "");
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+    }
+    renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
     return;
   }
 
@@ -151,17 +239,25 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
   }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
-  renderer.displayBuffer();
+  renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
 }
 
 void NearbyBookPositionSyncActivity::enqueueEspNowPacket(const uint8_t*, const uint8_t*, int) {}
 bool NearbyBookPositionSyncActivity::prepareLocalPosition() {
   if (localPrepared_) return true;
 
+  if (!localKoPosition_.valid) {
+    setError(tr(STR_SYNC_REOPTIMIZE_REQUIRED));
+    return false;
+  }
+
   localPosition_.percentageQ = percentageToQ(localKoPosition_.percentage);
   localPosition_.spineIndex = std::max(0, currentSpineIndex_);
   localPosition_.pageNumber = std::max(0, currentPage_);
   localPosition_.totalPages = std::max(1, totalPagesInSpine_);
+  if (localKoPosition_.xpath.size() <= MAX_XPATH_BYTES) {
+    std::snprintf(localPosition_.xpath.data(), localPosition_.xpath.size(), "%s", localKoPosition_.xpath.c_str());
+  }
   if (currentParagraphIndex_.has_value() && *currentParagraphIndex_ != UINT16_MAX) {
     localPosition_.paragraphIndex = *currentParagraphIndex_;
     localPosition_.hasParagraphIndex = true;
@@ -175,6 +271,7 @@ bool NearbyBookPositionSyncActivity::prepareLocalPosition() {
   peerPosition_.spineIndex = peerCrossPoint_.spineIndex;
   peerPosition_.pageNumber = peerCrossPoint_.pageNumber;
   peerPosition_.totalPages = peerCrossPoint_.totalPages;
+  peerPosition_.xpath = localPosition_.xpath;
   peerName_ = "Simulator X4";
   peerId_ = "simulator";
 
@@ -205,7 +302,27 @@ bool NearbyBookPositionSyncActivity::applyPeerPosition() {
   setState(State::SYNCED);
   return true;
 }
-bool NearbyBookPositionSyncActivity::mapPeerPosition() { return true; }
+bool NearbyBookPositionSyncActivity::mapPeerPosition() {
+  KOReaderPosition koPos{peerPosition_.xpath.data(), qToPercentage(peerPosition_.percentageQ)};
+  const PositionCoordinateSpace coordinateSpace = matchMethod_ == DocumentMatchMethod::FILENAME
+                                                      ? PositionCoordinateSpace::SourceDocument
+                                                      : PositionCoordinateSpace::CurrentDocument;
+  peerCrossPoint_ = ProgressMapper::toCrossPoint(epub_, koPos, currentSpineIndex_, totalPagesInSpine_, coordinateSpace);
+  if (!peerCrossPoint_.valid) {
+    setError(tr(STR_SYNC_REOPTIMIZE_REQUIRED));
+    return false;
+  }
+  if (peerCrossPoint_.totalPages <= 0) {
+    if (matchMethod_ == DocumentMatchMethod::FILENAME) {
+      setError(tr(STR_SYNC_REOPTIMIZE_REQUIRED));
+      return false;
+    }
+    peerCrossPoint_.spineIndex = peerPosition_.spineIndex;
+    peerCrossPoint_.pageNumber = peerPosition_.pageNumber;
+    peerCrossPoint_.totalPages = std::max<uint16_t>(1, peerPosition_.totalPages);
+  }
+  return true;
+}
 void NearbyBookPositionSyncActivity::updateSyncProgress() {
   if (state_ != State::DISCOVERING && state_ != State::SYNCING) return;
 
@@ -216,6 +333,7 @@ void NearbyBookPositionSyncActivity::updateSyncProgress() {
     return;
   }
   if (elapsedMs >= SIM_RESULT_MS) {
+    if (!mapPeerPosition()) return;
     peerPositionReceived_ = true;
     setState(State::SHOWING_RESULT);
   }
@@ -238,13 +356,18 @@ void NearbyBookPositionSyncActivity::renderReady(const std::string& primary, con
                                                  const std::string& detailSecondary) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  int y = screen.y + metrics.topPadding + metrics.headerHeight + 70;
+  int y = screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + 70;
 
   UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, y, primary.c_str(), true, EpdFontFamily::BOLD);
   y += renderer.getLineHeight(UI_10_FONT_ID) + metrics.verticalSpacing;
   if (!detailPrimary.empty()) {
-    UITheme::drawCenteredText(renderer, screen, SMALL_FONT_ID, y, detailPrimary.c_str(), true);
-    y += renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
+    const auto detailLines =
+        renderer.wrappedText(SMALL_FONT_ID, detailPrimary.c_str(), screen.width - metrics.contentSidePadding * 2, 3);
+    for (const auto& line : detailLines) {
+      UITheme::drawCenteredText(renderer, screen, SMALL_FONT_ID, y, line.c_str(), true);
+      y += renderer.getLineHeight(SMALL_FONT_ID);
+    }
+    y += metrics.verticalSpacing;
   }
   if (!detailSecondary.empty()) {
     UITheme::drawCenteredText(renderer, screen, SMALL_FONT_ID, y, detailSecondary.c_str(), true);
@@ -257,7 +380,8 @@ void NearbyBookPositionSyncActivity::renderReady(const std::string& primary, con
 void NearbyBookPositionSyncActivity::renderComparison() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  int top = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  int top =
+      screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
 
   renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEARBY_POSITION_FOUND), true, EpdFontFamily::BOLD);
 
@@ -299,8 +423,12 @@ void NearbyBookPositionSyncActivity::renderComparison() const {
   renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, optionY, tr(STR_APPLY_NEARBY_POSITION),
                     false);
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "", "");
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  if (mappedInput.hasTouch() && !sourceMode_) {
+    drawTouchActionButtons(renderer, screen, metrics, tr(STR_CONFIRM));
+  } else {
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  }
 }
 
 #else
@@ -330,6 +458,7 @@ void NearbyBookPositionSyncActivity::renderComparison() const {
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
 #include "activities/ActivityManager.h"
+#include "activities/home/RecentBookProgress.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -407,9 +536,8 @@ float qToPercentage(const uint32_t percentageQ) {
   return static_cast<float>(std::min(percentageQ, PERCENTAGE_SCALE)) / static_cast<float>(PERCENTAGE_SCALE);
 }
 
-std::string documentMatchingDetail() {
-  const StrId methodLabel =
-      KOREADER_STORE.getMatchMethod() == DocumentMatchMethod::FILENAME ? StrId::STR_FILENAME : StrId::STR_BINARY;
+std::string documentMatchingDetail(const DocumentMatchMethod matchMethod) {
+  const StrId methodLabel = matchMethod == DocumentMatchMethod::FILENAME ? StrId::STR_FILENAME : StrId::STR_BINARY;
   return std::string(tr(STR_DOCUMENT_MATCHING)) + ": " + I18N.get(methodLabel);
 }
 
@@ -522,13 +650,11 @@ void onEspNowReceive(const esp_now_recv_info_t* info, const uint8_t* data, int l
 
 }  // namespace
 
-NearbyBookPositionSyncActivity::NearbyBookPositionSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                                               std::shared_ptr<Epub> epub, const std::string& epubPath,
-                                                               int currentSpineIndex, int currentPage,
-                                                               int totalPagesInSpine, KOReaderPosition localKoPos,
-                                                               std::string localChapterName,
-                                                               std::optional<uint16_t> currentParagraphIndex,
-                                                               std::optional<uint16_t> currentListItemIndex)
+NearbyBookPositionSyncActivity::NearbyBookPositionSyncActivity(
+    GfxRenderer& renderer, MappedInputManager& mappedInput, std::shared_ptr<Epub> epub, const std::string& epubPath,
+    int currentSpineIndex, int currentPage, int totalPagesInSpine, KOReaderPosition localKoPos,
+    std::string localChapterName, const DocumentMatchMethod matchMethod, std::optional<uint16_t> currentParagraphIndex,
+    std::optional<uint16_t> currentListItemIndex)
     : Activity("NearbyBookPositionSync", renderer, mappedInput),
       eventMutex_(xSemaphoreCreateMutex()),
       epub_(std::move(epub)),
@@ -539,7 +665,8 @@ NearbyBookPositionSyncActivity::NearbyBookPositionSyncActivity(GfxRenderer& rend
       totalPagesInSpine_(std::max(1, totalPagesInSpine)),
       currentParagraphIndex_(currentParagraphIndex),
       currentListItemIndex_(currentListItemIndex),
-      localKoPosition_(std::move(localKoPos)) {}
+      localKoPosition_(std::move(localKoPos)),
+      matchMethod_(matchMethod) {}
 
 NearbyBookPositionSyncActivity::~NearbyBookPositionSyncActivity() {
   if (eventMutex_) {
@@ -557,7 +684,13 @@ bool NearbyBookPositionSyncActivity::ensureEpubLoaded() {
 bool NearbyBookPositionSyncActivity::prepareLocalPosition() {
   if (localPrepared_) return true;
 
-  const std::string documentHash = (KOREADER_STORE.getMatchMethod() == DocumentMatchMethod::FILENAME)
+  if (!localKoPosition_.valid) {
+    LOG_ERR(LOG_TAG, "Source position map unavailable; re-optimize the EPUB before filename-based nearby sync");
+    setError(tr(STR_SYNC_REOPTIMIZE_REQUIRED));
+    return false;
+  }
+
+  const std::string documentHash = (matchMethod_ == DocumentMatchMethod::FILENAME)
                                        ? KOReaderDocumentId::calculateFromFilename(epubPath_)
                                        : KOReaderDocumentId::calculate(epubPath_);
   if (documentHash.size() != DOCUMENT_HASH_BYTES) {
@@ -624,6 +757,39 @@ void NearbyBookPositionSyncActivity::onExit() {
 
 void NearbyBookPositionSyncActivity::loop() {
   processEvents();
+
+  const auto& headerMetrics = UITheme::getInstance().getMetrics();
+  const Rect headerScreen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const Rect header{headerScreen.x, headerScreen.y + headerMetrics.topPadding, headerScreen.width,
+                    TouchHeaderBackButton::height(headerMetrics, mappedInput)};
+  if (TouchHeaderBackButton::wasTapped(mappedInput, header)) {
+    returnToReader(true);
+    return;
+  }
+
+  const bool canShare = state_ == State::READY || state_ == State::SYNCED || state_ == State::ERROR;
+  const bool canApplyReceivedPosition = state_ == State::SHOWING_RESULT && !sourceMode_;
+  if (mappedInput.hasTouch() && (canShare || canApplyReceivedPosition)) {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+    const auto actions = touchActionLayout(screen, metrics);
+    int touchedAction = -1;
+    const auto touch =
+        mappedInput.rowTouch(touchedAction, actions.buttons[0].y, actions.rowStep, 2, actions.buttons[0].x,
+                             actions.buttons[0].x + actions.buttons[0].width, actions.rowHeight);
+    if (touch == MappedInputManager::RowTouch::Down) return;
+    if (touch == MappedInputManager::RowTouch::Tap) {
+      if (touchedAction == 0) {
+        returnToReader(true);
+      } else if (canShare) {
+        startSync();
+      } else if (applyPeerPosition()) {
+        sendAck(peerSourceMac_.data());
+        returnToReader();
+      }
+      return;
+    }
+  }
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     returnToReader(true);
@@ -949,8 +1115,20 @@ bool NearbyBookPositionSyncActivity::mapPeerPosition() {
   KOReaderPosition koPos;
   koPos.xpath = peerPosition_.xpath.data();
   koPos.percentage = qToPercentage(peerPosition_.percentageQ);
-  peerCrossPoint_ = ProgressMapper::toCrossPoint(epub_, koPos, currentSpineIndex_, totalPagesInSpine_);
+  const PositionCoordinateSpace coordinateSpace = matchMethod_ == DocumentMatchMethod::FILENAME
+                                                      ? PositionCoordinateSpace::SourceDocument
+                                                      : PositionCoordinateSpace::CurrentDocument;
+  peerCrossPoint_ = ProgressMapper::toCrossPoint(epub_, koPos, currentSpineIndex_, totalPagesInSpine_, coordinateSpace);
+  if (!peerCrossPoint_.valid) {
+    setError(tr(STR_SYNC_REOPTIMIZE_REQUIRED));
+    return false;
+  }
   if (peerCrossPoint_.totalPages <= 0) {
+    if (matchMethod_ == DocumentMatchMethod::FILENAME) {
+      LOG_ERR(LOG_TAG, "Refusing optimized raw spine fallback for filename-based nearby sync");
+      setError(tr(STR_SYNC_REOPTIMIZE_REQUIRED));
+      return false;
+    }
     peerCrossPoint_.spineIndex = peerPosition_.spineIndex;
     peerCrossPoint_.pageNumber = peerPosition_.pageNumber;
     peerCrossPoint_.totalPages = std::max<uint16_t>(1, peerPosition_.totalPages);
@@ -1006,6 +1184,7 @@ bool NearbyBookPositionSyncActivity::applyPeerPosition() {
     setError(tr(STR_SAVE_PROGRESS_FAILED));
     return false;
   }
+  RecentBookProgress::saveCachedEpubPercent(*epub_, peerCrossPoint_.spineIndex, peerCrossPoint_.pageNumber, pageCount);
   setState(State::SYNCED);
   return true;
 }
@@ -1059,12 +1238,17 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  GUI.drawHeader(renderer, Rect{screen.x, screen.y + metrics.topPadding, screen.width, metrics.headerHeight},
-                 tr(STR_NEARBY_POSITION_SYNC));
+  const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
+                    TouchHeaderBackButton::height(metrics, mappedInput)};
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_POSITION_SYNC), true);
+  } else {
+    GUI.drawHeader(renderer, header, tr(STR_NEARBY_POSITION_SYNC));
+  }
 
   if (state_ == State::SHOWING_RESULT) {
     renderComparison();
-    renderer.displayBuffer();
+    renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
     return;
   }
 
@@ -1078,7 +1262,7 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
     case State::READY:
       primary = tr(STR_NEARBY_POSITION_READY);
       detail = std::string(tr(STR_DEVICE_NAME)) + ": " + SETTINGS.getEffectiveDeviceName();
-      detailSecondary = documentMatchingDetail();
+      detailSecondary = documentMatchingDetail(matchMethod_);
       break;
     case State::DISCOVERING:
       primary = tr(STR_NEARBY_POSITION_SCANNING);
@@ -1104,9 +1288,13 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
 
   if (state_ == State::READY || state_ == State::SYNCED || state_ == State::ERROR) {
     renderReady(primary, detail, detailSecondary);
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_NEARBY_POSITION_SHARE_BUTTON), "", "");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
-    renderer.displayBuffer();
+    if (mappedInput.hasTouch()) {
+      drawTouchActionButtons(renderer, screen, metrics, tr(STR_NEARBY_POSITION_SHARE_BUTTON));
+    } else {
+      const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_NEARBY_POSITION_SHARE_BUTTON), "", "");
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+    }
+    renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
     return;
   }
 
@@ -1118,20 +1306,25 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
   }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
-  renderer.displayBuffer();
+  renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
 }
 
 void NearbyBookPositionSyncActivity::renderReady(const std::string& primary, const std::string& detailPrimary,
                                                  const std::string& detailSecondary) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  int y = screen.y + metrics.topPadding + metrics.headerHeight + 70;
+  int y = screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + 70;
 
   UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, y, primary.c_str(), true, EpdFontFamily::BOLD);
   y += renderer.getLineHeight(UI_10_FONT_ID) + metrics.verticalSpacing;
   if (!detailPrimary.empty()) {
-    UITheme::drawCenteredText(renderer, screen, SMALL_FONT_ID, y, detailPrimary.c_str(), true);
-    y += renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
+    const auto detailLines =
+        renderer.wrappedText(SMALL_FONT_ID, detailPrimary.c_str(), screen.width - metrics.contentSidePadding * 2, 3);
+    for (const auto& line : detailLines) {
+      UITheme::drawCenteredText(renderer, screen, SMALL_FONT_ID, y, line.c_str(), true);
+      y += renderer.getLineHeight(SMALL_FONT_ID);
+    }
+    y += metrics.verticalSpacing;
   }
   if (!detailSecondary.empty()) {
     UITheme::drawCenteredText(renderer, screen, SMALL_FONT_ID, y, detailSecondary.c_str(), true);
@@ -1145,7 +1338,8 @@ void NearbyBookPositionSyncActivity::renderReady(const std::string& primary, con
 void NearbyBookPositionSyncActivity::renderComparison() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  int top = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  int top =
+      screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
 
   renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEARBY_POSITION_FOUND), true, EpdFontFamily::BOLD);
 
@@ -1187,8 +1381,12 @@ void NearbyBookPositionSyncActivity::renderComparison() const {
   renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, optionY, tr(STR_APPLY_NEARBY_POSITION),
                     false);
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "", "");
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  if (mappedInput.hasTouch() && !sourceMode_) {
+    drawTouchActionButtons(renderer, screen, metrics, tr(STR_CONFIRM));
+  } else {
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  }
 }
 
 #endif

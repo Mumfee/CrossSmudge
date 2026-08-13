@@ -31,7 +31,6 @@ bool Txt::load() {
   file.close();
 
   loaded = true;
-  LOG_DBG("TXT", "Loaded TXT file: %s (%zu bytes)", filepath.c_str(), fileSize);
   return true;
 }
 
@@ -75,7 +74,6 @@ std::string Txt::findCoverImage() const {
   for (const auto& ext : extensions) {
     std::string coverPath = folder + "/" + baseName + ext;
     if (Storage.exists(coverPath.c_str())) {
-      LOG_DBG("TXT", "Found matching cover image: %s", coverPath.c_str());
       return coverPath;
     }
   }
@@ -86,7 +84,6 @@ std::string Txt::findCoverImage() const {
     for (const auto& ext : extensions) {
       std::string coverPath = folder + "/" + std::string(name) + ext;
       if (Storage.exists(coverPath.c_str())) {
-        LOG_DBG("TXT", "Found fallback cover image: %s", coverPath.c_str());
         return coverPath;
       }
     }
@@ -105,7 +102,6 @@ bool Txt::generateCoverBmp() const {
 
   std::string coverImagePath = findCoverImage();
   if (coverImagePath.empty()) {
-    LOG_DBG("TXT", "No cover image found for TXT file");
     return false;
   }
 
@@ -114,7 +110,6 @@ bool Txt::generateCoverBmp() const {
 
   if (FsHelpers::hasBmpExtension(coverImagePath)) {
     // Copy BMP file to cache
-    LOG_DBG("TXT", "Copying BMP cover image to cache");
     HalFile src, dst;
     if (!Storage.openFileForRead("TXT", coverImagePath, src)) {
       return false;
@@ -127,11 +122,9 @@ bool Txt::generateCoverBmp() const {
       size_t bytesRead = src.read(buffer, sizeof(buffer));
       dst.write(buffer, bytesRead);
     }
-    LOG_DBG("TXT", "Copied BMP cover to cache");
     return true;
   } else if (FsHelpers::hasJpgExtension(coverImagePath)) {
     // Convert JPG/JPEG to BMP (same approach as Epub)
-    LOG_DBG("TXT", "Generating BMP from JPG cover image");
     HalFile coverJpg, coverBmp;
     if (!Storage.openFileForRead("TXT", coverImagePath, coverJpg)) {
       return false;
@@ -145,7 +138,6 @@ bool Txt::generateCoverBmp() const {
       LOG_ERR("TXT", "Failed to generate BMP from JPG cover image");
       Storage.remove(getCoverBmpPath().c_str());
     } else {
-      LOG_DBG("TXT", "Generated BMP from JPG cover image");
     }
     return success;
   }
@@ -157,7 +149,6 @@ bool Txt::generateCoverBmp() const {
 
 bool Txt::clearCache() const {
   if (!Storage.exists(cachePath.c_str())) {
-    LOG_DBG("TXT", "Cache does not exist, no action needed");
     return true;
   }
 
@@ -166,7 +157,6 @@ bool Txt::clearCache() const {
     return false;
   }
 
-  LOG_DBG("TXT", "Cache cleared successfully");
   return true;
 }
 

@@ -65,36 +65,58 @@ jobs:
         run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 
   build:
-    # Never run untrusted fork PR code on the self-hosted runner.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, crosssmudge-build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [default, sticky]
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
 
-      - name: Verify PlatformIO Core
-        run: pio --version
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
 
-      - name: Build CrossSmudge tiny
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-platformio-${{ matrix.environment }}-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-platformio-${{ matrix.environment }}-
+            ${{ runner.os }}-platformio-
+
+      - name: Install PlatformIO Core
+        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Build ${{ matrix.environment }} firmware
         run: |
           set -euo pipefail
-          pio run -e tiny | tee pio.log
+          pio run -e ${{ matrix.environment }} | tee pio-${{ matrix.environment }}.log
 
       - name: Extract firmware stats
         run: |
           set -euo pipefail
           {
-            echo "## Firmware build stats"
-            grep -E "RAM:\s|Flash:\s" pio.log | while read -r line; do echo "- ${line}"; done
+            echo "## ${{ matrix.environment }} firmware build stats"
+            grep -E "RAM:\s|Flash:\s" pio-${{ matrix.environment }}.log | while read -r line; do echo "- ${line}"; done
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload firmware artifacts
+        if: matrix.environment == 'default'
         uses: actions/upload-artifact@v7
         with:
-          name: firmware-tiny
+          name: firmware-x3-x4
           path: |
-            .pio/build/tiny/firmware-tiny.bin
+            .pio/build/default/firmware-x3-x4.bin
           if-no-files-found: error
 
   # This job is used as the PR required actions check, allows for changes to other steps in the future without breaking

@@ -21,6 +21,7 @@ class BookStatsActivity final : public Activity {
   float progressPercent = -1.0f;
   bool hasEstimatedTimeLeft = false;
   uint32_t estimatedTimeLeftSeconds = 0;
+  GfxRenderer::Orientation previousOrientation = GfxRenderer::Orientation::Portrait;
   Page page = Page::PerBook;
   int selectedEditField = 0;
   bool didChangeStats = false;
@@ -36,7 +37,10 @@ class BookStatsActivity final : public Activity {
   void clearEditedDate(bool finishedField);
   bool shouldClearDateOnAdjust(const ReadingStatsDate& date, bool finishedField, int fieldIndex, int delta) const;
   void normalizeEditedDates(const bool editedFinishedField);
-  void exitStatsActivity(bool viaBack);
+  void exitStatsActivity();
+  bool showPreviousStatsPage();
+  bool showNextStatsPage();
+  bool selectEditFieldFromTouchTarget(int touchTarget);
 
  public:
   BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,

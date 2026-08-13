@@ -6,6 +6,7 @@
 
 #include "MappedInputManager.h"
 #include "activities/reader/StatsBackup.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -24,7 +25,12 @@ void BackupStatsActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_BACKUP_NOW));
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, header, tr(STR_BACKUP_NOW), false);
+  } else {
+    GUI.drawHeader(renderer, header, tr(STR_BACKUP_NOW));
+  }
 
   if (state == WARNING) {
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_BACKUP_STATS_CONFIRM), true);
@@ -54,12 +60,15 @@ void BackupStatsActivity::render(RenderLock&&) {
 }
 
 void BackupStatsActivity::runBackup() {
-  LOG_DBG("BACKUP_STATS", "Creating reading-stats backup");
   state = backupGlobalStats(true, backupFileName, sizeof(backupFileName)) ? SUCCESS : FAILED;
   requestUpdate();
 }
 
 void BackupStatsActivity::loop() {
+  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
+    goBack();
+    return;
+  }
   if (state == WARNING) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       runBackup();

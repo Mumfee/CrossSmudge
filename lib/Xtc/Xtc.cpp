@@ -10,6 +10,16 @@
 #include <Bitmap.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+namespace {
+void yieldDuringThumbnail(uint8_t& rowsSinceYield) {
+  if (++rowsSinceYield < 8) return;
+  rowsSinceYield = 0;
+  vTaskDelay(1);
+}
+}  // namespace
 
 #include <algorithm>
 
@@ -29,8 +39,6 @@ bool thumbnailHasDimensions(const std::string& path, const uint16_t width, const
 }  // namespace
 
 bool Xtc::load() {
-  LOG_DBG("XTC", "Loading XTC: %s", filepath.c_str());
-
   // Initialize parser
   parser.reset(new xtc::XtcParser());
 
@@ -43,13 +51,11 @@ bool Xtc::load() {
   }
 
   loaded = true;
-  LOG_DBG("XTC", "Loaded XTC: %s (%lu pages)", filepath.c_str(), parser->getPageCount());
   return true;
 }
 
 bool Xtc::clearCache() const {
   if (!Storage.exists(cachePath.c_str())) {
-    LOG_DBG("XTC", "Cache does not exist, no action needed");
     return true;
   }
 
@@ -58,7 +64,6 @@ bool Xtc::clearCache() const {
     return false;
   }
 
-  LOG_DBG("XTC", "Cache cleared successfully");
   return true;
 }
 
@@ -272,7 +277,6 @@ bool Xtc::generateCoverBmp() const {
 
   free(pageBuffer);
 
-  LOG_DBG("XTC", "Generated cover BMP: %s", getCoverBmpPath().c_str());
   return true;
 }
 
@@ -403,6 +407,7 @@ bool Xtc::generateThumbBmp(uint16_t width, uint16_t height) const {
   const uint8_t* plane2 = (bitDepth == 2) ? pageBuffer + planeSize : nullptr;
   const size_t colBytes = (bitDepth == 2) ? ((pageInfo.height + 7) / 8) : 0;
   const size_t srcRowBytes = (bitDepth == 1) ? ((pageInfo.width + 7) / 8) : 0;
+  uint8_t rowsSinceYield = 0;
 
   for (uint16_t dstY = 0; dstY < thumbHeight; dstY++) {
     memset(rowBuffer, 0xFF, rowSize);
@@ -464,12 +469,12 @@ bool Xtc::generateThumbBmp(uint16_t width, uint16_t height) const {
       }
     }
     thumbBmp.write(rowBuffer, rowSize);
+    yieldDuringThumbnail(rowsSinceYield);
   }
 
   free(rowBuffer);
   thumbBmp.close();
   free(pageBuffer);
-  LOG_DBG("XTC", "Generated thumb BMP (%dx%d): %s", thumbWidth, thumbHeight, getThumbBmpPath(width, height).c_str());
   return true;
 }
 
