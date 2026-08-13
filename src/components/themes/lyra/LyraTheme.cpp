@@ -30,6 +30,7 @@
 #include "components/icons/rosary.h"
 #include "components/icons/sudoku.h"
 #include "components/icons/twozerofoureight.h"
+#include "components/icons/blackjack.h"
 // Internal constants
 namespace {
 constexpr int hPaddingInSelection = 8;
@@ -116,6 +117,8 @@ const freeink::Icon* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
         return reinterpret_cast<const freeink::Icon*>(SudokuIcon);
       case UIIcon::TwoZeroFourEight:
         return reinterpret_cast<const freeink::Icon*>(TwoZeroFourEightIcon);
+      case UIIcon::Blackjack:
+        return reinterpret_cast<const freeink::Icon*>(BlackjackIcon);
       default:
         return nullptr;
     }

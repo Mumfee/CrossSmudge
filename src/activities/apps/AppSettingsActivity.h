@@ -112,6 +112,7 @@ public:
             if (name == "Rosary") return UIIcon::Rosary;
             if (name == "2048") return UIIcon::TwoZeroFourEight;
             if (name == "Sudoku") return UIIcon::Sudoku;
+            if (name == "Blackjack") return UIIcon::Blackjack;
           }
           return UIIcon::Applications;
         }
