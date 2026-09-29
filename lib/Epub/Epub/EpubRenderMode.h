@@ -4,6 +4,7 @@
 
 enum class EpubRenderMode : uint8_t {
   CrossSmudgeDefault = 0,
+  CrossInkDefault = 0,
   Balanced = 1,
   Light = 2,
 };

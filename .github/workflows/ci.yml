@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# A newer commit supersedes older PR validation; keep main pushes independent.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -53,10 +58,12 @@ jobs:
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
-          path: ~/.platformio
-          key: ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
-          restore-keys: |
-            ${{ runner.os }}-platformio-
+          # Do not cache PlatformIO's Python virtual environment. It is tied to
+          # the runner's Python and can become invalid when restored elsewhere.
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
 
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
@@ -65,11 +72,14 @@ jobs:
         run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 
   build:
+    # Firmware artifacts are validated on pull requests; release builds stay
+    # in the dedicated release workflow.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        environment: [default, sticky]
+        environment: [default, x4-pro]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -88,11 +98,12 @@ jobs:
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
-          path: ~/.platformio
-          key: ${{ runner.os }}-platformio-${{ matrix.environment }}-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
-          restore-keys: |
-            ${{ runner.os }}-platformio-${{ matrix.environment }}-
-            ${{ runner.os }}-platformio-
+          # Do not cache PlatformIO's Python virtual environment. It is tied to
+          # the runner's Python and can become invalid when restored elsewhere.
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ matrix.environment }}-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
 
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
@@ -100,7 +111,7 @@ jobs:
       - name: Build ${{ matrix.environment }} firmware
         run: |
           set -euo pipefail
-          pio run -e ${{ matrix.environment }} | tee pio-${{ matrix.environment }}.log
+          pio run -j1 -e ${{ matrix.environment }} | tee pio-${{ matrix.environment }}.log
 
       - name: Extract firmware stats
         run: |
@@ -109,15 +120,6 @@ jobs:
             echo "## ${{ matrix.environment }} firmware build stats"
             grep -E "RAM:\s|Flash:\s" pio-${{ matrix.environment }}.log | while read -r line; do echo "- ${line}"; done
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload firmware artifacts
-        if: matrix.environment == 'default'
-        uses: actions/upload-artifact@v7
-        with:
-          name: firmware-x3-x4
-          path: |
-            .pio/build/default/firmware-x3-x4.bin
-          if-no-files-found: error
 
   # This job is used as the PR required actions check, allows for changes to other steps in the future without breaking
   # PR requirements.

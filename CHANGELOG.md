@@ -1,6 +1,123 @@
+## [v1.6.0] - 2026-09-21
+
+### Added
+
+- EPUBs with stable page numbers can jump directly to a specific stable page from the reader menu.
+- Hidden folders can be created using the web file manager now when prefixed with a dot.
+- Choose whole numbers, one decimal, or two decimals for the book progress percentage in status bar settings.
+- Two-finger Screen Rotation can be turned off in Settings > Controls > Taps & Gestures on multi-touch devices.
+- Go to % and Go to Stable Page use a numeric keypad for typing an exact destination, including decimal percentages. Touch devices use the keypad exclusively; button-only devices keep the slider by default and hold Confirm/Select to switch to the keypad.
+- Files can be renamed from the File Browser action menu while keeping reading progress, bookmarks, clippings, and recent-book entries linked to the new name.
+- Firmware builds can include only selected UI languages to reduce flash usage while preserving English fallback.
+
+### Changed
+
+- PNG, XTC, and image-dithering scratch buffers use fewer heap allocations to reduce fragmentation.
+- The shared settings catalog keeps its initial allocation instead of retaining unused vector capacity.
+- SPI SD-card transfers are batched through the ESP32 hardware FIFO for faster reads.
+- SD-card font prewarming releases temporary lookup buffers before allocating large glyph bitmaps.
+- UC8179 grayscale images use a slightly longer waveform for stronger midtone separation.
+- EPUB image preparation writes extracted data in chunks and reuses two cached images on PSRAM readers.
+- Font menus and the web portal use a persistent catalog that loads one family's details at a time, preventing crashes with larger font collections.
+- Web portal pages reuse browser-cached content after checking for firmware updates.
+- Rapid queued EPUB page turns defer text anti-aliasing and image loading until the final page, making intermediate turns faster.
+- Grayscale sleep screen images use the panel's direct grayscale waveform where supported, which folds the base frame into the grayscale pass instead of refreshing the screen separately first.
+
+### Fixed
+
+- The web EPUB optimizer now accepts books that use standard Adobe or IDPF font obfuscation, while leaving DRM-protected books unchanged.
+- Frontlight schedule time pickers now use the compact number keypad from Go To screens.
+- X4 Classic's left/right tilt direction labels now match the physical page-turn direction.
+- Touch keyboards no longer show button-only hold and navigation hints.
+- The web settings page no longer offers the Up + Down shortcut on devices that cannot use it.
+- OPDS Wi-Fi selection and search entry stay awake while the user is actively choosing or typing.
+- USB Drive exits cleanly when a connected host is unplugged without ejecting first.
+- EPUB ordered lists show numbers, respect marker-free styles, and retain their container indentation.
+- EPUB chapter layout releases rebuildable font caches first, reducing low-memory failures on X3/X4.
+- KOReader Sync uploads retain exact text-node positions, including zero offsets and UTF-8 text.
+- Saved clipping highlights now retain Focus Reading's custom-font glyphs instead of showing replacement characters.
+- EPUB dictionary lookup can select an individual part of a hyphenated word.
+- Short Power-button frontlight and touchscreen shortcuts in EPUB books no longer run the configured long-press action.
+- Silent restarts now preserve the frontlight state instead of applying wake or schedule settings.
+- The Home button now returns from Customize Status Bar to the previous menu instead of leaving the reader.
+- OPDS book downloads can follow secure redirects without sharing catalog credentials with the download host.
+- Larger EPUB stylesheets work on PSRAM readers, including rules that hide duplicate images.
+- JPEG-heavy EPUBs can use PSRAM for decoding on supported readers, leaving internal memory available for reading.
+- Importing CrossPoint settings preserves tap and swipe modes without carrying over a stale reader touchscreen lock.
+- Saved clippings no longer highlight unrelated single words at page boundaries when matching text after a layout change.
+- Quick Lock sleep now respects the configured short Power-button wake behavior.
+- Quick Lock now clears when the device wakes after an automatic sleep timeout.
+- EPUB content marked with the HTML hidden attribute no longer appears in the reader.
+- EPUB paragraphs without source indentation no longer gain a synthetic first-line indent.
+- End-of-book selection remains consistent during concurrent redraws.
+- Image dithering reports low-memory failures instead of aborting during buffer allocation.
+- The debugging monitor plots CrossInk heap and PSRAM logs separately; ZIP failures identify the affected EPUB entry.
+- Many progressive JPEG images that store brightness and color in separate scans now render instead of appearing blank.
+- PNG sleep overlays preserve four evenly spaced grayscale levels on supported displays.
+- Exiting Calibre Wireless on X4 now returns Home with one clean screen refresh instead of repeated blank flashes.
+- Manage Fonts no longer crashes after Wi-Fi connects on ESP32-S3 readers.
+- Editing font settings from the top drawer's global settings within a book now applies those changes when no per-book font settings exist.
+- Per-book reading stats now write to a backup file first.
+- Paragraph-alignment previews remain available on text-heavy pages instead of disappearing when the preview sample is full.
+- Quick Actions assignments stay visible in button-combo settings, and X4 Classic can use the Up + Down shortcut.
+- Sync Progress from the reader menu opens KOReader setup when credentials have not been configured.
+- Button-combo settings no longer offer Sleep because the same combo cannot wake the reader.
+- EPUB variation selectors no longer appear as missing-glyph boxes after otherwise supported symbols.
+- Cancelling Word Spacing on button readers no longer briefly changes the slider value.
+- The File Browser now displays decomposed Hangul and accented filenames copied from macOS correctly.
+
+## [v1.5.1] - 2026-09-10
+
+### Added
+
+- Xteink X4 Pro and X4 Classic support, including device-specific firmware and USB Drive access; X4 Pro also supports direct USB file transfers.
+- The built-in EPUB optimizer can keep cover art in color while still resizing it to a reader-safe baseline JPEG.
+- Custom BMP boot screens, selected in the File Browser or rotated from `/bootscreen` or `/.bootscreen`; sleep screens can also be selected from any folder.
+- Quick Lock, assignable button combinations, and shortcuts for Previous Page and Nearby Position Sync. Quick Actions can also be assigned to Power + Up and X4 Pro Home-button gestures.
+- Configurable touch page-turn gestures, pinch-to-resize text, two-finger rotation and swipe actions, and a tap-to-hide reader status bar.
+- Selectable keyboard layouts, switchable from the keyboard's language key.
+- Clippings from dictionary lookups on touch devices, plus selection of text inside EPUB tables.
+
+### Changed
+
+- Touch EPUB readers use a half-height, five-tab menu. Sticky opens the menu with a swipe up and book details with a swipe down; X4 Pro frontlight controls include reading stats and reader shortcuts.
+- Screen margins have separate Top/Bottom and Left/Right controls, adjustable up to 200 pixels.
+- Night Mode applies system-wide on ESP32-S3 devices; frontlit readers can disable periodic full-screen refreshes.
+- Waking keeps the sleep screen visible until the reader or Home is ready, unless a custom boot screen is enabled.
+- Font choices show available point sizes, Download Fonts replaces the font-manager label, and Wi-Fi passwords are visible during entry.
+- Reader controls, shortcut pickers, touch targets, and File Browser settings are easier to reach; Book Options is last in the button reader menu.
+- EPUB indexing, image decoding, fonts, and reading-state updates use fewer resources; the web optimizer prefers natural boundaries when splitting chapters.
+
+### Removed
+
+- The undocumented X4 Pro power-button double-click frontlight toggle.
+- Built-in reader-font emoticons and hand gestures; SD-card fonts retain emoji fallback support.
+
+### Fixed
+
+- Clipping highlights stay aligned after font changes, retain multi-paragraph text, and remain readable in Dark Mode. Selection stays on its final page, and browsing saved clippings responds reliably.
+- Dictionary lookup respects landscape controls and selected fonts, handles repeated lookups more reliably, and returns to the reader cleanly when dismissed.
+- EPUB tables retain column widths and wrap long labels; mixed-direction text, Arabic/Persian shaping, ruby annotations, and footnote styling render correctly.
+- EPUB contents links, split-chapter navigation, footnote resumes, and end-of-book exits preserve the intended reading position.
+- Large EPUBs, image pages, and SD-font preparation recover more safely from limited memory and SD read errors.
+- XTC/XTCH page turns no longer overlap, tables of contents show all entries, and covers retain their grayscale detail. TXT font-size controls and Home progress work reliably.
+- Quick Resume, custom sleep images, transparent overlays, and X3/X4 wake refreshes avoid blank screens, grid artifacts, and lingering images.
+- Long-press shortcuts no longer trigger an extra action on release; Quick Actions, Quick Lock, and Dark Mode shortcuts respond consistently.
+- Touch scrolling, page gestures, font-download cancellation, and reader settings behave reliably across orientations and UI scales.
+- KOReader Sync preserves orientation and settings, handles missing remote positions, and avoids repeated screen flashes during network transitions.
+- Nearby sync, OPDS search, file listings, and image actions handle input and errors more reliably; Calibre Wireless shows the full IP address.
+- S3 sleep, charger detection, and power-button wake behavior are more reliable. USB Drive recovers from storage failures, USB transfers avoid watchdog errors, and updates reject firmware for a different board.
+- Book-specific settings stay separate from global defaults, and Recent Books and KOReader credentials survive network restarts.
+
 ## [v1.5.0] - 2026-08-08
 
 ### Added
+
+- X4 Pro readers can lock the Home button while reading, with a Power-button shortcut to toggle it.
+- End-of-book suggestions can now be opened directly by tapping their rows on touch devices.
+- Quick Actions lets readers assign up to five favorite reader commands to one Power, Back, or Menu shortcut.
+
+### Fixed
 
 - EPUB tables now lay out a row at a time in both Incremental and Full Section indexing, keeping regular tables readable without whole-table buffering.
 - Touch support for Seeed Studio Sticky
@@ -22,6 +139,7 @@
 
 ### Changed
 
+- PSRAM-equipped readers now keep EPUB grayscale and image-cache working buffers in external memory, preserving more internal RAM for layout and reducing repeated SD reads on image pages.
 - Reader font sizes now persist as actual point sizes, keeping the closest matching size when font families or installed files change.
 - SD-card fonts now include the built-in reader fallback stack for common symbols, emoji, and selected CJK glyphs while retaining Noto Sans fallback coverage.
 - Downloadable SD-card fonts are now rendered with the same darker anti-aliasing as the built-in reading fonts.
@@ -64,14 +182,14 @@
 - SD-card font and clipping work now release temporary data at the right time, preserving memory for reflow, dictionary use, covers, and thumbnails on X3/X4.
 - EPUBs with book-specific built-in fonts no longer load an unnecessary global SD-card font, and custom fonts retain ligatures.
 - EPUB styling choices apply before style caches load; CSS-heavy books use less temporary memory; and disabling Embedded Style consistently skips unused stylesheet work.
-- EPUB layout now keeps CJK ruby and spaces, Russian paragraph continuations, Bionic Reading, underline/strikethrough runs, and right-to-left text correct.
+- EPUB layout now keeps CJK ruby and spaces, Russian paragraph continuations, Focus Reading, underline/strikethrough runs, and right-to-left text correct.
 - EPUBs with flowing `<br>` elements, image-led or decorative chapter headings, unsupported images, and dense final pages now lay out without excess gaps, clipping, dropped images, or misleading low-memory warnings.
 - EPUB footnote and cross-reference previews now show complete notes, including targets in the middle of a paragraph.
 - Saved EPUB positions, clipping highlights, and selections now stay accurate after font, orientation, or indexing changes; selections also remain readable in dark mode and on memory-tight pages.
 - Dictionary misses can switch dictionaries without leaving the reader, and dictionary read failures now report an error instead of a false “not found.”
 - Reader popups, KOReader Wi-Fi labels, Lyra battery headers, and the sleep message now remain correctly oriented and positioned.
 - Manual refreshes preserve EPUB and TXT text anti-aliasing; XTC and XTCH status bars show the configured time-left estimate.
-- Watchdog resets return to the crash-report flow, and power-button wake timing no longer depends on SD-card startup.
+- Watchdog panics with captured diagnostics open crash reporting, while reset-only events return normally; power-button wake timing no longer depends on SD-card startup.
 - The web file manager and uploads now handle simulator/device ports and stalled connections safely; unsupported settings stay hidden, and the optimizer removes empty chapter stubs without breaking table-of-contents links.
 
 ## [v1.4.0.1.1] - 2026-08-01
@@ -161,6 +279,7 @@
 
 ### Fixed
 
+- Quick Resume no longer shows a blank page after EPUB next-chapter indexing.
 - Calibre Wireless transfer status no longer stacks the last received-file message on top of the upload percentage.
 - X3 Tilt Direction now labels left/right choices as `Left-Right` and `Right-Left`, with existing left/right preferences migrated to keep the same physical tilt behavior.
 - EPUB layout now honors publisher page-break CSS, avoids stretching justified spaces before closing punctuation, and keeps large CSS rule sets in a smaller disk-backed lookup cache.
@@ -179,7 +298,7 @@
 - Web file manager multi-delete now handles larger selections without failing after a small batch.
 - Portuguese EPUBs now use Portuguese hyphenation rules instead of leaving long words unhyphenated when Hyphenation is enabled.
 - Progressive JPEG EPUB covers now render more smoothly in generated cover and thumbnail BMP assets.
-- EPUB section layout now flushes long text runs earlier when Bionic Reading or Guide Dots are enabled, reducing low-memory failures on difficult books.
+- EPUB section layout now flushes long text runs earlier when Focus Reading or Guide Dots are enabled, reducing low-memory failures on difficult books.
 - Footnotes in EPUBs with very large shared notes sections no longer cause long stalls when opened.
 - Firmware updates now follow GitHub asset redirects before streaming the install.
 - Tiled grayscale rendering now serializes display transfers on the shared SPI bus to avoid display glitches during SD activity.

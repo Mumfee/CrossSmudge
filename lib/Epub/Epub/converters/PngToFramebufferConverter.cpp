@@ -38,6 +38,7 @@ struct PngContext {
   bool caching{false};
 
   uint8_t* grayLineBuffer{nullptr};
+  uint32_t lastYieldMs{0};
 };
 
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
@@ -208,6 +209,8 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   PngContext* ctx = reinterpret_cast<PngContext*>(pDraw->pUser);
   if (!ctx || !ctx->config || !ctx->renderer || !ctx->grayLineBuffer) return 0;
 
+  ImageToFramebufferDecoder::yieldDuringDecode(ctx->lastYieldMs);
+
   int srcY = pDraw->y;
   int srcWidth = ctx->srcWidth;
 
@@ -275,8 +278,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
         if (useDithering) {
           ditheredGray = applyBayerDither4Level(gray, outX, outY);
         } else {
-          ditheredGray = gray / 85;
-          if (ditheredGray > 3) ditheredGray = 3;
+          ditheredGray = quantizeGrayTo4Level(gray);
         }
         pw.writePixel(outX, ditheredGray);
         if (caching) cw.writePixel(outX, ditheredGray);
@@ -437,6 +439,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     }
   }
 
+  ctx.lastYieldMs = millis();
   rc = png->decode(&ctx, 0);
 
   ctx.grayLineBuffer = nullptr;

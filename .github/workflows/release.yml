@@ -11,13 +11,14 @@ permissions:
   contents: write
 
 jobs:
-  build-release:
+  prepare-release:
     runs-on: ubuntu-latest
+    outputs:
+      release_version: ${{ steps.version.outputs.release_version }}
     steps:
       - uses: actions/checkout@v6
         with:
           token: ${{ secrets.RELEASE_PAT }}
-          submodules: recursive
           fetch-depth: 0
 
       - name: Verify release tag is on main
@@ -26,6 +27,37 @@ jobs:
           git fetch origin main:refs/remotes/origin/main
           TAG_COMMIT="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
           git merge-base --is-ancestor "$TAG_COMMIT" origin/main
+
+      - name: Resolve release version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          VERSION="${VERSION#v}"
+          echo "release_version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build-release:
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - environment: default
+            firmware: firmware-x3-x4
+          - environment: sticky
+            firmware: firmware-sticky
+          - environment: x4-pro
+            firmware: firmware-x4-pro
+          - environment: x4-classic
+            firmware: firmware-x4-classic
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - uses: actions/setup-python@v6
         with:
@@ -40,37 +72,69 @@ jobs:
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
-          path: ~/.platformio
-          key: ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
-          restore-keys: |
-            ${{ runner.os }}-platformio-
+          # Do not cache PlatformIO's Python virtual environment. It is tied to
+          # the runner's Python and can become invalid when restored elsewhere.
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
 
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
-      - name: Resolve release version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
-          else
-            VERSION="${GITHUB_REF_NAME#v}"
-          fi
-          VERSION="${VERSION#v}"
-          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
-          sed -i "/^\[crosssmudge\]$/,/^\[/s/^version = .*/version = $VERSION/" platformio.ini
+      - name: Configure release version
+        env:
+          RELEASE_VERSION: ${{ needs.prepare-release.outputs.release_version }}
+          sed -i "/^\[crosssmudge\]$/,/^\[/s/^version = .*/version = $RELEASE_VERSION/" platformio.ini
+          sed -i "/^\[crossink\]$/,/^\[/s/^version = .*/version = $RELEASE_VERSION/" platformio.ini
 
       - name: Build CrossSmudge
         env:
-          CROSSSMUDGE_RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
-        run: pio run -j1 -e default -e sticky
+          CROSSSMUDGE_RELEASE_VERSION: ${{ needs.prepare-release.outputs.release_version }}
+          CROSSINK_RELEASE_VERSION: ${{ needs.prepare-release.outputs.release_version }}
+        run: pio run -j1 -e ${{ matrix.environment }}
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-firmware-${{ matrix.environment }}
+          path: .pio/build/${{ matrix.environment }}/${{ matrix.firmware }}-v${{ needs.prepare-release.outputs.release_version }}.bin
+          if-no-files-found: error
+
+  publish-release:
+    needs:
+      - prepare-release
+      - build-release
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.prepare-release.outputs.release_version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Download firmware artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-firmware-*
+          merge-multiple: true
+          path: release-firmware
+>>>>>>> v1.6.0
 
       - name: Generate release catalog
         run: |
           python3 scripts/generate_release_catalog.py \
             --version "${{ env.RELEASE_VERSION }}" \
             --repo "${{ github.repository }}" \
-            --firmware ".pio/build/default/firmware-x3-x4-v${{ env.RELEASE_VERSION }}.bin" \
-            --firmware ".pio/build/sticky/firmware-sticky-v${{ env.RELEASE_VERSION }}.bin" \
+            --firmware "release-firmware/firmware-x3-x4-v${{ env.RELEASE_VERSION }}.bin" \
+            --firmware "release-firmware/firmware-sticky-v${{ env.RELEASE_VERSION }}.bin" \
+            --firmware "release-firmware/firmware-x4-pro-v${{ env.RELEASE_VERSION }}.bin" \
+            --firmware "release-firmware/firmware-x4-classic-v${{ env.RELEASE_VERSION }}.bin" \
             --output ".pio/build/catalog"
 
       - name: Publish catalog to GitHub Pages source
@@ -113,5 +177,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           draft: true
           files: |
-            .pio/build/default/firmware-x3-x4-v${{ env.RELEASE_VERSION }}.bin
-            .pio/build/sticky/firmware-sticky-v${{ env.RELEASE_VERSION }}.bin
+            release-firmware/firmware-x3-x4-v${{ env.RELEASE_VERSION }}.bin
+            release-firmware/firmware-sticky-v${{ env.RELEASE_VERSION }}.bin
+            release-firmware/firmware-x4-pro-v${{ env.RELEASE_VERSION }}.bin
+            release-firmware/firmware-x4-classic-v${{ env.RELEASE_VERSION }}.bin

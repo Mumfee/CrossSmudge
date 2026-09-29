@@ -8,7 +8,12 @@ nav_order: 2
 ## Supported Devices
 
 - Xteink X3, X4
+- Xteink X4 Classic and X4 Pro
 - Seeed Studio Sticky
+
+Don't have a device yet? Get one directly from [Xteink](https://go.sjv.io/X4RGBb) or [Seeed Studio](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html?sensecap_affiliate=1Nxo3Gw&referring_service=link).
+
+Note: Your purchases using the above affiliate links help support ongoing development of Crossink.
 
 ## Web Installation via USB
 
@@ -18,6 +23,16 @@ nav_order: 2
 2. The latest version will be automatically selected, but if you ever want to revert to an earlier build, you can select it from the dropdown.
 3. Choose the firmware option you want to install.
 4. Click on the "Flash Firmware" button
+
+X4 Pro uses the ESP32-S3 firmware option. Keep the reader connected during the
+download-mode and flashing steps shown by Inky.
+
+## USB Drive
+
+On X4 Pro, choose `Home > File Transfer > USB Drive` to expose the SD card to
+your computer. Eject the drive from the computer before disconnecting it; the
+reader restarts to Home when the drive is safely ejected or the cable is
+removed.
 
 ## SD Card Firmware Update
 

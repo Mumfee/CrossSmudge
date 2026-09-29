@@ -1,0 +1,31 @@
+name: Issue Triage
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch-triage:
+    name: Dispatch triage workflow
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.labels.*.name, 'bug')
+
+    steps:
+      - name: Dispatch triage workflow
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.CROSSINK_DISPATCH_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: 'uxjulia',
+              repo: 'crossink-triage',
+              workflow_id: 'issue-triage.lock.yml',
+              ref: 'main',
+              inputs: {
+                issue_number: String(context.payload.issue.number),
+                issue_url: context.payload.issue.html_url,
+              },
+            });

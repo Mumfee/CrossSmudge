@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "ControlsOptionsActivity.h"
+#include "EpubReaderMenuModel.h"
 #include "ReaderOptionsActivity.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
@@ -19,35 +20,7 @@ struct Rect;
 
 class EpubReaderMenuActivity final : public Activity {
  public:
-  // Menu actions available from the reader menu.
-  enum class MenuAction {
-    SELECT_CHAPTER,
-    FOOTNOTES,
-    GO_TO_PERCENT,
-    AUTO_PAGE_TURN,
-    ROTATE_SCREEN,
-    SCREENSHOT,
-    DISPLAY_QR,
-    GO_HOME,
-    SYNC,
-    NEARBY_POSITION_SYNC,
-    SEND_NEARBY_BOOK,
-    DELETE_STATS,
-    DELETE_CACHE,
-    RESET_READING_PACE,
-    READING_STATS,
-    TOGGLE_COMPLETED,
-    READER_OPTIONS,
-    CONTROLS_OPTIONS,
-    BOOKMARK_TOGGLE,
-    VIEW_BOOKMARKS,
-    DELETE_BOOKMARKS,
-    SAVE_CLIPPING,
-    VIEW_CLIPPINGS,
-    LOOKUP,
-    LOOKUP_HISTORY,
-    SET_BOOK_DICTIONARY
-  };
+  using MenuAction = EpubReaderMenuAction;
 
   explicit EpubReaderMenuActivity(
       GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title, const int currentPage,
@@ -60,7 +33,7 @@ class EpubReaderMenuActivity final : public Activity {
       ReaderOptionsActivity::SaveGlobalSettingsCallback saveGlobalSettingsCallback = nullptr,
       void* saveGlobalSettingsContext = nullptr,
       ReaderOptionsActivity::GlobalSettingsEditCallback beginGlobalSettingsEditCallback = nullptr,
-      void* beginGlobalSettingsEditContext = nullptr, bool stablePageNumbersAvailable = false,
+      void* beginGlobalSettingsEditContext = nullptr, uint32_t stableCurrentPage = 0, uint32_t stablePageCount = 0,
       ReaderOptionsActivity::GlobalSettingsEditCallback endGlobalSettingsEditCallback = nullptr,
       void* endGlobalSettingsEditContext = nullptr, const char* dictionaryFontFamilyName = nullptr,
       uint8_t dictionaryFontPointSize = 0, bool hasDictionaryFontOverride = false,
@@ -94,7 +67,7 @@ class EpubReaderMenuActivity final : public Activity {
 
   static TabMenuItems buildMenuItems(bool hasFootnotes, bool hasBookmarks, bool hasClippings,
                                      bool isCurrentPageBookmarked, bool isBookCompleted, bool showReadingPaceReset,
-                                     bool hasDictionary);
+                                     bool hasDictionary, bool hasStablePageNumbers);
   [[nodiscard]] const std::vector<MenuItem>& activeMenuItems() const;
   [[nodiscard]] size_t activeTabIndex() const { return static_cast<size_t>(activeTab); }
   void cycleActiveTab();
@@ -138,7 +111,8 @@ class EpubReaderMenuActivity final : public Activity {
   void* saveGlobalSettingsContext = nullptr;
   ReaderOptionsActivity::GlobalSettingsEditCallback beginGlobalSettingsEditCallback = nullptr;
   void* beginGlobalSettingsEditContext = nullptr;
-  bool stablePageNumbersAvailable = false;
+  uint32_t stableCurrentPage = 0;
+  uint32_t stablePageCount = 0;
   ReaderOptionsActivity::GlobalSettingsEditCallback endGlobalSettingsEditCallback = nullptr;
   void* endGlobalSettingsEditContext = nullptr;
   char dictionaryFontFamilyName[64] = "";
@@ -147,6 +121,9 @@ class EpubReaderMenuActivity final : public Activity {
   ReaderOptionsActivity::DictionaryFontChangedCallback dictionaryFontChangedCallback = nullptr;
   void* dictionaryFontChangedContext = nullptr;
   bool settingsChanged = false;
+  ReaderSettingsChangeMask changeMask = ReaderSettingsChangeMask::None;
+
+  MenuResult makeMenuResult(int action) const;
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
   UiApp app;

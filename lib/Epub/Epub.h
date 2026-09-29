@@ -1,5 +1,4 @@
 #pragma once
-
 #include <Print.h>
 
 #include <cstdint>
@@ -10,6 +9,7 @@
 
 #include "Epub/BookMetadataCache.h"
 #include "Epub/css/CssParser.h"
+#include "Epub/image/PxcV2.h"
 
 class ZipFile;
 class ZipFileStreamReader;
@@ -21,6 +21,8 @@ class Epub {
   std::string tocNcxItem;
   // the nav file (EPUB 3)
   std::string tocNavItem;
+  // the guide TOC page (EPUB 2)
+  std::string tocGuideItem;
   // where is the EPUBfile?
   std::string filepath;
   // the base path for items in the EPUB file
@@ -47,6 +49,7 @@ class Epub {
   };
 
  public:
+  bool ensureOptimizerImageIndex();
   enum class OpenFailure : uint8_t {
     None,
     OutOfMemory,
@@ -68,6 +71,11 @@ class Epub {
  private:
   std::unique_ptr<LocationSpineEntry[]> locationSpine;
   size_t locationSpineCount = 0;
+  mutable OptimizerFormat::Record optimizerLastHit;
+  mutable std::unique_ptr<PxcV2Workspace> optimizerWorkspace;
+  uint16_t optimizerIndexCount = 0;
+  bool optimizerIndexReady = false;
+  bool findOptimizerImage(const std::string& itemHref) const;
   std::unique_ptr<LocationChapterGroupEntry[]> locationChapterGroups;
   size_t locationChapterGroupCount = 0;
   std::unique_ptr<SourceSpineMapEntry[]> sourceSpineMap;
@@ -79,6 +87,7 @@ class Epub {
   uint32_t totalWords = 0;
   uint32_t wordsPerReferencePage = 0;
   uint32_t totalReferencePages = 0;
+  bool referencePagesUseCharacters = false;
   bool xLocationsLoaded = false;
   OpenFailure lastLoadFailure = OpenFailure::None;
   bool sourceSpineMapDeclared = false;
@@ -112,7 +121,7 @@ class Epub {
   static bool hasCache(const std::string& filepath, const std::string& cacheDir);
   std::string& getBasePath() { return contentBasePath; }
   bool load(bool buildIfMissing = true, bool skipLoadingCss = false,
-            XLocationLoadMode xLocationLoadMode = XLocationLoadMode::Immediate);
+            XLocationLoadMode xLocationLoadMode = XLocationLoadMode::Immediate, bool cacheCumulativeSpineSizes = false);
   // Loads optional stable-page and source-spine metadata after a Skip-mode open.
   // Failure leaves normal size-based progress available.
   bool loadXLocations();
@@ -126,8 +135,9 @@ class Epub {
   const std::string& getLanguage() const;
   // True when parsed EPUB metadata identifies a cover image. Requires load().
   bool hasCoverImage() const;
-  std::string getCoverBmpPath(bool cropped = false) const;
-  bool generateCoverBmp(bool cropped = false, const GfxRenderer* renderer = nullptr, int readerFontId = 0) const;
+  std::string getCoverBmpPath(bool cropped = false, bool imageLevels = false) const;
+  bool generateCoverBmp(bool cropped = false, const GfxRenderer* renderer = nullptr, int readerFontId = 0,
+                        bool imageLevels = false) const;
   std::string getThumbBmpPath() const;
   // Deprecated compatibility wrapper; forwards to getThumbBmpPath(0, height).
   [[deprecated("use getThumbBmpPath(int width, int height)")]]
@@ -155,28 +165,36 @@ class Epub {
                                    bool trailingNullByte = false) const;
   bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize,
                                 bool allowEarlyStop = false) const;
-  bool extractItemToFile(const std::string& itemHref, const std::string& destPath) const;
-  std::unique_ptr<ZipFileStreamReader> openItemContentsStream(const std::string& itemHref, size_t chunkSize) const;
+  bool extractItemToFile(const std::string& itemHref, const std::string& destPath, size_t chunkSize = 4096) const;
   bool getItemSize(const std::string& itemHref, size_t* size) const;
+  bool getOptimizerImageDimensions(const std::string& itemHref, uint16_t& width, uint16_t& height) const;
+  // Seeds the normal local cache from an exact optimizer sidecar, or streams a
+  // bounded nearest-neighbour resize into that cache when the device differs.
+  bool seedOptimizerImageCache(const std::string& itemHref, int expectedWidth, int expectedHeight,
+                               const std::string& destPxcPath) const;
   BookMetadataCache::SpineEntry getSpineItem(int spineIndex) const;
   BookMetadataCache::TocEntry getTocItem(int tocIndex) const;
   int getSpineItemsCount() const;
   int getTocItemsCount() const;
   int getSpineIndexForTocIndex(int tocIndex) const;
   int getTocIndexForSpineIndex(int spineIndex) const;
+  bool isNavigationDocumentSpine(int spineIndex, bool* scanSucceeded = nullptr) const;
   size_t getCumulativeSpineItemSize(int spineIndex) const;
   int getSpineIndexForTextReference() const;
 
   size_t getBookSize() const;
   bool hasXLocations() const { return xLocationsLoaded; }
-  bool hasStablePageNumbers() const {
-    return xLocationsLoaded && totalWords > 0 && wordsPerReferencePage > 0 && totalReferencePages > 0;
-  }
+  bool hasStablePageNumbers() const;
+  uint32_t getReferencePageCount() const { return hasStablePageNumbers() ? totalReferencePages : 0; }
   float calculateSizeProgress(int currentSpineIndex, float currentSpineRead) const;
   float calculateProgress(int currentSpineIndex, float currentSpineRead) const;
-  bool resolveLocationPercentToSpineProgress(int percent, int& spineIndex, float& spineProgress) const;
+  // percent is 0.0-100.0; callers may pass fractional values from decimal keypad entry.
+  bool resolveLocationPercentToSpineProgress(float percent, int& spineIndex, float& spineProgress) const;
   bool resolveReferencePage(int currentSpineIndex, float currentSpineRead, uint32_t& currentPage,
                             uint32_t& pageCount) const;
+  bool resolveReferencePageToSpineProgress(uint32_t page, int& spineIndex, float& spineProgress) const;
+  bool resolveReferencePageTarget(uint32_t page, int& spineIndex, float& spineProgress, uint32_t& spineUnitOffset,
+                                  uint32_t& spineUnitCount, bool& usesCharacters) const;
   bool resolveChapterGroupRange(int currentSpineIndex, int& firstSpineIndex, int& lastSpineIndex) const;
   bool hasChapterGroups() const { return locationChapterGroupCount > 0; }
   bool hasSourceSpineMap() const { return sourceSpineMapCount > 0; }

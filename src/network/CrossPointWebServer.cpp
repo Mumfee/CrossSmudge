@@ -20,15 +20,16 @@
 #include <cstring>
 #include <iterator>
 
-#include "AppCapabilities.h"
 #include "AppVersion.h"
 #include "CrossPointSettings.h"
 #include "FontInstaller.h"
 #include "OpdsServerStore.h"
+#include "QuickActions.h"
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
+#include "activities/boot_sleep/ImageFolderIndex.h"
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
@@ -37,6 +38,7 @@
 #include "html/StyleCss.generated.h"
 #include "html/js/jszip_minJs.generated.h"
 #include "util/BookCacheUtils.h"
+#include "util/FontFamilyLabel.h"
 #include "util/StringUtils.h"
 
 namespace {
@@ -49,18 +51,6 @@ constexpr uint16_t LOCAL_UDP_PORT = 8134;
 // Static pointer for WebSocket callback (WebSocketsServer requires C-style callback)
 CrossPointWebServer* wsInstance = nullptr;
 
-uint8_t enumDisplayIndexForRawValue(const SettingInfo& setting, uint8_t rawValue) {
-  if (setting.enumRawValues.empty()) {
-    return rawValue;
-  }
-
-  auto it = std::find(setting.enumRawValues.begin(), setting.enumRawValues.end(), rawValue);
-  if (it == setting.enumRawValues.end()) {
-    return 0;
-  }
-  return static_cast<uint8_t>(std::distance(setting.enumRawValues.begin(), it));
-}
-
 uint8_t enumRawValueForDisplayIndex(const SettingInfo& setting, uint8_t displayIndex) {
   if (setting.enumRawValues.empty()) {
     return displayIndex;
@@ -71,19 +61,80 @@ uint8_t enumRawValueForDisplayIndex(const SettingInfo& setting, uint8_t displayI
   return setting.enumRawValues[displayIndex];
 }
 
-bool isWebSettingAvailable(const SettingInfo& setting) {
-#if !CROSSSMUDGE_APP_CAP_TOUCH
-  if (setting.nameId == StrId::STR_TOUCH_READER_CONTROLS || setting.nameId == StrId::STR_DISABLE_TOUCHSCREEN) {
-    return false;
-  }
-#endif
+bool isTwoFingerSwipeSetting(const SettingInfo& setting) {
+  return setting.nameId == StrId::STR_TWO_FINGER_SWIPE_UP || setting.nameId == StrId::STR_TWO_FINGER_SWIPE_DOWN ||
+         setting.nameId == StrId::STR_TWO_FINGER_SWIPE_LEFT || setting.nameId == StrId::STR_TWO_FINGER_SWIPE_RIGHT;
+}
 
-#if !FREEINK_CAP_FRONTLIGHT
-  if (setting.nameId == StrId::STR_BRIGHTNESS || setting.nameId == StrId::STR_WARMTH ||
-      setting.nameId == StrId::STR_FRONTLIGHT) {
+bool isWebEnumOptionAvailable(const SettingInfo& setting, size_t optionIndex) {
+  if (optionIndex >= setting.enumValues.size()) return true;
+
+  const StrId option = setting.enumValues[optionIndex];
+  if (option == StrId::STR_TOGGLE_TOUCHSCREEN && !gpio.hasTouch()) return false;
+
+  if (!Frontlight.present()) {
+    if (option == StrId::STR_TOGGLE_FRONTLIGHT ||
+        (isTwoFingerSwipeSetting(setting) &&
+         (option == StrId::STR_INCREASE_BRIGHTNESS || option == StrId::STR_DECREASE_BRIGHTNESS ||
+          option == StrId::STR_INCREASE_WARMTH || option == StrId::STR_DECREASE_WARMTH))) {
+      return false;
+    }
+    return setting.nameId != StrId::STR_REFRESH_FREQ || optionIndex >= setting.enumRawValues.size() ||
+           setting.enumRawValues[optionIndex] != CrossPointSettings::REFRESH_NEVER;
+  }
+
+  return Frontlight.hasColorTemperature() || !isTwoFingerSwipeSetting(setting) ||
+         (option != StrId::STR_INCREASE_WARMTH && option != StrId::STR_DECREASE_WARMTH);
+}
+
+uint8_t enumDisplayIndexForWeb(const SettingInfo& setting, uint8_t rawValue) {
+  if (setting.enumRawValues.empty()) return rawValue;
+
+  uint8_t displayIndex = 0;
+  for (size_t optionIndex = 0; optionIndex < setting.enumRawValues.size(); ++optionIndex) {
+    if (!isWebEnumOptionAvailable(setting, optionIndex)) continue;
+    if (setting.enumRawValues[optionIndex] == rawValue) return displayIndex;
+    ++displayIndex;
+  }
+  return 0;
+}
+
+bool isWebSettingAvailable(const SettingInfo& setting) {
+  if (setting.nameId == StrId::STR_SIDE_BUTTON_CHORD && !deviceSupportsSideButtonChord(gpio)) {
     return false;
   }
-#endif
+
+  const bool isTouchSetting =
+      setting.nameId == StrId::STR_TOUCH_READER_CONTROLS || setting.nameId == StrId::STR_DISABLE_TOUCHSCREEN ||
+      setting.nameId == StrId::STR_NEXT_PAGE || setting.nameId == StrId::STR_PREV_PAGE ||
+      setting.nameId == StrId::STR_TAP_HIDE_STATUS_BAR || setting.nameId == StrId::STR_PINCH_FONT_RESIZE ||
+      setting.nameId == StrId::STR_TWO_FINGER_ROTATION || setting.nameId == StrId::STR_TWO_FINGER_SWIPE_UP ||
+      setting.nameId == StrId::STR_TWO_FINGER_SWIPE_DOWN || setting.nameId == StrId::STR_TWO_FINGER_SWIPE_LEFT ||
+      setting.nameId == StrId::STR_TWO_FINGER_SWIPE_RIGHT;
+  if (isTouchSetting && !gpio.hasTouch()) {
+    return false;
+  }
+
+  const bool isMultiTouchSetting = setting.nameId == StrId::STR_PINCH_FONT_RESIZE ||
+                                   setting.nameId == StrId::STR_TWO_FINGER_ROTATION || isTwoFingerSwipeSetting(setting);
+  if (isMultiTouchSetting && !gpio.supportsMultiTouch()) {
+    return false;
+  }
+
+  const bool isFrontlightSetting = setting.nameId == StrId::STR_BRIGHTNESS || setting.nameId == StrId::STR_WARMTH ||
+                                   setting.nameId == StrId::STR_FRONTLIGHT ||
+                                   setting.nameId == StrId::STR_RESTORE_LIGHT_ON_WAKE ||
+                                   setting.nameId == StrId::STR_FRONTLIGHT_SCHEDULE ||
+                                   setting.nameId == StrId::STR_START || setting.nameId == StrId::STR_END;
+  if (isFrontlightSetting && !Frontlight.present()) {
+    return false;
+  }
+
+  const bool isFrontlightScheduleSetting = setting.nameId == StrId::STR_FRONTLIGHT_SCHEDULE ||
+                                           setting.nameId == StrId::STR_START || setting.nameId == StrId::STR_END;
+  if (isFrontlightScheduleSetting && !halClock.isAvailable()) {
+    return false;
+  }
 
   if (!halClock.isAvailable()) {
     switch (setting.nameId) {
@@ -346,8 +397,8 @@ void CrossPointWebServer::begin() {
   server->onNotFound([this] { handleNotFound(); });
 
   // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout"};
-  server->collectHeaders(davHeaders, 6);
+  const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "If-None-Match"};
+  server->collectHeaders(davHeaders, 7);
   server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
 
   server->begin();
@@ -493,16 +544,25 @@ CrossPointWebServer::WsUploadStatus CrossPointWebServer::getWsUploadStatus() con
   return status;
 }
 
-static void sendHtmlContent(WebServer* server, const char* data, size_t len) {
+static void sendStaticContent(WebServer* server, const char* data, size_t len, const char* etag,
+                              const char* contentType = "text/html") {
+  server->sendHeader("ETag", etag);
+  // Revalidate on each visit so firmware updates cannot leave stale pages cached.
+  server->sendHeader("Cache-Control", "no-cache");
+  if (server->header("If-None-Match") == etag) {
+    server->send(304);
+    return;
+  }
   server->sendHeader("Content-Encoding", "gzip");
-  server->send_P(200, "text/html", data, len);
+  server->send_P(200, contentType, data, len);
 }
 
-void CrossPointWebServer::handleRoot() const { sendHtmlContent(server.get(), HomePageHtml, sizeof(HomePageHtml)); }
+void CrossPointWebServer::handleRoot() const {
+  sendStaticContent(server.get(), HomePageHtml, sizeof(HomePageHtml), HomePageHtmlETag);
+}
 
 void CrossPointWebServer::handleJszip() const {
-  server->sendHeader("Content-Encoding", "gzip");
-  server->send_P(200, "application/javascript", jszip_minJs, jszip_minJsCompressedSize);
+  sendStaticContent(server.get(), jszip_minJs, jszip_minJsCompressedSize, jszip_minJsETag, "application/javascript");
 }
 
 // Shared stylesheet and logo are referenced with a content-hashed ?v= query,
@@ -581,66 +641,73 @@ void CrossPointWebServer::handleStatus() const {
   server->send(200, "application/json", response);
 }
 
-void CrossPointWebServer::scanFiles(const char* path, const FileVisitor visitor, void* context) const {
+bool CrossPointWebServer::scanFiles(const char* path, const FileVisitor visitor, void* context) const {
   HalFile root = Storage.open(path);
   if (!root) {
     LOG_DBG("WEB", "Failed to open directory: %s", path);
-    return;
+    return false;
   }
 
   if (!root.isDirectory()) {
     LOG_DBG("WEB", "Not a directory: %s", path);
     root.close();
-    return;
+    return false;
   }
 
   HalFile file = root.openNextFile();
   char name[500];
   while (file) {
-    file.getName(name, sizeof(name));
-    auto fileName = String(name);
+    if (visitor) {
+      file.getName(name, sizeof(name));
+      auto fileName = String(name);
 
-    // Skip hidden items (starting with ".")
-    bool shouldHide = !SETTINGS.showHiddenFiles && fileName.startsWith(".");
+      // Skip hidden items (starting with ".")
+      bool shouldHide = !SETTINGS.showHiddenFiles && fileName.startsWith(".");
 
-    // Treat OS/device metadata like other hidden items: keep it out of the
-    // default view, but let users manage it when Show Hidden Files is enabled.
-    if (!shouldHide && !SETTINGS.showHiddenFiles) {
-      for (const auto* item : HIDDEN_ITEMS) {
-        if (fileName.equals(item)) {
-          shouldHide = true;
-          break;
+      // Treat OS/device metadata like other hidden items: keep it out of the
+      // default view, but let users manage it when Show Hidden Files is enabled.
+      if (!shouldHide && !SETTINGS.showHiddenFiles) {
+        for (const auto* item : HIDDEN_ITEMS) {
+          if (fileName.equals(item)) {
+            shouldHide = true;
+            break;
+          }
         }
       }
-    }
 
-    if (!shouldHide) {
-      FileInfo info;
-      info.name = fileName;
-      info.isDirectory = file.isDirectory();
+      if (!shouldHide) {
+        FileInfo info;
+        info.name = fileName;
+        info.isDirectory = file.isDirectory();
 
-      if (info.isDirectory) {
-        info.size = 0;
-        info.isEpub = false;
-      } else {
-        info.size = file.size();
-        info.isEpub = isEpubFile(info.name);
+        if (info.isDirectory) {
+          info.size = 0;
+          info.isEpub = false;
+        } else {
+          info.size = file.size();
+          info.isEpub = isEpubFile(info.name);
+        }
+
+        visitor(info, context);
       }
-
-      visitor(info, context);
     }
 
     file.close();
     yield();  // Yield to allow WiFi and other tasks to process during long scans
     file = root.openNextFile();
   }
+  const bool complete = !FsHelpers::directoryIterationFailed(root);
+  if (!complete) {
+    LOG_ERR("WEB", "Directory listing failed before EOF: %s", path);
+  }
   root.close();
+  return complete;
 }
 
 bool CrossPointWebServer::isEpubFile(const String& filename) const { return FsHelpers::hasEpubExtension(filename); }
 
 void CrossPointWebServer::handleFileList() const {
-  sendHtmlContent(server.get(), FilesPageHtml, sizeof(FilesPageHtml));
+  sendStaticContent(server.get(), FilesPageHtml, sizeof(FilesPageHtml), FilesPageHtmlETag);
 }
 
 void CrossPointWebServer::handleFileListData() const {
@@ -655,9 +722,6 @@ void CrossPointWebServer::handleFileListData() const {
     return;
   }
 
-  server->setContentLength(CONTENT_LENGTH_UNKNOWN);
-  server->send(200, "application/json", "");
-
   // This response runs on the web-server task, so a TCP-sized heap buffer is
   // safer than adding 1.4KB to its stack. Allocation is fallible and retains
   // the old per-entry path as a low-memory fallback.
@@ -666,6 +730,16 @@ void CrossPointWebServer::handleFileListData() const {
   char output[512];
   constexpr size_t outputSize = sizeof(output);
   JsonDocument doc;
+
+  // Check the iterator before committing to a streamed 200 response. Without
+  // this pass, an SD read error is indistinguishable from a complete JSON list.
+  if (!scanFiles(currentPath.c_str(), nullptr, nullptr)) {
+    server->send(500, "application/json", "{\"error\":\"Directory listing failed\"}");
+    return;
+  }
+
+  server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server->send(200, "application/json", "");
 
   struct FileListContext {
     WebServer* server;
@@ -683,7 +757,7 @@ void CrossPointWebServer::handleFileListData() const {
     server->sendContent("[");
   }
 
-  scanFiles(
+  const bool complete = scanFiles(
       currentPath.c_str(),
       [](const FileInfo& info, void* rawContext) {
         auto& context = *static_cast<FileListContext*>(rawContext);
@@ -716,6 +790,12 @@ void CrossPointWebServer::handleFileListData() const {
         context.seenFirst = true;
       },
       &context);
+
+  if (!complete) {
+    // A second-pass failure must not be closed into a valid partial array.
+    server->client().stop();
+    return;
+  }
 
   if (batch) {
     if (context.batchLen + 1 > BATCH_CAPACITY) {
@@ -868,6 +948,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     }
 
     // Open file for writing - this can be slow due to FAT cluster allocation
+    sdFontSystem.markRegistryDirtyForPath(filePath.c_str());
     if (!Storage.openFileForWrite("WEB", filePath, state.file)) {
       state.error = "Failed to create file on SD card";
       LOG_DBG("WEB", "[UPLOAD] FAILED to create file: %s", filePath.c_str());
@@ -922,6 +1003,8 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
         if (!filePath.endsWith("/")) filePath += "/";
         filePath += state.fileName;
         clearBookCachePreservingUserState(filePath.c_str());
+        ImageFolderIndex::invalidateForPath(filePath.c_str());
+        sdFontSystem.markRegistryDirtyForPath(filePath.c_str());
       }
     }
   } else if (upload.status == UPLOAD_FILE_ABORTED) {
@@ -955,7 +1038,29 @@ void CrossPointWebServer::handleCreateFolder() const {
     return;
   }
 
-  const String folderName = StringUtils::sanitizeFilename(server->arg("name").c_str()).c_str();
+  const String requestedName = server->arg("name");
+  size_t leadingDots = 0;
+  while (leadingDots < requestedName.length() && requestedName[leadingDots] == '.') {
+    leadingDots++;
+  }
+
+  const String nameSuffix = requestedName.substring(leadingDots);
+  bool suffixHasNameCharacter = false;
+  for (size_t i = 0; i < nameSuffix.length(); ++i) {
+    if (nameSuffix[i] != ' ' && nameSuffix[i] != '.') {
+      suffixHasNameCharacter = true;
+      break;
+    }
+  }
+  if (!suffixHasNameCharacter || leadingDots >= StringUtils::kDefaultMaxFilenameBytes) {
+    server->send(400, "text/plain", "Invalid folder name");
+    return;
+  }
+  const size_t suffixBudget =
+      StringUtils::kDefaultMaxFilenameBytes > leadingDots ? StringUtils::kDefaultMaxFilenameBytes - leadingDots : 0;
+  const String sanitizedSuffix = StringUtils::sanitizeFilename(nameSuffix.c_str(), suffixBudget).c_str();
+  String folderName = requestedName.substring(0, leadingDots);
+  folderName += sanitizedSuffix;
 
   // Validate folder name
   if (folderName.isEmpty() || folderName == "book") {
@@ -969,12 +1074,27 @@ void CrossPointWebServer::handleCreateFolder() const {
     parentPath = normalizeWebPath(server->arg("path"));
   }
 
+  HalFile parent = Storage.open(parentPath.c_str());
+  if (!parent || !parent.isDirectory()) {
+    parent.close();
+    server->send(404, "text/plain", "Parent directory does not exist");
+    return;
+  }
+  parent.close();
+
+  if (isProtectedPath(parentPath)) {
+    server->send(403, "text/plain", "Access denied to protected path");
+    return;
+  }
+
   // Build full folder path
   String folderPath = parentPath;
   if (!folderPath.endsWith("/")) folderPath += "/";
   folderPath += folderName;
 
-  if (isProtectedPath(folderPath)) {
+  // Allow creating a new hidden folder in a visible parent. Existing hidden
+  // and system-managed paths remain protected unless Show Hidden Files is on.
+  if (isProtectedPath(folderPath) && !folderName.startsWith(".")) {
     server->send(403, "text/plain", "Access denied to protected path");
     return;
   }
@@ -987,6 +1107,17 @@ void CrossPointWebServer::handleCreateFolder() const {
 
   // Create the folder
   if (Storage.mkdir(folderPath.c_str())) {
+    const auto visibility = FsHelpers::directoryEntryVisibility(parentPath.c_str(), folderPath.c_str());
+    if (visibility != FsHelpers::DirectoryEntryVisibility::Visible) {
+      const bool rolledBack =
+          visibility == FsHelpers::DirectoryEntryVisibility::Missing && Storage.rmdir(folderPath.c_str());
+      LOG_ERR("WEB", "Created folder is not enumerable: %s (visibility=%u rollback=%d)", folderPath.c_str(),
+              static_cast<unsigned>(visibility), rolledBack);
+      server->send(500, "text/plain", "Folder could not be added to the directory listing");
+      return;
+    }
+    ImageFolderIndex::invalidateForPath(folderPath.c_str());
+    sdFontSystem.markRegistryDirtyForPath(folderPath.c_str());
     server->send(200, "text/plain", "Folder created: " + folderName);
   } else {
     LOG_DBG("WEB", "Failed to create folder: %s", folderPath.c_str());
@@ -1066,6 +1197,10 @@ void CrossPointWebServer::handleRename() const {
 
   if (success) {
     LOG_DBG("WEB", "Renamed file: %s -> %s", itemPath.c_str(), newPath.c_str());
+    ImageFolderIndex::invalidateForPath(itemPath.c_str());
+    sdFontSystem.markRegistryDirtyForPath(itemPath.c_str());
+    ImageFolderIndex::invalidateForPath(newPath.c_str());
+    sdFontSystem.markRegistryDirtyForPath(newPath.c_str());
     server->send(200, "text/plain", "Renamed successfully");
   } else {
     LOG_ERR("WEB", "Failed to rename file: %s -> %s", itemPath.c_str(), newPath.c_str());
@@ -1157,6 +1292,10 @@ void CrossPointWebServer::handleMove() const {
 
   if (success) {
     LOG_DBG("WEB", "Moved file: %s -> %s", itemPath.c_str(), newPath.c_str());
+    ImageFolderIndex::invalidateForPath(itemPath.c_str());
+    sdFontSystem.markRegistryDirtyForPath(itemPath.c_str());
+    ImageFolderIndex::invalidateForPath(newPath.c_str());
+    sdFontSystem.markRegistryDirtyForPath(newPath.c_str());
     server->send(200, "text/plain", "Moved successfully");
   } else {
     LOG_ERR("WEB", "Failed to move file: %s -> %s", itemPath.c_str(), newPath.c_str());
@@ -1222,6 +1361,7 @@ void CrossPointWebServer::handleDelete() const {
       continue;
     }
 
+    sdFontSystem.markRegistryDirtyForPath(itemPath.c_str());
     // Decide whether it's a directory or file by opening it
     bool success = false;
     HalFile f = Storage.open(itemPath.c_str());
@@ -1239,6 +1379,9 @@ void CrossPointWebServer::handleDelete() const {
       LOG_ERR("WEB", "Failed to delete item: %s", itemPath.c_str());
       failedItems += itemPath + " (deletion failed); ";
       allSuccess = false;
+    } else {
+      ImageFolderIndex::invalidateForPath(itemPath.c_str());
+      sdFontSystem.markRegistryDirtyForPath(itemPath.c_str());
     }
   }
 
@@ -1250,7 +1393,7 @@ void CrossPointWebServer::handleDelete() const {
 }
 
 void CrossPointWebServer::handleSettingsPage() const {
-  sendHtmlContent(server.get(), SettingsPageHtml, sizeof(SettingsPageHtml));
+  sendStaticContent(server.get(), SettingsPageHtml, sizeof(SettingsPageHtml), SettingsPageHtmlETag);
 }
 
 void CrossPointWebServer::handleGetSettings() const {
@@ -1308,16 +1451,17 @@ void CrossPointWebServer::handleGetSettings() const {
           const auto it = std::find(sizes.begin(), sizes.end(), selectedPointSize);
           doc["value"] = static_cast<int>(it == sizes.end() ? 0 : std::distance(sizes.begin(), it));
         } else if (s.valuePtr) {
-          doc["value"] = static_cast<int>(enumDisplayIndexForRawValue(s, SETTINGS.*(s.valuePtr)));
+          doc["value"] = static_cast<int>(enumDisplayIndexForWeb(s, SETTINGS.*(s.valuePtr)));
         } else if (s.valueGetter) {
           doc["value"] = static_cast<int>(s.valueGetter());
         }
         JsonArray options = doc["options"].to<JsonArray>();
         if (s.nameId == StrId::STR_FONT_FAMILY && !fontFamilies.empty()) {
-          options.add(I18N.get(StrId::STR_LEXEND_DECA));
-          options.add(I18N.get(StrId::STR_BITTER));
+          constexpr FontFamilyPointSizeRange builtinRange{10, 16};
+          options.add(fontFamilyLabel(I18N.get(StrId::STR_LEXEND_DECA), builtinRange));
+          options.add(fontFamilyLabel(I18N.get(StrId::STR_BITTER), builtinRange));
           for (const auto& family : fontFamilies) {
-            options.add(family.name);
+            options.add(fontFamilyLabel(family.name, fontFamilyPointSizeRange(family)));
           }
         } else if (s.nameId == StrId::STR_FONT_SIZE && selectedSdFamily) {
           const auto sizes = selectedSdFamily->availableSizes();
@@ -1331,8 +1475,10 @@ void CrossPointWebServer::handleGetSettings() const {
             options.add(opt);
           }
         } else {
-          for (const auto& opt : s.enumValues) {
-            options.add(I18N.get(opt));
+          for (size_t optionIndex = 0; optionIndex < s.enumValues.size(); ++optionIndex) {
+            if (isWebEnumOptionAvailable(s, optionIndex)) {
+              options.add(I18N.get(s.enumValues[optionIndex]));
+            }
           }
         }
         break;
@@ -1341,6 +1487,8 @@ void CrossPointWebServer::handleGetSettings() const {
         doc["type"] = "value";
         if (s.valuePtr) {
           doc["value"] = static_cast<int>(SETTINGS.*(s.valuePtr));
+        } else if (s.value16Ptr) {
+          doc["value"] = static_cast<int>(SETTINGS.*(s.value16Ptr));
         }
         doc["min"] = s.valueRange.min;
         doc["max"] = s.valueRange.max;
@@ -1349,7 +1497,12 @@ void CrossPointWebServer::handleGetSettings() const {
       }
       case SettingType::STRING: {
         doc["type"] = "string";
-        if (s.stringGetter) {
+        // Passwords are write-only in the web UI. Returning the KOReader
+        // value can expose credentials and, for legacy invalid data, emit
+        // binary bytes that make the whole JSON response unparsable.
+        if (strcmp(s.key, "koPassword") == 0) {
+          doc["value"] = "";
+        } else if (s.stringGetter) {
           doc["value"] = s.stringGetter();
         } else if (s.stringMaxLen > 0) {
           doc["value"] = reinterpret_cast<const char*>(&SETTINGS) + s.stringOffset;
@@ -1395,6 +1548,7 @@ void CrossPointWebServer::handlePostSettings() {
   sdFontSystem.refreshIfDirty();
   const auto& settings = getSettingsList(&sdFontSystem.registry());
   int applied = 0;
+  uint8_t CrossPointSettings::* twoFingerSwipeEdited = nullptr;
 
   for (const auto& s : settings) {
     if (!s.key || !isWebSettingAvailable(s)) continue;
@@ -1416,6 +1570,13 @@ void CrossPointWebServer::handlePostSettings() {
         if (val >= 0 && val < maxVal) {
           if (s.valuePtr) {
             SETTINGS.*(s.valuePtr) = enumRawValueForDisplayIndex(s, static_cast<uint8_t>(val));
+            QuickActions::settingChanged(SETTINGS, s.valuePtr);
+            if (s.valuePtr == &CrossPointSettings::twoFingerSwipeUp ||
+                s.valuePtr == &CrossPointSettings::twoFingerSwipeDown ||
+                s.valuePtr == &CrossPointSettings::twoFingerSwipeLeft ||
+                s.valuePtr == &CrossPointSettings::twoFingerSwipeRight) {
+              twoFingerSwipeEdited = s.valuePtr;
+            }
           } else if (s.valueSetter) {
             s.valueSetter(static_cast<uint8_t>(val));
           }
@@ -1428,6 +1589,8 @@ void CrossPointWebServer::handlePostSettings() {
         if (val >= s.valueRange.min && val <= s.valueRange.max) {
           if (s.valuePtr) {
             SETTINGS.*(s.valuePtr) = static_cast<uint8_t>(val);
+          } else if (s.value16Ptr) {
+            SETTINGS.*(s.value16Ptr) = static_cast<uint16_t>(val);
           }
           applied++;
         }
@@ -1454,6 +1617,9 @@ void CrossPointWebServer::handlePostSettings() {
     }
   }
 
+  if (twoFingerSwipeEdited != nullptr) {
+    CrossPointSettings::normalizeTwoFingerSwipeActions(SETTINGS, twoFingerSwipeEdited);
+  }
   SETTINGS.saveToFile();
 
   LOG_DBG("WEB", "Applied %d setting(s)", applied);
@@ -1811,6 +1977,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
                   filePath.c_str());
 
           // Open file for writing
+          sdFontSystem.markRegistryDirtyForPath(filePath.c_str());
           if (!Storage.openFileForWrite("WS", filePath, wsUploadFile)) {
             wsServer->sendTXT(num, "ERROR:Failed to create file");
             wsUploadInProgress = false;
@@ -1827,6 +1994,8 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
             wsLastCompleteAt = millis();
             LOG_DBG("WS", "Zero-byte upload complete: %s", filePath.c_str());
             clearBookCachePreservingUserState(filePath.c_str());
+            ImageFolderIndex::invalidateForPath(filePath.c_str());
+            sdFontSystem.markRegistryDirtyForPath(filePath.c_str());
             wsServer->sendTXT(num, "DONE");
             wsLastProgressSent = 0;
             break;
@@ -1894,6 +2063,8 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
         if (!filePath.endsWith("/")) filePath += "/";
         filePath += wsUploadFileName;
         clearBookCachePreservingUserState(filePath.c_str());
+        ImageFolderIndex::invalidateForPath(filePath.c_str());
+        sdFontSystem.markRegistryDirtyForPath(filePath.c_str());
 
         wsServer->sendTXT(num, "DONE");
         wsLastProgressSent = 0;
@@ -1909,7 +2080,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
 // --- Font management handlers ---
 
 void CrossPointWebServer::handleFontsPage() const {
-  sendHtmlContent(server.get(), FontsPageHtml, sizeof(FontsPageHtml));
+  sendStaticContent(server.get(), FontsPageHtml, sizeof(FontsPageHtml), FontsPageHtmlETag);
 }
 
 void CrossPointWebServer::handleFontList() const {
@@ -1927,6 +2098,10 @@ void CrossPointWebServer::handleFontList() const {
 
   bool firstFamily = true;
   for (const auto& family : families) {
+    // Hydrate and emit one family's paths at a time. Keeping every family's
+    // paths resident is what made larger catalogs exhaust the X3 network heap.
+    if (!family.ensureDetails()) continue;
+
     if (!firstFamily) json.append(",");
     firstFamily = false;
 
@@ -1968,6 +2143,7 @@ void CrossPointWebServer::handleFontList() const {
     }
     json.append("]}");
     json.flush();
+    family.releaseDetails();
     yield();
   }
 
@@ -2020,6 +2196,7 @@ void CrossPointWebServer::handleFontUploadData() {
       char path[192];
       FontInstaller::buildFontPath(family.c_str(), filename.c_str(), path, sizeof(path));
       fontUpload.filePath = path;
+      sdFontSystem.markRegistryDirty();
 
       if (!Storage.openFileForWrite("WEB", path, fontUpload.file)) {
         LOG_ERR("WEB", "Failed to open font file for write: %s", path);

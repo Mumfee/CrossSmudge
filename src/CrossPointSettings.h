@@ -9,6 +9,8 @@
 #include <iosfwd>
 #include <mutex>
 
+#include "ReaderFontSizeStep.h"
+
 class CrossPointSettings : public PersistableStore<CrossPointSettings> {
  private:
   mutable std::mutex _mutex;
@@ -65,6 +67,12 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     PROGRESS_BAR_NORMAL = 1,
     PROGRESS_BAR_THICK = 2,
     STATUS_BAR_PROGRESS_BAR_THICKNESS_COUNT
+  };
+  enum BOOK_PERCENTAGE_FORMAT {
+    BOOK_PERCENTAGE_WHOLE = 0,
+    BOOK_PERCENTAGE_ONE_DECIMAL = 1,
+    BOOK_PERCENTAGE_TWO_DECIMALS = 2,
+    BOOK_PERCENTAGE_FORMAT_COUNT
   };
   enum STATUS_BAR_TITLE { BOOK_TITLE = 0, CHAPTER_TITLE = 1, HIDE_TITLE = 2, STATUS_BAR_TITLE_COUNT };
   enum STATUS_BAR_TIME_LEFT {
@@ -145,6 +153,19 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     FRONT_ORIENTATION_AWARE_COUNT
   };
 
+  enum TWO_FINGER_SWIPE_ACTION {
+    TWO_FINGER_SWIPE_NOT_SET = 0,
+    TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS,
+    TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS,
+    TWO_FINGER_SWIPE_INCREASE_WARMTH,
+    TWO_FINGER_SWIPE_DECREASE_WARMTH,
+    TWO_FINGER_SWIPE_NEXT_CHAPTER,
+    TWO_FINGER_SWIPE_PREVIOUS_CHAPTER,
+    TWO_FINGER_SWIPE_INCREASE_FONT_SIZE,
+    TWO_FINGER_SWIPE_DECREASE_FONT_SIZE,
+    TWO_FINGER_SWIPE_ACTION_COUNT,
+  };
+
   // Side button long-press action options
   enum SIDE_LONG_PRESS {
     SIDE_LONG_CHAPTER_SKIP = 0,
@@ -195,6 +216,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     REFRESH_10 = 2,
     REFRESH_15 = 3,
     REFRESH_30 = 4,
+    REFRESH_NEVER = 5,
     REFRESH_FREQUENCY_COUNT
   };
 
@@ -212,7 +234,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     FORCE_REFRESH = 3,
     TOGGLE_FONT = 4,
     TOGGLE_GUIDE_DOTS = 5,
-    TOGGLE_BIONIC_READING = 6,
+    TOGGLE_FOCUS_READING = 6,
     TOGGLE_BOOKMARK = 7,
     SYNC_PROGRESS = 8,
     MARK_FINISHED = 9,
@@ -229,8 +251,70 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     CREATE_HOTSPOT = 20,
     CREATE_CLIPPING = 21,
     LOOKUP_WORD = 22,
+    // Values 23-26 are already persisted by the X4 Pro Home-key feature.
+    // Keep Quick Actions separate so existing Home-key mappings retain their meaning.
+    TOGGLE_HOME_BUTTON_IN_READER = 26,
+    QUICK_ACTIONS = 27,
+    TOGGLE_FRONTLIGHT = 28,
+    TOGGLE_TOUCHSCREEN = 29,
+    // Appended after the X4 Pro and Quick Actions values so existing settings
+    // files continue to mean exactly the same thing.
+    QUICK_LOCK = 30,
+    // Shortcut values are persisted. Append new actions; never reuse removed
+    // raw values or they can silently change an existing binding's behavior.
+    PREVIOUS_PAGE = 31,
+    NEARBY_POSITION_SYNC = 32,
     SHORT_PWRBTN_COUNT
   };
+
+  // Power + Up side-button chord actions. Keep this order aligned with
+  // ButtonShortcutController::ChordAction because the runtime casts the
+  // persisted value to that enum.
+  enum POWER_CHORD_ACTION {
+    CHORD_SCREENSHOT = 0,
+    CHORD_QUICK_LOCK = 1,
+    // Values 2 and 3 were removed Next Page and Previous Page actions. Keep
+    // them unused so an interim settings file cannot remap them to another action.
+    CHORD_DISABLED = 4,
+    CHORD_SLEEP = 5,
+    CHORD_PAGE_TURN = 6,
+    CHORD_TOGGLE_BOOKMARK = 7,
+    CHORD_READING_STATS = 8,
+    CHORD_MARK_FINISHED = 9,
+    CHORD_FORCE_REFRESH = 10,
+    CHORD_TOGGLE_FONT = 11,
+    CHORD_TOGGLE_GUIDE_DOTS = 12,
+    CHORD_TOGGLE_FOCUS_READING = 13,
+    CHORD_CYCLE_PAGE_TURN = 14,
+    CHORD_SYNC_PROGRESS = 15,
+    CHORD_FILE_TRANSFER = 16,
+    CHORD_CALIBRE_WIRELESS = 17,
+    CHORD_JOIN_NETWORK = 18,
+    CHORD_CREATE_HOTSPOT = 19,
+    CHORD_TOGGLE_DARK_MODE = 20,
+    CHORD_FOOTNOTES = 21,
+    CHORD_FILE_BROWSER = 22,
+    CHORD_CREATE_CLIPPING = 23,
+    CHORD_LOOKUP_WORD = 24,
+    CHORD_TOGGLE_HOME_BUTTON = 25,
+    CHORD_QUICK_ACTIONS = 26,
+    CHORD_TOGGLE_FRONTLIGHT = 27,
+    CHORD_TOGGLE_TOUCHSCREEN = 28,
+    CHORD_PREVIOUS_PAGE = 29,
+    CHORD_NEARBY_POSITION_SYNC = 30,
+    POWER_CHORD_ACTION_COUNT
+  };
+
+  // Home-key shortcuts reuse power-button actions where possible. Keep the
+  // dedicated values stable because they are persisted in settings.bin.
+  enum HOME_BUTTON_ACTION {
+    HOME_BUTTON_BACK_HOME = 23,
+    HOME_BUTTON_TOGGLE_FRONTLIGHT = 24,
+    HOME_BUTTON_READER_MENU = 25,
+    HOME_BUTTON_ACTION_COUNT = 26
+  };
+
+  static constexpr uint8_t QUICK_ACTION_SLOT_ACTION_COUNT = 23;
 
   // Hide battery percentage
   enum HIDE_BATTERY_PERCENTAGE { HIDE_NEVER = 0, HIDE_READER = 1, HIDE_ALWAYS = 2, HIDE_BATTERY_PERCENTAGE_COUNT };
@@ -260,6 +344,14 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
   enum TOUCH_READER_CONTROLS { TOUCH_READER_OFF = 0, TOUCH_READER_ON = 1, TOUCH_READER_CONTROLS_COUNT };
+  enum PAGE_TURN_GESTURE {
+    TAP_AND_SWIPE = 0,
+    TAP_ONLY = 1,
+    SWIPE_ONLY = 2,
+    INVERTED_TAP = 3,
+    PAGE_TURN_GESTURE_DISABLED = 4,
+    PAGE_TURN_GESTURE_COUNT
+  };
 
   enum INDEXING_METHOD { INDEXING_INCREMENTAL = 0, INDEXING_FULL_SECTION = 1, INDEXING_METHOD_COUNT };
 
@@ -278,7 +370,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     LONG_MENU_SLEEP = 1,
     LONG_MENU_CHANGE_FONT = 2,
     LONG_MENU_TOGGLE_GUIDE_DOTS = 3,
-    LONG_MENU_TOGGLE_BIONIC = 4,
+    LONG_MENU_TOGGLE_FOCUS = 4,
     LONG_MENU_TOGGLE_BOOKMARK = 5,
     LONG_MENU_REFRESH_SCREEN = 6,
     LONG_MENU_SYNC_PROGRESS = 7,
@@ -296,6 +388,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     LONG_MENU_CREATE_HOTSPOT = 19,
     LONG_MENU_CREATE_CLIPPING = 20,
     LONG_MENU_LOOKUP_WORD = 21,
+    // Appended: values are persisted in settings.bin.
+    LONG_MENU_QUICK_ACTIONS = 22,
+    LONG_MENU_QUICK_LOCK = 23,
     LONG_PRESS_MENU_ACTION_COUNT
   };
 
@@ -319,6 +414,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
 
   // Sleep screen settings
   uint8_t sleepScreen = DARK;
+  // Night mode: inverted output polarity, applied to every activity per render
+  // by ActivityManager. Quick Resume preserves it; other sleep screens remain normal.
+  uint8_t screenInverted = 0;
   // Sleep screen cover mode settings
   uint8_t sleepScreenCoverMode = FIT;
   // Sleep screen cover filter
@@ -327,6 +425,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t statusBar = FULL;
   uint8_t statusBarChapterPageCount = 1;
   uint8_t statusBarBookProgressPercentage = 1;
+  uint8_t statusBarBookPercentageFormat = BOOK_PERCENTAGE_WHOLE;
   uint8_t stablePageNumbers = 0;
   uint8_t statusBarProgressBar = HIDE_PROGRESS;
   uint8_t statusBarProgressBarThickness = PROGRESS_BAR_NORMAL;
@@ -356,15 +455,42 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t extraParagraphSpacing = 1;
   uint8_t forceParagraphIndents = 0;
   uint8_t textAntiAliasing = 1;
-  uint8_t readerDarkMode = 0;
   // Touch screen reader zones/gestures on boards with a touch controller.
   uint8_t touchReaderControls = TOUCH_READER_ON;
+  // Page-turn gestures remain independently configurable while touch reader controls stay enabled.
+  uint8_t pageTurnGesture = TAP_AND_SWIPE;
+  uint8_t previousPageGesture = TAP_AND_SWIPE;
+  uint8_t customBootscreenEnabled = 1;
+  uint8_t tapToHideStatusBar = 1;
   // Disables all touchscreen input while a reader is active. Reader menus temporarily override this.
   uint8_t disableReaderTouchscreen = 0;
+  // Available only on multi-touch hardware; defaults on for pinch font resizing.
+  uint8_t pinchFontResizeEnabled = 1;
+  // Two-finger twist rotates the reader screen. Multi-touch hardware only.
+  uint8_t twoFingerRotationEnabled = 1;
+  // Configurable two-finger swipes. A non-empty action may be assigned to one direction only.
+  uint8_t twoFingerSwipeUp = TWO_FINGER_SWIPE_NOT_SET;
+  uint8_t twoFingerSwipeDown = TWO_FINGER_SWIPE_NOT_SET;
+  uint8_t twoFingerSwipeLeft = TWO_FINGER_SWIPE_NOT_SET;
+  uint8_t twoFingerSwipeRight = TWO_FINGER_SWIPE_NOT_SET;
   // Short power button action behaviour
   uint8_t shortPwrBtn = IGNORE;
   // Long power button action behaviour
   uint8_t longPwrBtn = SLEEP;
+  // Power + Up shortcut action. Disabled by default so the established
+  // Power + Down screenshot chord remains screenshot-only.
+  uint8_t powerChordAction = CHORD_DISABLED;
+  // Up + Down shortcut action. On touch hardware, while the reader touchscreen
+  // is disabled, this chord instead opens Settings as the recovery route.
+  uint8_t sideButtonChordAction = CHORD_DISABLED;
+  // X4 Pro capacitive Home-key actions. Values below SHORT_PWRBTN_COUNT map
+  // directly to the matching power-button shortcut action.
+  uint8_t homeButtonTapAction = HOME_BUTTON_BACK_HOME;
+  uint8_t homeButtonDoubleTapAction = HOME_BUTTON_TOGGLE_FRONTLIGHT;
+  uint8_t homeButtonLongPressAction = HOME_BUTTON_READER_MENU;
+  // Home-key devices can lock the capacitive Home key while a reader page is
+  // active. Reader menus temporarily override this without changing the value.
+  uint8_t homeButtonInReaderEnabled = 1;
   // EPUB reading orientation settings
   // 0 = portrait (default), 1 = landscape clockwise, 2 = inverted, 3 = landscape counter-clockwise
   uint8_t orientation = PORTRAIT;
@@ -408,8 +534,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t refreshFrequency = REFRESH_15;
   uint8_t hyphenationEnabled = 0;
 
-  // Reader screen margin settings
-  uint8_t screenMargin = 5;
+  // Reader screen margins. Legacy single-axis settings initialize both values.
+  uint8_t screenMarginVertical = 5;
+  uint8_t screenMarginHorizontal = 5;
   // Show EPUB publisher pagebreak labels in the reader margin when present.
   uint8_t publisherPageNumbers = 0;
   // OPDS browser settings
@@ -439,7 +566,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // EPUB section indexing policy. The current chapter keeps its active build.
   uint8_t indexingMethod = INDEXING_FULL_SECTION;
   // Focus Reading - emphasizes the first part of words with bold
-  uint8_t bionicReadingEnabled = 0;
+  uint8_t focusReadingEnabled = 0;
   // Guide Dots - places a middle dot between words to guide the eye
   uint8_t guideReadingEnabled = 0;
   // Per-book EPUB render mode runtime value. This is intentionally not saved as a global setting.
@@ -470,6 +597,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t longPressMenuAction = LONG_MENU_OFF;
   // Long-press Back quick action in reader (defaults to the historical file browser shortcut)
   uint8_t longPressBackAction = LONG_MENU_FILE_BROWSER;
+  // Five reusable reader commands and their single owning shortcut. Keep these
+  // adjacent so old settings files simply retain their default-initialized tail.
+  uint8_t quickActionSlots[5] = {IGNORE, IGNORE, IGNORE, IGNORE, IGNORE};
+  uint8_t quickActionsTrigger = 0;
   // Tilt-based page turning on devices with a supported IMU (X3 and Sticky).
   uint8_t tiltPageTurn = TILT_OFF;
   uint8_t tiltPageTurnDirection = TILT_LEFT_RIGHT;
@@ -480,12 +611,20 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t frontlightBrightness = 60;
   uint8_t frontlightWarmth = 50;  // 0 = cool .. 100 = warm
   uint8_t frontlightOn = 0;
-  // When 0 (default), the frontlight always comes up OFF after a wake/boot (brightness
-  // and warmth are still remembered for when it's switched on). When 1, the on/off
-  // state from before sleep is restored too. Shown in Display settings on frontlight boards.
-  uint8_t frontlightRestoreOnWake = 0;
+  // When enabled, restore a previously-on light after sleep. A previous off
+  // state falls through to a complete schedule.
+  uint8_t frontlightRestoreOnWake = 1;
+  // Daily wake-only schedule, in local minutes since midnight.
+  // An unset endpoint keeps the schedule inactive; its value is retained while
+  // the schedule toggle is off so it can be re-enabled without re-entry.
+  uint8_t frontlightScheduleEnabled = 0;
+  uint16_t frontlightScheduleStart = 0xFFFF;
+  uint16_t frontlightScheduleEnd = 0xFFFF;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
+  // Enabled keyboard layouts. Zero derives a default from the UI language;
+  // non-zero bits follow KeyboardLayoutSet::ALL table order.
+  uint16_t keyboardLayouts = 0;
   // Custom KOReader sync device display name. Empty means use the hardware default.
   char deviceName[21] = "";
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.
@@ -508,6 +647,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint8_t MIN_LINE_HEIGHT_PERCENT = 70;
   static constexpr uint8_t MAX_LINE_HEIGHT_PERCENT = 200;
   static constexpr uint8_t LINE_HEIGHT_PERCENT_STEP = 1;
+  static constexpr uint8_t MIN_SCREEN_MARGIN = 5;
+  static constexpr uint8_t MAX_SCREEN_MARGIN = 150;
+  static constexpr uint8_t SCREEN_MARGIN_SMALL_STEP = 1;
+  static constexpr uint8_t SCREEN_MARGIN_LARGE_STEP = 5;
   static constexpr uint8_t MAX_WORD_SPACING = 4;
   static constexpr uint16_t DEFAULT_READING_IDLE_TIME_THRESHOLD_SECONDS = 5 * 60;
   static constexpr uint16_t MIN_READING_IDLE_TIME_THRESHOLD_SECONDS = 30;
@@ -555,7 +698,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static bool isSdFontPointSizeAllowedForRange(uint8_t pointSize, uint8_t range);
   FONT_SIZE getEffectiveReaderFontSize() const;
   uint8_t getSdFontTargetPointSize() const;
-  bool changeReaderFontSize(bool larger);
+  bool changeReaderFontSize(bool larger, FontSizeStepMode mode = FontSizeStepMode::Wrap);
   int getReaderFontId() const;
   int getBuiltInReaderFontId() const;
 
@@ -566,7 +709,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   bool loadFromFile();
   static const char* getFilePath() { return "/.crosspoint/crosssmudge-settings.json"; }
   void toJson(JsonDocument& doc) const;
-  bool fromJson(JsonVariantConst doc);
+  bool fromJson(JsonVariantConst doc, bool importingCrossPoint = false);
 
   struct StatusBarSpec {
     bool showChapterPageCount = false;
@@ -595,6 +738,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
 
   static void validateFrontButtonMapping(CrossPointSettings& settings);
   static void validateReaderFrontButtonMapping(CrossPointSettings& settings);
+  static bool isTwoFingerSwipeActionAvailable(uint8_t action, bool frontlightPresent, bool hasColorTemperature);
+  static bool normalizeTwoFingerSwipeActions(CrossPointSettings& settings,
+                                             uint8_t CrossPointSettings::* editedField = nullptr);
   static uint8_t sleepTimeoutEnumToMinutes(uint8_t legacyValue);
   static uint8_t sleepScreenStorageToMode(uint8_t storedValue);
   static uint8_t sleepScreenModeToStorage(uint8_t mode);

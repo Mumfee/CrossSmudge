@@ -10,8 +10,8 @@ class GfxRenderer;
 
 // Lyra theme metrics (zero runtime cost)
 namespace LyraMetrics {
-constexpr ThemeMetrics values = {.batteryWidth = 16,
-                                 .batteryHeight = 12,
+constexpr ThemeMetrics values = {.batteryWidth = StatusBarMetrics::batteryWidth,
+                                 .batteryHeight = StatusBarMetrics::batteryHeight,
                                  .topPadding = 5,
                                  .batteryBarHeight = 40,
                                  .headerHeight = 84,
@@ -53,7 +53,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 16,
                                  .progressBarMarginTop = 1,
                                  .statusBarHorizontalMargin = 5,
                                  .statusBarVerticalMargin = 19,
-                                 .keyboardKeyHeight = 48,
+                                 .keyboardKeyHeight = 56,
                                  .keyboardKeySpacing = 0,
                                  .keyboardCenteredText = false,
                                  .keyboardVerticalOffset = -7,

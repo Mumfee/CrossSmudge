@@ -41,6 +41,12 @@ class PersistableStoreBase {
 
   bool resaveRequested = false;
 
+  // Tracks whether this store has had a load attempted, including attempts
+  // that fail because the file is missing or unreadable. This is a per-store
+  // lifecycle marker, not synchronization: ensureLoaded() must not be used to
+  // make arbitrary cross-task access to a store safe.
+  mutable bool loadAttempted_ = false;
+
  public:
   // Public so non-store JSON files (e.g. per-book bookmarks) can reuse them
   // instead of instantiating serializeJson/deserializeJson in their own TU —
@@ -49,18 +55,13 @@ class PersistableStoreBase {
   // Serializes doc and writes it to path (ensures /.crosspoint exists). Logs on failure.
   static bool writeDocToFile(const char* path, const JsonDocument& doc);
 
+  // Writes through path.tmp and keeps path.bak until replacement succeeds. readDocFromFile()
+  // recovers that backup after an interrupted replacement.
+  static bool writeDocToFileAtomically(const char* path, const JsonDocument& doc);
+
   // Reads path and parses it into doc. Returns false silently when the file
   // does not exist (expected on first boot); logs on read/parse failure.
   static bool readDocFromFile(const char* path, JsonDocument& doc);
-
- protected:
-  /**
-   * Helper function for extracting an obfuscated password from a JSON value.
-   * Accepts JsonVariantConst so callers can pass either a whole JsonDocument
-   * or a JsonObject element (e.g. inside an array iteration).
-   * If the decoded password requires a resave (e.g. from plaintext fallback), `needsResave` is set to true.
-   */
-  static std::string extractPassword(JsonVariantConst doc, bool& needsResave);
 };
 
 /**
@@ -93,6 +94,14 @@ class PersistableStore : public PersistableStoreBase {
   PersistableStore(const PersistableStore&) = delete;
   PersistableStore& operator=(const PersistableStore&) = delete;
 
+  // Load the store once before a caller uses it. The load attempt is marked by
+  // loadFromFile() before any file or JSON work begins, so fromJson() can call
+  // guarded mutators without recursively reloading the store.
+  void ensureLoaded() const {
+    if (loadAttempted_) return;
+    const_cast<T*>(static_cast<const T*>(this))->loadFromFile();
+  }
+
   static T& getInstance() {
     static T instance;
     return instance;
@@ -106,6 +115,7 @@ class PersistableStore : public PersistableStoreBase {
   }
 
   bool loadFromFile() {
+    loadAttempted_ = true;
     bool ok;
     bool doResave;
     {

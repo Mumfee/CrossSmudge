@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <cstring>
 
+#include "PoolBudget.h"
+
 #if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
 #include <esp_heap_caps.h>
 #endif
@@ -13,6 +15,12 @@
 namespace MemoryBudget {
 
 struct HeapSnapshot {
+  uint32_t freeHeap;
+  uint32_t maxAllocHeap;
+};
+
+struct PsramSnapshot {
+  uint32_t totalHeap;
   uint32_t freeHeap;
   uint32_t maxAllocHeap;
 };
@@ -47,8 +55,29 @@ constexpr uint32_t IMAGE_DECODER_HEADROOM = 16U * 1024U;
 constexpr uint32_t JPEG_DECODER_APPROX_BYTES = 20U * 1024U;
 constexpr uint32_t EPUB_INLINE_JPEG_MIN_FREE = JPEG_DECODER_APPROX_BYTES + IMAGE_DECODER_HEADROOM;
 constexpr uint32_t EPUB_INLINE_JPEG_MIN_MAX_ALLOC = JPEG_DECODER_APPROX_BYTES;
+// Page preflight loans the framebuffer for legacy ZIP inflation. PXC2 uses
+// a separate session workspace below 6.5 KB; pagination retains only dimensions.
+constexpr uint32_t EPUB_OPTIMIZER_PXC_MIN_FREE = 8U * 1024U;
+constexpr uint32_t EPUB_OPTIMIZER_PXC_MIN_MAX_ALLOC = 6500U;
 
 inline HeapSnapshot snapshot() { return {ESP.getFreeHeap(), ESP.getMaxAllocHeap()}; }
+
+inline PsramSnapshot psramSnapshot() {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+  return {static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM)),
+          static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
+          static_cast<uint32_t>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM))};
+#else
+  return {0, 0, 0};
+#endif
+}
+
+inline void logEpubHeapPools(const char* stage) {
+  const auto internal = snapshot();
+  const auto psram = psramSnapshot();
+  LOG_INF("EPS", "%s: internal free=%u max=%u; psram free=%u max=%u total=%u", stage, internal.freeHeap,
+          internal.maxAllocHeap, psram.freeHeap, psram.maxAllocHeap, psram.totalHeap);
+}
 
 inline HeapShapeSnapshot shapeSnapshot() {
   const auto heap = snapshot();
@@ -109,6 +138,42 @@ inline bool isJpegSource(const char* source) {
   return endsWithIgnoreCase(source, ".jpg") || endsWithIgnoreCase(source, ".jpeg");
 }
 
+// JPEGDEC is a single transient object. On PSRAM devices its decoder buffers
+// can live externally, provided 16 KB of internal heap remains for parsing and
+// callbacks and 128 KB of PSRAM remains after the object. C3 retains the
+// established 36 KB free / 20 KB contiguous internal-heap gate.
+inline bool canUseInternalHeapForJpegDecoder(const ByteHeapSnapshot& internal) {
+  return admits(internal, {0, EPUB_INLINE_JPEG_MIN_MAX_ALLOC, EPUB_INLINE_JPEG_MIN_FREE});
+}
+
+inline MemoryPool jpegDecoderPoolForHeap(const size_t decoderBytes, const ByteHeapSnapshot& internal,
+                                         const ByteHeapSnapshot& psram) {
+  if (psram.total != 0 && admits(internal, {0, 0, IMAGE_DECODER_HEADROOM}) &&
+      admits(psram, {decoderBytes, decoderBytes, EPUB_PSRAM_RESERVE})) {
+    return MemoryPool::Psram;
+  }
+  return canUseInternalHeapForJpegDecoder(internal) ? MemoryPool::Internal : MemoryPool::None;
+}
+
+inline MemoryPool jpegDecoderPool(const size_t decoderBytes) {
+  return jpegDecoderPoolForHeap(decoderBytes, byteHeapSnapshot(MemoryPool::Internal),
+                                byteHeapSnapshot(MemoryPool::Psram));
+}
+
+inline bool hasHeapForJpegDecoder(const char* tag, const size_t decoderBytes, const char* source = nullptr) {
+  const auto internal = byteHeapSnapshot(MemoryPool::Internal);
+  const auto psram = byteHeapSnapshot(MemoryPool::Psram);
+  if (jpegDecoderPoolForHeap(decoderBytes, internal, psram) != MemoryPool::None) return true;
+
+  LOG_ERR(tag,
+          "Low heap for JPEG decoder (internal free=%u max=%u, psram free=%u max=%u, need internal %u or psram "
+          "%u + reserve %u); suppressing %s",
+          static_cast<unsigned>(internal.free), static_cast<unsigned>(internal.largest),
+          static_cast<unsigned>(psram.free), static_cast<unsigned>(psram.largest), EPUB_INLINE_JPEG_MIN_FREE,
+          static_cast<unsigned>(decoderBytes), static_cast<unsigned>(EPUB_PSRAM_RESERVE), source ? source : "");
+  return false;
+}
+
 inline HeapRequirement epubInlineImageRequirementForSource(const char* source) {
   if (isJpegSource(source)) {
     return {EPUB_INLINE_JPEG_MIN_FREE, EPUB_INLINE_JPEG_MIN_MAX_ALLOC};
@@ -121,6 +186,8 @@ inline bool shouldReleaseSdFontCachesForEpubInlineImage(const HeapSnapshot heap)
 }
 
 inline bool hasHeapForEpubInlineImage(const char* tag, const char* source) {
+  if (isJpegSource(source)) return hasHeapForJpegDecoder(tag, JPEG_DECODER_APPROX_BYTES, source);
+
   const auto heap = snapshot();
   const auto requirement = epubInlineImageRequirementForSource(source);
   if (hasHeap(heap, requirement.minFree, requirement.minMaxAlloc)) {
@@ -129,6 +196,17 @@ inline bool hasHeapForEpubInlineImage(const char* tag, const char* source) {
 
   LOG_ERR(tag, "Low heap for inline image (%u free, %u max alloc, need %u/%u); suppressing %s", heap.freeHeap,
           heap.maxAllocHeap, requirement.minFree, requirement.minMaxAlloc, source ? source : "");
+  return false;
+}
+
+inline bool hasHeapForOptimizerPxcImage(const char* tag, const char* source) {
+  const auto heap = snapshot();
+  if (hasHeap(heap, EPUB_OPTIMIZER_PXC_MIN_FREE, EPUB_OPTIMIZER_PXC_MIN_MAX_ALLOC)) {
+    return true;
+  }
+
+  LOG_ERR(tag, "Low heap for optimizer image cache (%u free, %u max alloc, need %u/%u); suppressing %s", heap.freeHeap,
+          heap.maxAllocHeap, EPUB_OPTIMIZER_PXC_MIN_FREE, EPUB_OPTIMIZER_PXC_MIN_MAX_ALLOC, source ? source : "");
   return false;
 }
 

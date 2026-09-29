@@ -2,34 +2,64 @@
   "schema_version": 1,
   "releases": [
     {
-      "id": "stable-1.5.0-x3-x4",
+      "id": "stable-1.6.0-x3-x4",
       "channel": "stable",
-      "name": "1.5.0",
-      "version": "1.5.0",
+      "name": "1.6.0",
+      "version": "1.6.0",
       "variant": "x3-x4",
-      "released_at": "2026-08-08T21:46:17Z",
-      "notes": "CrossSmudge 1.5.0 stable firmware",
-      "firmware_url": "https://github.com/uxjulia/CrossSmudge/releases/download/v1.5.0/firmware-x3-x4-v1.5.0.bin",
-      "firmware_sha256": "b5debe8b6b3f26f1af53410f388a2eb8def78b19b0c04aa94e46e942684dce2f",
-      "size": 6260208,
+      "released_at": "2026-09-21T19:29:59Z",
+      "notes": "CrossInk 1.6.0 stable firmware",
+      "firmware_url": "https://github.com/uxjulia/CrossInk/releases/download/v1.6.0/firmware-x3-x4-v1.6.0.bin",
+      "firmware_sha256": "4d1f2493079c71f7c466080fc13b11f16fa95c9cc6ccbaf158ac2ab0e761d644",
+      "size": 6105536,
       "supported_devices": [
         "x4",
         "x3"
       ]
     },
     {
-      "id": "stable-1.5.0-sticky",
+      "id": "stable-1.6.0-sticky",
       "channel": "stable",
-      "name": "1.5.0",
-      "version": "1.5.0",
+      "name": "1.6.0",
+      "version": "1.6.0",
       "variant": "sticky",
-      "released_at": "2026-08-08T21:46:17Z",
-      "notes": "CrossSmudge 1.5.0 stable firmware",
-      "firmware_url": "https://github.com/uxjulia/CrossSmudge/releases/download/v1.5.0/firmware-sticky-v1.5.0.bin",
-      "firmware_sha256": "1373e000d0f5d160bb16c24b9e427bb5a489570a62c1838c7f7b198579054366",
-      "size": 6052160,
+      "released_at": "2026-09-21T19:29:59Z",
+      "notes": "CrossInk 1.6.0 stable firmware",
+      "firmware_url": "https://github.com/uxjulia/CrossInk/releases/download/v1.6.0/firmware-sticky-v1.6.0.bin",
+      "firmware_sha256": "80c8b88fe66db0a959302d121d2392b05770f99a038961c5c30fd61881796a3f",
+      "size": 5981856,
       "supported_devices": [
         "sticky"
+      ]
+    },
+    {
+      "id": "stable-1.6.0-x4-pro",
+      "channel": "stable",
+      "name": "1.6.0",
+      "version": "1.6.0",
+      "variant": "x4-pro",
+      "released_at": "2026-09-21T19:29:59Z",
+      "notes": "CrossInk 1.6.0 stable firmware",
+      "firmware_url": "https://github.com/uxjulia/CrossInk/releases/download/v1.6.0/firmware-x4-pro-v1.6.0.bin",
+      "firmware_sha256": "d0c80195095c969a89e7b94f756ec45db142b354ea75c904e8b16ced5bded01f",
+      "size": 6072544,
+      "supported_devices": [
+        "x4pro"
+      ]
+    },
+    {
+      "id": "stable-1.6.0-x4-classic",
+      "channel": "stable",
+      "name": "1.6.0",
+      "version": "1.6.0",
+      "variant": "x4-classic",
+      "released_at": "2026-09-21T19:29:59Z",
+      "notes": "CrossInk 1.6.0 stable firmware",
+      "firmware_url": "https://github.com/uxjulia/CrossInk/releases/download/v1.6.0/firmware-x4-classic-v1.6.0.bin",
+      "firmware_sha256": "a2868b4790bf24ab17379ed0f1ff0260c1cba60e8071ee8b4cfe0f187b7eb05c",
+      "size": 5906384,
+      "supported_devices": [
+        "x4c"
       ]
     }
   ]

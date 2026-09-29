@@ -36,8 +36,13 @@ class FileBrowserActivity final : public Activity {
   void setPreferredSleepFolder(const std::string& fullPath);
   void clearPreferredSleepFolder();
   bool isPreferredSleepFolder(const std::string& fullPath) const;
-  bool isSleepFavoriteFolder(const std::string& fullPath) const;
+  void pinBootFavorite(const std::string& fullPath);
+  void unpinBootFavorite();
+  bool isPinnedBootFavorite(const std::string& fullPath) const;
   void showFileActionMenu(const std::string& entry, bool ignoreInitialConfirmRelease = false);
+  void startRenameFile(const std::string& fullPath, const std::string& entry);
+  void renameFile(const std::string& oldPath, const std::string& oldEntry, const std::string& newStem,
+                  const std::string& extension);
 
   ButtonNavigator buttonNavigator;
 
@@ -67,6 +72,7 @@ class FileBrowserActivity final : public Activity {
   std::array<size_t, INDEX_ROW_CACHE_SIZE> indexCachedRows{};
   bool usingIndex = false;
   bool fileListMemoryLimited = false;
+  bool fileListReadFailed = false;
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
   UiApp app;
@@ -75,16 +81,25 @@ class FileBrowserActivity final : public Activity {
   std::atomic<bool> uiReady{false};
   int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
   int topIndex = 0;     // viewport scroll position, decoupled from the selection
+  // The current FreeInkUI action payload is int16_t. For larger folders the
+  // renderer supplies a local row number and this records its absolute base.
+  size_t actionWindowFirst = 0;
+  freeink::ui::ListNav listNav;
 
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onSettingsEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildListScreen(UiApp::ScreenType& screen);
   void activateSelected();
   void navigateBack();
+  void openSettings();
 
   // Data loading
   void clearIndexNameCache();
   void loadFiles();
+  // Caller holds RenderLock while replacing the list backing storage together
+  // with its associated navigation state.
+  void loadFilesLocked();
   bool loadFilesIntoVector(size_t cap, bool& overflow);
   size_t entryCount() const;
   const char* entryNameAt(size_t row);

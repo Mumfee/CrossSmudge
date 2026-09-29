@@ -34,12 +34,8 @@ class RecentBooksStore : public PersistableStore<RecentBooksStore> {
   static const char* getFilePath() { return "/.crosspoint/recent.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
+  bool saveToFile() const;
   bool loadFromFile();
-
-  // Deprecated compatibility wrapper. Use addOrUpdateBook so the promote-or-update behavior is explicit.
-  [[deprecated("use addOrUpdateBook")]]
-  void addBook(const std::string& path, const std::string& title, const std::string& author,
-               const std::string& coverBmpPath);
 
   // Add a new book to the front, or refresh an existing entry and promote it
   // to the front.
@@ -61,8 +57,8 @@ class RecentBooksStore : public PersistableStore<RecentBooksStore> {
   // Repoint an entry's path (and coverBmpPath, if it lived under the old cache dir) after the
   // backing file and cache dir were moved on disk. No-op if no entry matches oldPath.
   // Persists on success. Keeps the entry's list position (does not reorder).
-  void updatePath(const std::string& oldPath, const std::string& newPath, const std::string& oldCachePath,
-                  const std::string& newCachePath);
+  [[nodiscard]] bool updatePath(const std::string& oldPath, const std::string& newPath, const std::string& oldCachePath,
+                                const std::string& newCachePath);
 
   // True if the book's backing file is no longer present on the SD card.
   static bool isMissing(const RecentBook& book);
@@ -72,10 +68,16 @@ class RecentBooksStore : public PersistableStore<RecentBooksStore> {
   bool pruneMissing();
 
   // Get the list of recent books (most recent first)
-  const std::vector<RecentBook>& getBooks() const { return recentBooks; }
+  const std::vector<RecentBook>& getBooks() const {
+    ensureLoaded();
+    return recentBooks;
+  }
 
   // Get the count of recent books
-  int getCount() const { return static_cast<int>(recentBooks.size()); }
+  int getCount() const {
+    ensureLoaded();
+    return static_cast<int>(recentBooks.size());
+  }
 
   RecentBook getDataFromBook(std::string path) const;
 };
