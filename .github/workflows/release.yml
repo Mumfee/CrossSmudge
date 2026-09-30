@@ -141,11 +141,15 @@ jobs:
             --output ".pio/build/catalog"
 
       - name: Publish catalog to GitHub Pages source
-        if: ${{ secrets.CROSSSMUDGE_SIGNING_SSH_KEY != '' }}
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           CROSSSMUDGE_SIGNING_SSH_KEY: ${{ secrets.CROSSSMUDGE_SIGNING_SSH_KEY }}
         run: |
+          if [ -z "$CROSSSMUDGE_SIGNING_SSH_KEY" ]; then
+            echo "Signing SSH key not configured; skipping catalog push"
+            exit 0
+          fi
+
           install -m 700 -d ~/.ssh
           printf '%s\n' "$CROSSSMUDGE_SIGNING_SSH_KEY" > ~/.ssh/crosssmudge_actions_signing
           chmod 600 ~/.ssh/crosssmudge_actions_signing
