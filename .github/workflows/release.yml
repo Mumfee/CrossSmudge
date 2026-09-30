@@ -1,5 +1,8 @@
 name: Compile Release
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
@@ -18,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          token: ${{ secrets.RELEASE_PAT }}
+          token: ${{ secrets.RELEASE_PAT || github.token }}
           fetch-depth: 0
 
       - name: Verify release tag is on main
@@ -85,6 +88,7 @@ jobs:
       - name: Configure release version
         env:
           RELEASE_VERSION: ${{ needs.prepare-release.outputs.release_version }}
+        run: |
           sed -i "/^\[crosssmudge\]$/,/^\[/s/^version = .*/version = $RELEASE_VERSION/" platformio.ini
           sed -i "/^\[crossink\]$/,/^\[/s/^version = .*/version = $RELEASE_VERSION/" platformio.ini
 
@@ -111,7 +115,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          token: ${{ secrets.RELEASE_PAT }}
+          token: ${{ secrets.RELEASE_PAT || github.token }}
           fetch-depth: 0
 
       - uses: actions/setup-python@v6
@@ -137,15 +141,11 @@ jobs:
             --output ".pio/build/catalog"
 
       - name: Publish catalog to GitHub Pages source
+        if: ${{ secrets.CROSSSMUDGE_SIGNING_SSH_KEY != '' }}
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           CROSSSMUDGE_SIGNING_SSH_KEY: ${{ secrets.CROSSSMUDGE_SIGNING_SSH_KEY }}
         run: |
-          if [ -z "$CROSSSMUDGE_SIGNING_SSH_KEY" ]; then
-            echo "::error::CROSSSMUDGE_SIGNING_SSH_KEY is not set"
-            exit 1
-          fi
-
           install -m 700 -d ~/.ssh
           printf '%s\n' "$CROSSSMUDGE_SIGNING_SSH_KEY" > ~/.ssh/crosssmudge_actions_signing
           chmod 600 ~/.ssh/crosssmudge_actions_signing
@@ -171,12 +171,14 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          token: ${{ secrets.RELEASE_PAT }}
+          token: ${{ secrets.RELEASE_PAT || github.token }}
           tag_name: v${{ env.RELEASE_VERSION }}
+          name: CrossSmudge Firmware v${{ env.RELEASE_VERSION }}
           target_commitish: ${{ github.sha }}
-          draft: true
+          draft: false
           files: |
             release-firmware/firmware-x3-x4-v${{ env.RELEASE_VERSION }}.bin
             release-firmware/firmware-sticky-v${{ env.RELEASE_VERSION }}.bin
             release-firmware/firmware-x4-pro-v${{ env.RELEASE_VERSION }}.bin
             release-firmware/firmware-x4-classic-v${{ env.RELEASE_VERSION }}.bin
+            data/daily_office_sd_package.zip
