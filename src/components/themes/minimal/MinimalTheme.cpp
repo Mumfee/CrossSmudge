@@ -420,7 +420,6 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
 
   const bool showBatteryPercentage =
       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
-  // Position icon at right edge, drawBatteryRight will place text to the left
   const int batteryX = rect.x + rect.width - 12 - MinimalMetrics::values.batteryWidth;
   const int batteryY = rect.y + homeHeaderTopInset + UITheme::getTopStatusBarInset(renderer);
   drawBatteryRight(renderer,
@@ -431,16 +430,13 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
   int maxSubtitleWidth =
       subtitle != nullptr ? renderer.getTextWidth(SMALL_FONT_ID, subtitle, EpdFontFamily::REGULAR) : 0;
 
-  // Available space is the distance between the side paddings, and a side padding between title and subtitle.
   const int availableSpace = rect.width - MinimalMetrics::values.contentSidePadding * 3;
 
   if (maxTitleWidth + maxSubtitleWidth > availableSpace) {
     if ((maxTitleWidth > availableSpace / 2) && (maxSubtitleWidth > availableSpace / 2)) {
-      // Both are wider than half the space, truncate both.
       maxTitleWidth = availableSpace / 2;
       maxSubtitleWidth = availableSpace / 2;
     } else {
-      // Truncate the longest one
       if (maxTitleWidth > maxSubtitleWidth) {
         maxTitleWidth = availableSpace - maxSubtitleWidth;
       } else {
@@ -794,42 +790,6 @@ void MinimalTheme::drawStatsSleepScreen(const GfxRenderer& renderer, const Recen
 void MinimalTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                   const std::function<const char*(int index)>& buttonLabel,
                                   const std::function<UIIcon(int index)>& rowIcon) const {
-  (void)rect;
-  (void)rowIcon;
-
-  if (buttonCount <= 0) {
-    return;
-  }
-
-  const Rect panel = buttonMenuPanelRect(renderer, buttonCount);
-  const int panelX = panel.x;
-  const int panelY = panel.y;
-  const int panelW = panel.width;
-  const int panelH = panel.height;
-  const auto scale = uiScaleSpec();
-  freeink::ui::GfxRendererFrame<1> ui(renderer, scale.smallFontId, scale.bodyFontId, scale.titleFontId);
-  freeink::ui::TextStyle labelText = uiThemeTokens(ui.target).bodyText;
-  labelText.align = freeink::ui::TextAlign::Center;
-  labelText.maxLines = 1;
-  renderer.drawRoundedRect(panelX, panelY, panelW, panelH, 1, kMenuPanelRadius, true);
-
-  for (int i = 0; i < buttonCount; ++i) {
-    const int rowY = panelY + 1 + i * kMenuRowHeight;
-    TouchRegistry::getInstance().add(Rect{panelX, rowY, panelW, kMenuRowHeight}, i, TouchRegistry::Item);
-    if (i == selectedIndex) {
-      const int triangleX = panelX + kMenuSelectionTriangleInset;
-      const int triangleCenterY = rowY + kMenuRowHeight / 2;
-      const int triangleHalfH = kMenuSelectionTriangleHeight / 2;
-      const int triangleXPoints[3] = {triangleX, triangleX, triangleX + kMenuSelectionTriangleWidth};
-      const int triangleYPoints[3] = {triangleCenterY - triangleHalfH, triangleCenterY + triangleHalfH,
-                                      triangleCenterY};
-      renderer.fillPolygon(triangleXPoints, triangleYPoints, 3, true);
-    }
-
-    const char* label = buttonLabel != nullptr ? buttonLabel(i) : "";
-    if (!label) label = "";
-    ui.target.text(freeink::ui::Rect{static_cast<int16_t>(panelX), static_cast<int16_t>(rowY),
-                                     static_cast<int16_t>(panelW), static_cast<int16_t>(kMenuRowHeight)},
-                   label, labelText);
-  }
+  // Delegate directly to LyraTheme's standard full-width button menu drawer
+  LyraTheme::drawButtonMenu(renderer, rect, buttonCount, selectedIndex, buttonLabel, rowIcon);
 }

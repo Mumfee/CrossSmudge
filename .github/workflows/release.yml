@@ -124,7 +124,6 @@ jobs:
           pattern: release-firmware-*
           merge-multiple: true
           path: release-firmware
->>>>>>> v1.6.0
 
       - name: Generate release catalog
         run: |

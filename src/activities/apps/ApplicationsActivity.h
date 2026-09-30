@@ -9,6 +9,8 @@
 #include "activities/apps/SudokuActivity.h"
 #include "activities/apps/BlackjackActivity.h"
 #include "activities/apps/AppSettingsActivity.h"
+#include "activities/apps/TetrisActivity.h"
+#include "activities/apps/DailyOfficeActivity.h"
 #include "SmudgeSettings.h"
 
 #include <algorithm>
@@ -121,7 +123,9 @@ private:
       { "Rosary", UIIcon::Rosary, [this]() { return std::make_unique<RosaryActivity>(renderer, mappedInput); } },
       { "2048", UIIcon::TwoZeroFourEight, [this]() { return std::make_unique<TwoZeroFourEightActivity>(renderer, mappedInput); } },
       { "Sudoku", UIIcon::Sudoku, [this]() { return std::make_unique<SudokuActivity>(renderer, mappedInput); } },
-      { "Blackjack", UIIcon::Blackjack, [this]() { return std::make_unique<BlackjackActivity>(renderer, mappedInput); } }
+      { "Blackjack", UIIcon::Blackjack, [this]() { return std::make_unique<BlackjackActivity>(renderer, mappedInput); } },
+      { "Tetris", UIIcon::Tetris, [this]() { return std::make_unique<TetrisActivity>(renderer, mappedInput); } },
+      { "Divine Worship: Daily Office", UIIcon::DailyOffice, [this]() { return std::make_unique<DailyOfficeActivity>(renderer, mappedInput); } },
     };
 
     std::vector<std::string> allNames;

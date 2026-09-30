@@ -1,7 +1,12 @@
-## [v1.6.0] - 2026-09-21
+## [v1.6.0] - 2026-09-30
 
 ### Added
 
+- Divine Worship: Daily Office application for the Personal Ordinariate (North American Edition) with all 7 traditional hours, 100% offline standalone support with complete liturgical propers and calendar (397 days) bundled in firmware flash and auto-installed to SD card (/.smudge/daily_office/), automatic day-to-day liturgical propers from device clock, and physical button list navigation.
+- Complete 150-Psalm Coverdale Psalter (including Psalm 119 sections) compressed in firmware flash and auto-unpacked to SD storage for daily psalmody.
+- Invitatory Antiphons before and after the Venite for seasons and commons, Benedictus and Magnificat Antiphons, and appointed Office Hymns (including *Iste Confessor*) with Versicle and Response.
+- Full Scripture lesson rendering for First and Second Lessons with support for offline lesson text bundles on SD card.
+- Offline package script `scripts/build_daily_office_package.py` to generate complete SD card distribution zip for Divine Worship texts, propers, and lessons.
 - EPUBs with stable page numbers can jump directly to a specific stable page from the reader menu.
 - Hidden folders can be created using the web file manager now when prefixed with a dot.
 - Choose whole numbers, one decimal, or two decimals for the book progress percentage in status bar settings.
@@ -25,6 +30,9 @@
 
 ### Fixed
 
+- Divine Worship: Daily Office reader memory optimization using a contiguous text pool and compact line offsets, preventing heap fragmentation and out-of-memory crashes on ESP32-C3 devices when rendering long offices such as Mattins.
+- Divine Worship: Daily Office prayer reader typography, section heading rules, rubric indentations, right-edge text margins, page-height budgeting to prevent button overlaps, and app icon portrait orientation.
+- Divine Worship: Daily Office Little Hours (Prime, Terce, Sext, None) and Compline now correctly preserve their fixed traditional psalms, Little Chapters, and collects instead of being overridden by the 30-day psalter, with optional Collect of the Day recitation added to Terce, Sext, and None.
 - The web EPUB optimizer now accepts books that use standard Adobe or IDPF font obfuscation, while leaving DRM-protected books unchanged.
 - Frontlight schedule time pickers now use the compact number keypad from Go To screens.
 - X4 Classic's left/right tilt direction labels now match the physical page-turn direction.

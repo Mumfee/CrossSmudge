@@ -40,9 +40,6 @@ class OtaUpdater {
   bool isUpdateNewer() const;
   const std::string& getLatestVersion() const;
   OtaUpdaterError checkForUpdate();
-  #ifdef SIMULATOR
-    OtaUpdaterError installUpdate(ProgressCallback onProgress = nullptr, void* ctx = nullptr);
-  #else
-    OtaUpdaterError installUpdate(ProgressCallback onProgress = nullptr, void* ctx = nullptr, std::atomic<bool>* cancelFlag = nullptr);
-  #endif
+  OtaUpdaterError installUpdate(ProgressCallback onProgress = nullptr, void* ctx = nullptr,
+                                std::atomic<bool>* cancelRequested = nullptr);
 };

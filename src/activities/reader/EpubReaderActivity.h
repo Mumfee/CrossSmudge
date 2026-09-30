@@ -21,7 +21,7 @@
 #include "ReaderProgressSaveDebouncer.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSSMUDGE_APP_CAP_TOUCH || CROSSINK_APP_CAP_TOUCH
 #include "activities/reader/ReaderPinchGesture.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
 #endif

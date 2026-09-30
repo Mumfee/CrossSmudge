@@ -113,6 +113,7 @@ public:
             if (name == "2048") return UIIcon::TwoZeroFourEight;
             if (name == "Sudoku") return UIIcon::Sudoku;
             if (name == "Blackjack") return UIIcon::Blackjack;
+            if (name == "Tetris") return UIIcon::Tetris;
           }
           return UIIcon::Applications;
         }

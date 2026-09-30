@@ -267,23 +267,23 @@ const char* savedItemsLabel(bool hasBookmarks, bool hasClippings) {
 }
 
 void appendHomeMenuItems(HomeMenuEntries& items, bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks,
-                         bool hasClippings) {
-  items.push({tr(STR_BROWSE_FILES), Folder, HomeMenuAction::BrowseFiles});
-  items.push({tr(STR_MENU_RECENT_BOOKS), Recent, HomeMenuAction::RecentBooks});
-  items.push({"Applications", Applications, HomeMenuAction::Applications});
+                          bool hasClippings) {
+  items.push({tr(STR_BROWSE_FILES), UIIcon::Folder, HomeMenuAction::BrowseFiles});
+  items.push({tr(STR_MENU_RECENT_BOOKS), UIIcon::Recent, HomeMenuAction::RecentBooks});
+  items.push({"Applications", UIIcon::Applications, HomeMenuAction::Applications});
 
   if (hasOpdsServers) {
-    items.push({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
+    items.push({tr(STR_OPDS_BROWSER), UIIcon::Library, HomeMenuAction::OpdsBrowser});
   }
   if (hasReadingStats) {
-    items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
+    items.push({tr(STR_READING_STATS), UIIcon::Chart, HomeMenuAction::ReadingStats});
   }
   if (hasBookmarks || hasClippings) {
-    items.push({savedItemsLabel(hasBookmarks, hasClippings), BookmarkIcon, HomeMenuAction::Bookmarks});
+    items.push({savedItemsLabel(hasBookmarks, hasClippings), UIIcon::BookmarkIcon, HomeMenuAction::Bookmarks});
   }
 
-  items.push({tr(STR_FILE_TRANSFER), Transfer, HomeMenuAction::FileTransfer});
-  items.push({tr(STR_SETTINGS_TITLE), Settings, HomeMenuAction::Settings});
+  items.push({tr(STR_FILE_TRANSFER), UIIcon::Transfer, HomeMenuAction::FileTransfer});
+  items.push({tr(STR_SETTINGS_TITLE), UIIcon::Settings, HomeMenuAction::Settings});
 }
 
 HomeMenuEntries buildHomeMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks, bool hasClippings) {
@@ -294,20 +294,20 @@ HomeMenuEntries buildHomeMenuItems(bool hasOpdsServers, bool hasReadingStats, bo
 
 HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks, bool hasClippings) {
   HomeMenuEntries items;
-  items.push({tr(STR_MENU_RECENT_BOOKS), Recent, HomeMenuAction::RecentBooks});
-  items.push({"Applications", Applications, HomeMenuAction::Applications});
+  items.push({tr(STR_MENU_RECENT_BOOKS), UIIcon::Recent, HomeMenuAction::RecentBooks});
+  items.push({"Applications", UIIcon::Applications, HomeMenuAction::Applications});
 
   if (hasOpdsServers) {
-    items.push({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
+    items.push({tr(STR_OPDS_BROWSER), UIIcon::Library, HomeMenuAction::OpdsBrowser});
   }
   if (hasBookmarks || hasClippings) {
-    items.push({savedItemsLabel(hasBookmarks, hasClippings), BookmarkIcon, HomeMenuAction::Bookmarks});
+    items.push({savedItemsLabel(hasBookmarks, hasClippings), UIIcon::BookmarkIcon, HomeMenuAction::Bookmarks});
   }
   if (hasReadingStats) {
-    items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
+    items.push({tr(STR_READING_STATS), UIIcon::Chart, HomeMenuAction::ReadingStats});
   }
 
-  items.push({tr(STR_FILE_TRANSFER), Transfer, HomeMenuAction::FileTransfer});
+  items.push({tr(STR_FILE_TRANSFER), UIIcon::Transfer, HomeMenuAction::FileTransfer});
   return items;
 }
 
@@ -315,7 +315,7 @@ HomeMenuEntries buildSelectableHomeMenuItems(bool hasOpdsServers, bool hasReadin
                                              bool hasClippings, bool includeContinueReading) {
   HomeMenuEntries items;
   if (includeContinueReading) {
-    items.push({tr(STR_CONTINUE_READING), Book, HomeMenuAction::ContinueReading});
+    items.push({tr(STR_CONTINUE_READING), UIIcon::Book, HomeMenuAction::ContinueReading});
   }
   appendHomeMenuItems(items, hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings);
   return items;
@@ -489,8 +489,8 @@ void appendCarouselMenuStateToKey(std::string& key, const bool hasOpdsServers, c
 }
 
 void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, const bool hasOpdsServers,
-                           const bool hasReadingStats, const bool hasBookmarks, const bool hasClippings,
-                           std::string& key, uint64_t& keyHash) {
+                            const bool hasReadingStats, const bool hasBookmarks, const bool hasClippings,
+                            std::string& key, uint64_t& keyHash) {
   key.clear();
   key.reserve(512);
   // Framebuffer snapshots include both UI pixels and counter-inverted cover
@@ -1221,8 +1221,8 @@ void HomeActivity::renderCarouselFrameToCurrentBuffer(int bookIdx, BookReadingSt
   GUI.drawButtonMenu(
       renderer,
       Rect{0, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.verticalSpacing, pageWidth,
-           pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing * 2 +
-                         metrics.buttonHintsHeight)},
+            pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing * 2 +
+                          metrics.buttonHintsHeight)},
       static_cast<int>(menuItems.size()), -1, [&menuItems](int index) { return menuItems[index].label; },
       [&menuItems](int index) { return menuItems[index].icon; });
 
@@ -1781,6 +1781,9 @@ void HomeActivity::loop() {
         break;
       case HomeMenuAction::RecentBooks:
         onRecentsOpen();
+        break;
+      case HomeMenuAction::Applications:
+        onApplicationsOpen();
         break;
       case HomeMenuAction::OpdsBrowser:
         onOpdsBrowserOpen();
