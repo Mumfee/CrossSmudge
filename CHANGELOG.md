@@ -2,6 +2,19 @@
 
 ### Added
 
+- 15-page Chapter 1 progression in *Codex: Ink & Iron* (renaming floors to pages and acts to chapters), introducing the Scriptorium Shop on Pages 5 and 10 with an illustrated merchant, card purchases, relic offerings, healing draughts, and parchment scraping card removal.
+- 5 new monsters and encounters in *Codex: Ink & Iron* featuring 128x128 woodcut illustrations (Quill Hound, Crypt Warden, Spine Horror, The Iron Scriptor elite, and The Arch-Heretic boss) with distinct multi-turn tactical AI patterns.
+- Expanded relic collection in *Codex: Ink & Iron* with 12 relics, all equipped with custom 48x48 1-bit woodcut illustrations and framed miniature gallery presentation (Silver Quill, Iron Sigil, Vampiric Seal, Scholar's Ring, Whetstone, Monk's Rosary, Golden Bookmark, Obsidian Inkwell, Barbed Bookmark, Hourglass of Sand, Censer of Cleansing, Alchemical Flask).
+- 7 new cards expanding the *Codex: Ink & Iron* catalog to 30 verses, introducing *Sever*, *Parry & Thrust*, *Divine Aegis*, *Rebound Ward*, *Ink Siphon*, *Illumination: Transcendence*, and *Transcribe*.
+- *Codex: Ink & Iron* roguelike deckbuilder application tailored for 480x800 e-paper displays, featuring poetic Meter Couplet synergies (Blade, Ward, Script), a tactical Blot Out system, embedded woodcut artwork, and zero-allocation combat engine for ESP32-C3.
+- Multi-choice random chamber encounters in *Codex: Ink & Iron* occurring after every 2 completed combats (floors 2, 4, 6, and 8), offering 9 thematic medieval events (The Cursed Reliquary, The Scriptorium, The Alchemist's Crucible, Corridor Ambush, The Whispering Lectern, The Wandering Peddler, The Scribe's Blood Altar, The Torture Vaults, and Fountain of Shimmering Ink) with consequential decisions granting permanent strength bonuses, base ink font capacity, combat ward, relics, cards, and gold, or inflicting hazardous trap damage and mortal wounds.
+- Authentic medieval illuminated manuscript aesthetic for *Codex: Ink & Iron*, including deckle edge fiber margins, leather spine stitch markings, illuminated dividers (`── • ❖ ◈ ❖ • ──`), embossed woodcut miniature frames with rosettes, corner filigrees, and double-line card rules.
+- Split side-by-side combat encounter layout for *Codex: Ink & Iron*, featuring 128x128 Dürer-style woodcut engravings (Ink Imp, Stone Gargoyle, Cursed Scribe, Parchment Ghoul, Book Golem, Marginalia Fiend, Grand Inquisitor) on the right, with monster name, HP progress bar, status effects, intent, and rhythm on the left, plus full touch target hit-testing for hand cards and bottom action hints.
+- Four-tab grimoire system in *Codex: Ink & Iron* (`[Deck]`, `[Discard]`, `[Relics]`, `[Menu]`) accessible via Xteink X3 top buttons (`BTN_UP`/`BTN_DOWN`) or header touch, featuring dedicated views for collected relics and an in-game delve menu with options to Resume, Save & Exit to Title, Save & Exit to Applications, or Abandon Delve.
+- Visual grey banner shading (`Color::LightGray`) for 1-use Power cards (`Illumination: Flow`, `Illumination: Bastion`, `Illumination: Fury`) in combat hand and card inspector.
+- Run state persistence for *Codex: Ink & Iron* (`/.smudge/codex/run.state`), saving automatically on deep sleep or when exiting to Title/Applications, with zero SD card writes during combat turns to avoid flash wear.
+- Deck and Discard pile viewers in *Codex: Ink & Iron* mapped to Xteink X3 top-left (`BTN_UP`) and top-right (`BTN_DOWN`) buttons with floor/grimoire/discard counts in the combat header.
+- Visible combat status effect indicators (`[Str +X]`, `[Weak X]`, `[Vuln X]`, `[Poison X]`) for player and enemies in *Codex: Ink & Iron*, with clean ASCII Couplet labels, simplified Rhythm indicator, and streamlined reward screens.
 - Divine Worship: Daily Office application for the Personal Ordinariate (North American Edition) with all 7 traditional hours, 100% offline standalone support with complete liturgical propers and calendar (397 days) bundled in firmware flash and auto-installed to SD card (/.smudge/daily_office/), automatic day-to-day liturgical propers from device clock, and physical button list navigation.
 - Complete 150-Psalm Coverdale Psalter (including Psalm 119 sections) compressed in firmware flash and auto-unpacked to SD storage for daily psalmody.
 - Invitatory Antiphons before and after the Venite for seasons and commons, Benedictus and Magnificat Antiphons, and appointed Office Hymns (including *Iste Confessor*) with Versicle and Response.
@@ -17,6 +30,7 @@
 
 ### Changed
 
+- Redesigned The Grand Inquisitor boss artwork in *Codex: Ink & Iron* as an ominous witch-hunter judge with an inquisitor's broad-brimmed peaked hat, dark hooded mantle, iron gorget, and executioner blade, removing the previous papal mitre and clerical robes.
 - PNG, XTC, and image-dithering scratch buffers use fewer heap allocations to reduce fragmentation.
 - The shared settings catalog keeps its initial allocation instead of retaining unused vector capacity.
 - SPI SD-card transfers are batched through the ESP32 hardware FIFO for faster reads.
@@ -30,6 +44,9 @@
 
 ### Fixed
 
+- Replaced solid black title rectangle on 1-use Power cards (`Illumination: Flow`, `Illumination: Bastion`, `Illumination: Fury`) in *Codex: Ink & Iron* with medieval woodcut diagonal hatching (`///`) and a 1px white knockout text halo, ensuring complete readability on 1-bit monochrome displays.
+- Inverted 1-bit coordinate orientation and bitmap packing for the *Codex: Ink & Iron* launcher icon and monster sprites, restoring clean black ink rendering on 1-bit e-paper displays.
+- Card draw turn bonus from `Illumination: Flow` in *Codex: Ink & Iron*, proper exhaustion of 1-use Power cards upon play instead of being recycled into the discard pile, and run state saving on sleep transitions.
 - Divine Worship: Daily Office reader memory optimization using a contiguous text pool and compact line offsets, preventing heap fragmentation and out-of-memory crashes on ESP32-C3 devices when rendering long offices such as Mattins.
 - Divine Worship: Daily Office prayer reader typography, section heading rules, rubric indentations, right-edge text margins, page-height budgeting to prevent button overlaps, and app icon portrait orientation.
 - Divine Worship: Daily Office Little Hours (Prime, Terce, Sext, None) and Compline now correctly preserve their fixed traditional psalms, Little Chapters, and collects instead of being overridden by the 30-day psalter, with optional Collect of the Day recitation added to Terce, Sext, and None.

@@ -19,20 +19,20 @@
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
-#include "components/icons/readingStatsIcons.h"
-#include "fontIds.h"
-
 #include "components/icons/applications.h"
 #include "components/icons/applications24.h"
 #include "components/icons/blackjack.h"
+#include "components/icons/codex.h"
+#include "components/icons/dailyoffice.h"
 #include "components/icons/dice.h"
 #include "components/icons/lifecounter.h"
+#include "components/icons/readingStatsIcons.h"
 #include "components/icons/rosary.h"
 #include "components/icons/sudoku.h"
+#include "components/icons/tetris.h"
 #include "components/icons/twozerofoureight.h"
 #include "components/icons/wordle.h"
-#include "components/icons/tetris.h"
-#include "components/icons/dailyoffice.h"
+#include "fontIds.h"
 
 // Internal constants
 namespace {
@@ -89,7 +89,7 @@ const freeink::Icon* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
       case UIIcon::Applications:
         return reinterpret_cast<const freeink::Icon*>(App24Icon);
       default:
-        break; // Fall through to 32px icon definitions below if no 24px variant exists
+        break;  // Fall through to 32px icon definitions below if no 24px variant exists
     }
   }
 
@@ -732,6 +732,9 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
         textX += mainMenuIconSize + hPaddingInSelection + 2;
       } else if (icon == UIIcon::DailyOffice) {
         renderer.drawIcon(DailyOfficeIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
+        textX += mainMenuIconSize + hPaddingInSelection + 2;
+      } else if (icon == UIIcon::Codex) {
+        renderer.drawIcon(CodexIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
         textX += mainMenuIconSize + hPaddingInSelection + 2;
       } else {
         const freeink::Icon* iconBitmap = iconForName(icon, mainMenuIconSize);

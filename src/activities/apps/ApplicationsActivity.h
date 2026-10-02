@@ -1,26 +1,27 @@
 #pragma once
 
-#include "activities/Activity.h"
-#include "activities/apps/DiceSimActivity.h"
-#include "activities/apps/WordleActivity.h"
-#include "activities/apps/LifeCounterActivity.h"
-#include "activities/apps/RosaryActivity.h"
-#include "activities/apps/TwoZeroFourEightActivity.h"
-#include "activities/apps/SudokuActivity.h"
-#include "activities/apps/BlackjackActivity.h"
-#include "activities/apps/AppSettingsActivity.h"
-#include "activities/apps/TetrisActivity.h"
-#include "activities/apps/DailyOfficeActivity.h"
-#include "SmudgeSettings.h"
-
 #include <algorithm>
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "SmudgeSettings.h"
+#include "activities/Activity.h"
+#include "activities/apps/AppSettingsActivity.h"
+#include "activities/apps/BlackjackActivity.h"
+#include "activities/apps/CodexActivity.h"
+#include "activities/apps/DailyOfficeActivity.h"
+#include "activities/apps/DiceSimActivity.h"
+#include "activities/apps/LifeCounterActivity.h"
+#include "activities/apps/RosaryActivity.h"
+#include "activities/apps/SudokuActivity.h"
+#include "activities/apps/TetrisActivity.h"
+#include "activities/apps/TwoZeroFourEightActivity.h"
+#include "activities/apps/WordleActivity.h"
+
 class ApplicationsActivity : public Activity {
-public:
+ public:
   ApplicationsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("Applications", renderer, mappedInput) {}
 
@@ -39,11 +40,11 @@ public:
     int appCount = static_cast<int>(visibleApps.size());
     if (appCount == 0) return;
 
-    if (mappedInput.wasReleased(MappedInputManager::Button::Right) || 
+    if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
         mappedInput.wasReleased(MappedInputManager::Button::Down)) {
       selectedIndex = (selectedIndex + 1) % appCount;
       requestUpdate();
-    } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) || 
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
                mappedInput.wasReleased(MappedInputManager::Button::Up)) {
       selectedIndex = (selectedIndex - 1 + appCount) % appCount;
       requestUpdate();
@@ -58,18 +59,15 @@ public:
         SmudgeSettings::getInstance().recordAppLaunch(app.name);
       }
 
-      startActivityForResult(
-          app.factory(),
-          [this, isSetting](const ActivityResult&) {
-            if (!isSetting) {
-              renderer.clearScreen();
-              renderer.displayBuffer(HalDisplay::RefreshMode::FULL_REFRESH);
-            }
+      startActivityForResult(app.factory(), [this, isSetting](const ActivityResult&) {
+        if (!isSetting) {
+          renderer.clearScreen();
+          renderer.displayBuffer(HalDisplay::RefreshMode::FULL_REFRESH);
+        }
 
-            refreshMenuList();
-            requestUpdate();
-          }
-      );
+        refreshMenuList();
+        requestUpdate();
+      });
     }
   }
 
@@ -82,20 +80,16 @@ public:
 
     const int headerY = metrics.topPadding;
     const int headerH = metrics.headerHeight;
-    const int startY  = headerY + headerH + metrics.verticalSpacing; 
+    const int startY = headerY + headerH + metrics.verticalSpacing;
     const int menuHeight = pageHeight - startY - metrics.buttonHintsHeight - metrics.verticalSpacing;
 
     GUI.drawHeader(renderer, Rect{0, headerY, pageWidth, headerH}, "Applications");
 
     int appCount = static_cast<int>(visibleApps.size());
     GUI.drawButtonMenu(
-        renderer,
-        Rect{0, startY, pageWidth, menuHeight},
-        appCount,
-        selectedIndex,
+        renderer, Rect{0, startY, pageWidth, menuHeight}, appCount, selectedIndex,
         [this](int index) { return visibleApps[index].name.c_str(); },
-        [this](int index) { return visibleApps[index].icon; }
-    );
+        [this](int index) { return visibleApps[index].icon; });
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -103,7 +97,7 @@ public:
     renderer.displayBuffer();
   }
 
-private:
+ private:
   struct AppEntry {
     std::string name;
     UIIcon icon;
@@ -117,15 +111,21 @@ private:
     auto& settings = SmudgeSettings::getInstance();
 
     std::vector<AppEntry> allApps = {
-      { "Dice", UIIcon::Dice, [this]() { return std::make_unique<DiceSimActivity>(renderer, mappedInput); } },
-      { "Wordle", UIIcon::Wordle, [this]() { return std::make_unique<WordleActivity>(renderer, mappedInput); } },
-      { "Life Counter", UIIcon::LifeCounter, [this]() { return std::make_unique<LifeCounterActivity>(renderer, mappedInput); } },
-      { "Rosary", UIIcon::Rosary, [this]() { return std::make_unique<RosaryActivity>(renderer, mappedInput); } },
-      { "2048", UIIcon::TwoZeroFourEight, [this]() { return std::make_unique<TwoZeroFourEightActivity>(renderer, mappedInput); } },
-      { "Sudoku", UIIcon::Sudoku, [this]() { return std::make_unique<SudokuActivity>(renderer, mappedInput); } },
-      { "Blackjack", UIIcon::Blackjack, [this]() { return std::make_unique<BlackjackActivity>(renderer, mappedInput); } },
-      { "Tetris", UIIcon::Tetris, [this]() { return std::make_unique<TetrisActivity>(renderer, mappedInput); } },
-      { "Divine Worship: Daily Office", UIIcon::DailyOffice, [this]() { return std::make_unique<DailyOfficeActivity>(renderer, mappedInput); } },
+        {"Dice", UIIcon::Dice, [this]() { return std::make_unique<DiceSimActivity>(renderer, mappedInput); }},
+        {"Wordle", UIIcon::Wordle, [this]() { return std::make_unique<WordleActivity>(renderer, mappedInput); }},
+        {"Life Counter", UIIcon::LifeCounter,
+         [this]() { return std::make_unique<LifeCounterActivity>(renderer, mappedInput); }},
+        {"Rosary", UIIcon::Rosary, [this]() { return std::make_unique<RosaryActivity>(renderer, mappedInput); }},
+        {"2048", UIIcon::TwoZeroFourEight,
+         [this]() { return std::make_unique<TwoZeroFourEightActivity>(renderer, mappedInput); }},
+        {"Sudoku", UIIcon::Sudoku, [this]() { return std::make_unique<SudokuActivity>(renderer, mappedInput); }},
+        {"Blackjack", UIIcon::Blackjack,
+         [this]() { return std::make_unique<BlackjackActivity>(renderer, mappedInput); }},
+        {"Tetris", UIIcon::Tetris, [this]() { return std::make_unique<TetrisActivity>(renderer, mappedInput); }},
+        {"Divine Worship: Daily Office", UIIcon::DailyOffice,
+         [this]() { return std::make_unique<DailyOfficeActivity>(renderer, mappedInput); }},
+        {"Codex: Ink & Iron", UIIcon::Codex,
+         [this]() { return std::make_unique<CodexActivity>(renderer, mappedInput); }},
     };
 
     std::vector<std::string> allNames;
@@ -142,13 +142,14 @@ private:
     }
 
     if (settings.sortMode == MenuSortMode::Alphabetical) {
-      std::sort(visibleApps.begin(), visibleApps.end(), [](const AppEntry& a, const AppEntry& b) {
-        return a.name < b.name;
-      });
+      std::sort(visibleApps.begin(), visibleApps.end(),
+                [](const AppEntry& a, const AppEntry& b) { return a.name < b.name; });
     } else if (settings.sortMode == MenuSortMode::MostUsed) {
       std::sort(visibleApps.begin(), visibleApps.end(), [&](const AppEntry& a, const AppEntry& b) {
-        auto itA = std::find_if(settings.apps.begin(), settings.apps.end(), [&](const AppUsageData& d) { return d.appName == a.name; });
-        auto itB = std::find_if(settings.apps.begin(), settings.apps.end(), [&](const AppUsageData& d) { return d.appName == b.name; });
+        auto itA = std::find_if(settings.apps.begin(), settings.apps.end(),
+                                [&](const AppUsageData& d) { return d.appName == a.name; });
+        auto itB = std::find_if(settings.apps.begin(), settings.apps.end(),
+                                [&](const AppUsageData& d) { return d.appName == b.name; });
         float scoreA = (itA != settings.apps.end()) ? itA->usageScore : 0.0f;
         float scoreB = (itB != settings.apps.end()) ? itB->usageScore : 0.0f;
         return scoreA > scoreB;
@@ -156,11 +157,8 @@ private:
     }
 
     // Always append App Settings at the bottom
-    visibleApps.push_back({
-      "Settings", UIIcon::Settings, [this]() {
-        return std::make_unique<AppSettingsActivity>(renderer, mappedInput);
-      }
-    });
+    visibleApps.push_back({"Settings", UIIcon::Settings,
+                           [this]() { return std::make_unique<AppSettingsActivity>(renderer, mappedInput); }});
 
     if (selectedIndex >= static_cast<int>(visibleApps.size())) {
       selectedIndex = std::max(0, static_cast<int>(visibleApps.size()) - 1);

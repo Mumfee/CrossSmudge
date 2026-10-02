@@ -154,7 +154,8 @@ enum UIIcon {
   TwoZeroFourEight,
   Blackjack,
   Tetris,
-  DailyOffice
+  DailyOffice,
+  Codex
 };
 
 // Default theme implementation (Classic Theme)

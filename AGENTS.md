@@ -150,6 +150,7 @@ SDK.
 ## Build And Verification
 
 - PlatformIO is the source of truth. Personal overrides belong in `platformio.local.ini`.
+- **Selective Builds During Development:** When working on features, fixes, or iterations, do NOT build all environments. Only compile the single relevant target (e.g., `pio run -e simulator` for UI/logic or `pio run -e default` for C3). Reserve full matrix builds (`default`, `sticky`, `x4-pro`, `simulator`) strictly for when preparing and publishing a release.
 - Host environment may be macOS, Linux, WSL, or Windows Git Bash. Check `uname -s` before recommending platform-specific shell commands.
 - Logging uses `LOG_INF`, `LOG_DBG`, and `LOG_ERR`.
 - The simulator env in this repo is `simulator`.
