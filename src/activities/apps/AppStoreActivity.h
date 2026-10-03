@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "Logging.h"
+#include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
@@ -26,17 +27,62 @@ class AppStoreActivity : public Activity {
 
   void onEnter() override {
     Activity::onEnter();
+    sdFontSystem.releaseForNetwork(renderer);
     catalogUrl_ = "https://raw.githubusercontent.com/Mumfee/CrossSmudge/main/apps/catalog.json";
     baseUrl_ = "https://raw.githubusercontent.com/Mumfee/CrossSmudge/main/apps/";
     selectedIndex_ = 0;
-    state_ = State::CHECK_WIFI;
+    errorMessage_.clear();
+    if (isWifiConnected()) {
+      state_ = State::FETCHING_CATALOG;
+    } else {
+      state_ = State::CHECK_WIFI;
+    }
     requestUpdate();
   }
 
   void onExit() override {
     apps_.clear();
     apps_.shrink_to_fit();
+    sdFontSystem.ensureLoaded(renderer);
+    sdFontSystem.releaseRegistry();
     Activity::onExit();
+  }
+
+  void render(RenderLock&&) override {
+    switch (state_) {
+      case State::CHECK_WIFI:
+        if (!isWifiConnected()) {
+          renderNoWifi();
+        } else {
+          renderLoading("Connecting to App Catalog...");
+        }
+        break;
+
+      case State::FETCHING_CATALOG:
+        renderLoading("Fetching App Catalog from GitHub...");
+        break;
+
+      case State::CATALOG_READY:
+        renderCatalog();
+        break;
+
+      case State::APP_DETAIL:
+        renderAppDetail();
+        break;
+
+      case State::DOWNLOADING: {
+        const char* appName = (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(apps_.size()))
+                                  ? apps_[selectedIndex_].name.c_str()
+                                  : "";
+        renderDownloadProgress(appName);
+        break;
+      }
+
+      case State::ERROR:
+        renderError();
+        break;
+    }
+    renderer.displayBuffer();
   }
 
   void loop() override {
@@ -47,17 +93,68 @@ class AppStoreActivity : public Activity {
       }
       if (state_ == State::APP_DETAIL) {
         state_ = State::CATALOG_READY;
-        renderCatalog();
+        requestUpdate();
         return;
+      }
+      if (state_ == State::ERROR) {
+        if (!apps_.empty()) {
+          state_ = State::CATALOG_READY;
+          requestUpdate();
+          return;
+        }
       }
       finish();
       return;
     }
 
     switch (state_) {
-      case State::CHECK_WIFI:
-        checkWifi();
+      case State::CHECK_WIFI: {
+        if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+          startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                                 [this](const ActivityResult&) {
+                                   if (isWifiConnected()) {
+                                     state_ = State::FETCHING_CATALOG;
+                                     requestUpdateAndWait();
+                                     fetchCatalog();
+                                   } else {
+                                     state_ = State::CHECK_WIFI;
+                                     requestUpdate();
+                                   }
+                                 });
+          return;
+        }
+        int tx = 0, ty = 0;
+        if (mappedInput.wasScreenTapped(tx, ty)) {
+          int w = renderer.getScreenWidth();
+          int h = renderer.getScreenHeight();
+          const auto& m = UITheme::getInstance().getMetrics();
+          if (ty > h - m.buttonHintsHeight) {
+            if (tx < w / 2) {
+              finish();
+              return;
+            } else {
+              startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                                     [this](const ActivityResult&) {
+                                       if (isWifiConnected()) {
+                                         state_ = State::FETCHING_CATALOG;
+                                         requestUpdateAndWait();
+                                         fetchCatalog();
+                                       } else {
+                                         state_ = State::CHECK_WIFI;
+                                         requestUpdate();
+                                       }
+                                     });
+              return;
+            }
+          }
+        }
+        if (isWifiConnected()) {
+          state_ = State::FETCHING_CATALOG;
+          requestUpdateAndWait();
+          fetchCatalog();
+        }
         break;
+      }
 
       case State::FETCHING_CATALOG:
         fetchCatalog();
@@ -75,12 +172,47 @@ class AppStoreActivity : public Activity {
         // Handled during download operation
         break;
 
-      case State::ERROR:
+      case State::ERROR: {
         if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-          state_ = State::CHECK_WIFI;
-          requestUpdate();
+          if (isWifiConnected()) {
+            state_ = State::FETCHING_CATALOG;
+            requestUpdateAndWait();
+            fetchCatalog();
+          } else {
+            state_ = State::CHECK_WIFI;
+            requestUpdate();
+          }
+          return;
+        }
+        int tx = 0, ty = 0;
+        if (mappedInput.wasScreenTapped(tx, ty)) {
+          int w = renderer.getScreenWidth();
+          int h = renderer.getScreenHeight();
+          const auto& m = UITheme::getInstance().getMetrics();
+          if (ty > h - m.buttonHintsHeight) {
+            if (tx < w / 2) {
+              if (!apps_.empty()) {
+                state_ = State::CATALOG_READY;
+                requestUpdate();
+              } else {
+                finish();
+              }
+              return;
+            } else {
+              if (isWifiConnected()) {
+                state_ = State::FETCHING_CATALOG;
+                requestUpdateAndWait();
+                fetchCatalog();
+              } else {
+                state_ = State::CHECK_WIFI;
+                requestUpdate();
+              }
+              return;
+            }
+          }
         }
         break;
+      }
     }
   }
 
@@ -145,24 +277,7 @@ class AppStoreActivity : public Activity {
 #endif
   }
 
-  void checkWifi() {
-    if (!isWifiConnected()) {
-      renderNoWifi();
-      if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-        startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
-                               [this](const ActivityResult&) {
-                                 state_ = State::CHECK_WIFI;
-                                 requestUpdate();
-                               });
-      }
-      return;
-    }
-
-    state_ = State::FETCHING_CATALOG;
-    requestUpdate();
-  }
-
-  void loadAppIcon(CatalogApp& app) {
+  void loadAppIcon(CatalogApp& app, bool allowDownload = false) {
     app.hasIcon = false;
     std::string iconPath1 = "/.crosssmudge/applications/" + app.id + "/icon.raw";
     std::string iconPath2 = "/.smudge/applications/" + app.id + "/icon.raw";
@@ -195,12 +310,15 @@ class AppStoreActivity : public Activity {
     }
 #endif
 
-    if (isWifiConnected()) {
+    if (allowDownload && isWifiConnected()) {
       Storage.ensureDirectoryExists("/.crosssmudge");
       Storage.ensureDirectoryExists("/.crosssmudge/cache");
       Storage.ensureDirectoryExists("/.crosssmudge/cache/icons");
       std::string iconUrl = baseUrl_ + app.id + "/icon.raw";
       HttpDownloader::DownloadOptions options;
+#if defined(FREEINK_NET_WOLFSSL)
+      options.transport = HttpDownloader::Transport::WOLFSSL;
+#endif
       if (HttpDownloader::downloadToFile(iconUrl, cachePath, nullptr, nullptr, "", "", options) == HttpDownloader::OK) {
         if (Storage.openFileForRead("STORE", cachePath.c_str(), f)) {
           size_t readBytes = f.read(app.iconData, sizeof(app.iconData));
@@ -213,41 +331,81 @@ class AppStoreActivity : public Activity {
     }
   }
 
-  void fetchCatalog() {
-    renderLoading("Fetching App Catalog from GitHub...");
+  void ensureAppIcon(CatalogApp& app) {
+    if (app.hasIcon) return;
+    loadAppIcon(app, true);
+  }
 
-    std::string jsonContent;
-    bool ok = HttpDownloader::fetchUrl(catalogUrl_, jsonContent);
+  void fetchCatalog() {
+    sdFontSystem.releaseForNetwork(renderer);
+
+    std::string tmpCatalog = "/.crosssmudge/cache/catalog.tmp";
+    Storage.ensureDirectoryExists("/.crosssmudge");
+    Storage.ensureDirectoryExists("/.crosssmudge/cache");
+    Storage.remove(tmpCatalog.c_str());
+
+    HttpDownloader::DownloadOptions options;
+#if defined(FREEINK_NET_WOLFSSL)
+    options.transport = HttpDownloader::Transport::WOLFSSL;
+#endif
+
+    HttpDownloader::DownloadError err =
+        HttpDownloader::downloadToFile(catalogUrl_, tmpCatalog, nullptr, nullptr, "", "", options);
+
+#if defined(FREEINK_NET_WOLFSSL)
+    if (err != HttpDownloader::OK) {
+      LOG_DBG("STORE", "WolfSSL catalog fetch failed (%d), trying ESP_HTTP", err);
+      options.transport = HttpDownloader::Transport::ESP_HTTP;
+      err = HttpDownloader::downloadToFile(catalogUrl_, tmpCatalog, nullptr, nullptr, "", "", options);
+    }
+#endif
 
 #if defined(SIMULATOR)
-    if (!ok || jsonContent.empty()) {
+    if (err != HttpDownloader::OK) {
       FILE* f = fopen("apps/catalog.json", "rb");
       if (!f) f = fopen("../apps/catalog.json", "rb");
       if (!f) f = fopen("/var/home/brady/C/crosssmudge/apps/catalog.json", "rb");
       if (f) {
-        fseek(f, 0, SEEK_END);
-        long sz = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        jsonContent.resize(sz);
-        fread(&jsonContent[0], 1, sz, f);
+        HalFile outF;
+        if (Storage.openFileForWrite("STORE", tmpCatalog.c_str(), outF)) {
+          uint8_t buf[256];
+          size_t bytes;
+          while ((bytes = fread(buf, 1, sizeof(buf), f)) > 0) {
+            outF.write(buf, bytes);
+          }
+          outF.close();
+          err = HttpDownloader::OK;
+        }
         fclose(f);
-        ok = true;
       }
     }
 #endif
 
-    if (!ok || jsonContent.empty()) {
+    if (err != HttpDownloader::OK) {
+      Storage.remove(tmpCatalog.c_str());
       state_ = State::ERROR;
       errorMessage_ = "Failed to download catalog.json.\nCheck network connection.";
       requestUpdate();
       return;
     }
 
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, jsonContent);
-    if (err) {
+    FsFile catalogFile;
+    if (!Storage.openFileForRead("STORE", tmpCatalog.c_str(), catalogFile)) {
+      Storage.remove(tmpCatalog.c_str());
       state_ = State::ERROR;
-      errorMessage_ = std::string("JSON Parse Error: ") + err.c_str();
+      errorMessage_ = "Failed to read catalog.tmp.";
+      requestUpdate();
+      return;
+    }
+
+    JsonDocument doc;
+    DeserializationError jsonErr = deserializeJson(doc, catalogFile);
+    catalogFile.close();
+    Storage.remove(tmpCatalog.c_str());
+
+    if (jsonErr) {
+      state_ = State::ERROR;
+      errorMessage_ = std::string("JSON Parse Error: ") + jsonErr.c_str();
       requestUpdate();
       return;
     }
@@ -271,13 +429,13 @@ class AppStoreActivity : public Activity {
       }
 
       checkInstalledStatus(app);
-      loadAppIcon(app);
+      loadAppIcon(app, false);
       apps_.push_back(std::move(app));
     }
 
     state_ = State::CATALOG_READY;
     selectedIndex_ = 0;
-    renderCatalog();
+    requestUpdate();
   }
 
   void checkInstalledStatus(CatalogApp& app) {
@@ -314,18 +472,19 @@ class AppStoreActivity : public Activity {
     if (mappedInput.wasReleased(MappedInputManager::Button::Down) ||
         mappedInput.wasReleased(MappedInputManager::Button::PageForward)) {
       selectedIndex_ = (selectedIndex_ + 1) % count;
-      renderCatalog();
+      requestUpdate();
       return;
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Up) ||
                mappedInput.wasReleased(MappedInputManager::Button::PageBack)) {
       selectedIndex_ = (selectedIndex_ - 1 + count) % count;
-      renderCatalog();
+      requestUpdate();
       return;
     }
 
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       state_ = State::APP_DETAIL;
-      renderAppDetail();
+      ensureAppIcon(apps_[selectedIndex_]);
+      requestUpdate();
       return;
     }
 
@@ -342,15 +501,16 @@ class AppStoreActivity : public Activity {
           return;
         } else if (tx < w / 2) {
           state_ = State::APP_DETAIL;
-          renderAppDetail();
+          ensureAppIcon(apps_[selectedIndex_]);
+          requestUpdate();
           return;
         } else if (tx < 3 * w / 4) {
           selectedIndex_ = (selectedIndex_ - 1 + count) % count;
-          renderCatalog();
+          requestUpdate();
           return;
         } else {
           selectedIndex_ = (selectedIndex_ + 1) % count;
-          renderCatalog();
+          requestUpdate();
           return;
         }
       }
@@ -362,22 +522,33 @@ class AppStoreActivity : public Activity {
         if (tx >= 16 && tx <= w - 16 && ty >= ry && ty <= ry + rowH - 4) {
           if (selectedIndex_ == i) {
             state_ = State::APP_DETAIL;
-            renderAppDetail();
+            ensureAppIcon(apps_[selectedIndex_]);
           } else {
             selectedIndex_ = i;
-            renderCatalog();
           }
+          requestUpdate();
           return;
         }
       }
     }
   }
 
+  int getDetailActionButtonY() const {
+    const auto& m = UITheme::getInstance().getMetrics();
+    int cardY = m.topPadding + m.headerHeight + 12;
+    int cardH = 96;
+    int descY = cardY + cardH + 12;
+    int descH = 176;
+    int pkgY = descY + descH + 12;
+    int pkgH = 118;
+    return pkgY + pkgH + 16;
+  }
+
   void handleDetailInput() {
     int count = static_cast<int>(apps_.size());
     if (count == 0 || selectedIndex_ < 0 || selectedIndex_ >= count) {
       state_ = State::CATALOG_READY;
-      renderCatalog();
+      requestUpdate();
       return;
     }
 
@@ -385,7 +556,7 @@ class AppStoreActivity : public Activity {
 
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       state_ = State::CATALOG_READY;
-      renderCatalog();
+      requestUpdate();
       return;
     }
 
@@ -411,7 +582,7 @@ class AppStoreActivity : public Activity {
       if (ty > h - m.buttonHintsHeight) {
         if (tx < w / 4) {
           state_ = State::CATALOG_READY;
-          renderCatalog();
+          requestUpdate();
           return;
         } else if (tx < w / 2) {
           installApp(app);
@@ -422,8 +593,8 @@ class AppStoreActivity : public Activity {
         }
       }
 
-      int btnY = 510;
-      int btnH = 52;
+      int btnY = getDetailActionButtonY();
+      int btnH = 50;
       if (ty >= btnY && ty <= btnY + btnH) {
         if (!app.isInstalled) {
           if (tx >= 40 && tx <= w - 40) {
@@ -431,10 +602,13 @@ class AppStoreActivity : public Activity {
             return;
           }
         } else {
-          if (tx >= 24 && tx <= 230) {
+          int bw = 200;
+          int bx1 = 24;
+          int bx2 = w - 24 - bw;
+          if (tx >= bx1 && tx <= bx1 + bw) {
             installApp(app);
             return;
-          } else if (tx >= 250 && tx <= 456) {
+          } else if (tx >= bx2 && tx <= bx2 + bw) {
             uninstallApp(app);
             return;
           }
@@ -448,6 +622,8 @@ class AppStoreActivity : public Activity {
     cancelDownload_ = false;
     totalFiles_ = static_cast<int>(app.files.size());
 
+    sdFontSystem.releaseForNetwork(renderer);
+
     std::string targetDir = "/.crosssmudge/applications/" + app.id;
     Storage.ensureDirectoryExists("/.crosssmudge");
     Storage.ensureDirectoryExists("/.crosssmudge/applications");
@@ -460,7 +636,7 @@ class AppStoreActivity : public Activity {
       }
       currentFileNum_ = i + 1;
       currentDownloadingFile_ = app.files[i];
-      renderDownloadProgress(app.name.c_str());
+      requestUpdateAndWait();
 
       std::string destPath = targetDir + "/" + app.files[i];
 
@@ -479,6 +655,9 @@ class AppStoreActivity : public Activity {
 
       HttpDownloader::DownloadOptions options;
       options.shouldCancel = [this]() { return cancelDownload_; };
+#if defined(FREEINK_NET_WOLFSSL)
+      options.transport = HttpDownloader::Transport::WOLFSSL;
+#endif
 
 #if defined(SIMULATOR)
       HttpDownloader::DownloadError err = HttpDownloader::HTTP_ERROR;
@@ -504,9 +683,19 @@ class AppStoreActivity : public Activity {
       }
 #else
       auto err = HttpDownloader::downloadToFile(fileUrl, destPath, nullptr, &cancelDownload_, "", "", options);
+#if defined(FREEINK_NET_WOLFSSL)
+      if (err != HttpDownloader::OK && !cancelDownload_) {
+        options.transport = HttpDownloader::Transport::ESP_HTTP;
+        err = HttpDownloader::downloadToFile(fileUrl, destPath, nullptr, &cancelDownload_, "", "", options);
+      }
+#endif
 #endif
 
       if (err != HttpDownloader::OK) {
+        if (cancelDownload_) {
+          LOG_INF("STORE", "Download cancelled");
+          break;
+        }
         LOG_ERR("STORE", "Failed downloading %s: %d", app.files[i].c_str(), err);
         state_ = State::ERROR;
         errorMessage_ = "Failed downloading: " + app.files[i];
@@ -516,9 +705,9 @@ class AppStoreActivity : public Activity {
     }
 
     checkInstalledStatus(app);
-    loadAppIcon(app);
+    loadAppIcon(app, false);
     state_ = State::APP_DETAIL;
-    renderAppDetail();
+    requestUpdate();
   }
 
   void uninstallApp(CatalogApp& app) {
@@ -534,7 +723,7 @@ class AppStoreActivity : public Activity {
 
     checkInstalledStatus(app);
     state_ = State::APP_DETAIL;
-    renderAppDetail();
+    requestUpdate();
   }
 
   void renderLoading(const char* msg) {
@@ -545,7 +734,9 @@ class AppStoreActivity : public Activity {
     renderer.clearScreen();
     GUI.drawHeader(renderer, Rect{0, m.topPadding, w, m.headerHeight}, "App Store", "Connecting");
     renderer.drawCenteredText(UI_12_FONT_ID, h / 2 - 20, msg, true, EpdFontFamily::BOLD);
-    renderer.displayBuffer();
+
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
 
   void renderNoWifi() {
@@ -561,7 +752,6 @@ class AppStoreActivity : public Activity {
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "Connect Wi-Fi", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    renderer.displayBuffer();
   }
 
   void renderCatalog() {
@@ -638,7 +828,6 @@ class AppStoreActivity : public Activity {
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "Details", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    renderer.displayBuffer();
   }
 
   void renderAppDetail() {
@@ -685,7 +874,8 @@ class AppStoreActivity : public Activity {
     char verBuf[64];
     if (app.isInstalled) {
       if (app.installedVersion != app.version) {
-        snprintf(verBuf, sizeof(verBuf), "Installed: v%s  ->  New: v%s", app.installedVersion.c_str(), app.version.c_str());
+        snprintf(verBuf, sizeof(verBuf), "Installed: v%s  ->  New: v%s", app.installedVersion.c_str(),
+                 app.version.c_str());
       } else {
         snprintf(verBuf, sizeof(verBuf), "Version: v%s (Up to date)", app.version.c_str());
       }
@@ -727,7 +917,7 @@ class AppStoreActivity : public Activity {
     renderer.drawText(SMALL_FONT_ID, 28, pkgY + 84, pathBuf.c_str(), true);
 
     // 4. Action Buttons (Touch + Physical Prompts)
-    int btnY = pkgY + pkgH + 20;
+    int btnY = getDetailActionButtonY();
     int btnH = 50;
 
     if (!app.isInstalled) {
@@ -736,7 +926,8 @@ class AppStoreActivity : public Activity {
       int bx = (w - bw) / 2;
       renderer.fillRoundedRect(bx, btnY, bw, btnH, 8, Color::Black);
       int tw = renderer.getTextWidth(UI_12_FONT_ID, "Install Application", EpdFontFamily::BOLD);
-      renderer.drawText(UI_12_FONT_ID, bx + (bw - tw) / 2, btnY + 14, "Install Application", false, EpdFontFamily::BOLD);
+      renderer.drawText(UI_12_FONT_ID, bx + (bw - tw) / 2, btnY + 14, "Install Application", false,
+                        EpdFontFamily::BOLD);
     } else {
       // Upgrade or Reinstall (Left) + Uninstall (Right)
       int bw = 200;
@@ -759,7 +950,6 @@ class AppStoreActivity : public Activity {
     const char* hint3 = app.isInstalled ? "Uninstall" : "";
     const auto labels = mappedInput.mapLabels(hint1, hint2, hint3, "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    renderer.displayBuffer();
   }
 
   void renderDownloadProgress(const char* appName) {
@@ -779,7 +969,6 @@ class AppStoreActivity : public Activity {
 
     const auto labels = mappedInput.mapLabels("Cancel", "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    renderer.displayBuffer();
   }
 
   void renderError() {
@@ -800,6 +989,5 @@ class AppStoreActivity : public Activity {
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "Retry", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    renderer.displayBuffer();
   }
 };

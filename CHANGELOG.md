@@ -56,6 +56,13 @@
 
 ### Fixed
 
+- Resolved App Store catalog fetching hangs, TLS out-of-memory errors, and render freezes on ESP32-C3 devices (`src/activities/apps/AppStoreActivity.h`):
+  - Implemented the FreeRTOS `void render(RenderLock&& lock) override` contract, routing all screen states (`CHECK_WIFI`, `FETCHING_CATALOG`, `CATALOG_READY`, `APP_DETAIL`, `DOWNLOADING`, `ERROR`) through `ActivityManager` and eliminating illegal direct `displayBuffer()` calls from the main loop thread.
+  - Added release of resident SD card fonts (`sdFontSystem.releaseForNetwork(renderer)`) before network initialization and restored them on exit (`sdFontSystem.ensureLoaded(renderer); sdFontSystem.releaseRegistry()`), freeing 20–30 KB of critical internal DRAM required for TLS handshakes on ESP32-C3 devices.
+  - Streamed GitHub `catalog.json` downloads directly to an SD temp cache file (`/.crosssmudge/cache/catalog.tmp`) via lightweight `Transport::WOLFSSL` (with fallback to `Transport::ESP_HTTP`), parsing JSON from the file stream and eliminating RAM buffering during TLS.
+  - Removed 10 sequential blocking HTTPS icon downloads from `fetchCatalog()`, loading only locally installed or cached icons during catalog fetch and deferring icon downloads to individual app detail views, reducing initial catalog load time from 30+ seconds down to 1–2 seconds.
+  - Added full interactive Retry and Back handling for physical buttons and touch in the error view (`renderError()`), ensuring clear diagnostic feedback if Wi-Fi or GitHub transfers fail.
+
 - Enhanced *Codex: Ink & Iron* chamber events, navigation, and rewards:
   - Formatted all narrative lines across all 9 chamber events to $\le 44$ characters and trimmed choice descriptions, preventing text clipping and overflowing off the screen borders on 480px e-paper displays.
   - Removed the Back bypass button during chamber events to force players to make a choice, and routed side buttons to the Grimoire (`Deck`) and Delve (`Menu`) tabs with `eventId` persistence, allowing players to inspect cards/relics and save during events.
