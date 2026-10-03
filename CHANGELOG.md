@@ -1,4 +1,4 @@
-## [v1.6.0] - 2026-09-30
+## [v1.6.5] - 2026-10-03
 
 ### Added
 
@@ -64,6 +64,12 @@
   - Added full interactive Retry and Back handling for physical buttons and touch in the error view (`renderError()`), ensuring clear diagnostic feedback if Wi-Fi or GitHub transfers fail.
   - Fixed physical front button and on-screen button hint navigation in the App Store catalog list by mapping `Button::Left` (Button 3 / "Up") to previous and `Button::Right` (Button 4 / "Down") to next, and added swipe gestures and expanded touch tolerance for bottom hints.
 
+- Enhanced *Blackjack* gameplay controls, insurance, and splitting rules:
+  - Added an interactive Insurance modal prompt when the dealer's face-up card is an Ace, paying 2:1 on dealer natural blackjack.
+  - Added Double Down functionality mapped to the Select/Confirm button after initial deal.
+  - Added pair splitting mapped to the Up/Down physical front buttons with a dedicated button hint prompt when identical card ranks are dealt.
+  - Fixed pair splitting logic to strictly require matching card ranks (e.g. 8-8, K-K), preventing illegal splits on different 10-value cards (e.g. King and Queen).
+  - Fixed split hand layout and typography so active hand highlights and button hints remain legible and unclipped on 480px screens.
 - Enhanced *Codex: Ink & Iron* chamber events, navigation, and rewards:
   - Formatted all narrative lines across all 9 chamber events to $\le 44$ characters and trimmed choice descriptions, preventing text clipping and overflowing off the screen borders on 480px e-paper displays.
   - Removed the Back bypass button during chamber events to force players to make a choice, and routed side buttons to the Grimoire (`Deck`) and Delve (`Menu`) tabs with `eventId` persistence, allowing players to inspect cards/relics and save during events.

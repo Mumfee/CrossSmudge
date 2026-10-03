@@ -22,6 +22,7 @@ Welcome to the **CrossSmudge Application Platform**! CrossSmudge features a ligh
 9. [Memory Discipline & E-Paper Best Practices](#memory-discipline--e-paper-best-practices)
 10. [Complete "Hello World" Example](#complete-hello-world-example)
 11. [Testing & Installing Apps](#testing--installing-apps)
+12. [Submitting to the App Store](#submitting-to-the-app-store)
 
 ---
 
@@ -531,3 +532,53 @@ end
    ```
    This clamps the host Lua heap to the exact **75 KB hardware DRAM limit** of the ESP32-C3. If your script or assets exceed 75 KB, the simulator will raise an out-of-memory error immediately, allowing you to catch and fix memory bloat before flashing to physical devices.
 4. Open **Applications** from the simulator home menu to test keyboard inputs, button mappings, touch gestures, and rendering instantly.
+
+---
+
+## Submitting to the App Store
+
+CrossSmudge features an on-device **App Store** accessible directly over Wi-Fi. It queries the community catalog hosted at `https://raw.githubusercontent.com/Mumfee/CrossSmudge/main/apps/catalog.json`. Users can browse descriptions, see icons, install, update, and uninstall apps with a single click.
+
+To publish your application to the official CrossSmudge App Store so any user can discover and install it:
+
+### Step 1: Prepare Your App Directory
+Ensure your application is located in `apps/<app_id>/` with all required files:
+- `manifest.json` (Valid JSON with `id`, `name`, `version`, `author`, `description`, `entry`)
+- `main.lua` (Clean, working code)
+- `icon.raw` (Optional but highly recommended 32x32 1-bit icon, exactly 128 bytes)
+- Any supplementary modules or asset files
+
+### Step 2: Validate Against Hardware Constraints
+Before submitting, you **must** test your application in the simulator with the 75 KB RAM constraint:
+```bash
+SMUDGE_X3_CONSTRAINTS=1 .pio/build/simulator/program
+```
+Verify:
+1. The app launches without out-of-memory errors.
+2. Navigating through all menus, screens, and gameplay loops does not leak memory.
+3. Exiting back to the Applications menu works smoothly.
+
+### Step 3: Add to `apps/catalog.json`
+Open [`apps/catalog.json`](./catalog.json) and add an entry under the `"apps"` array:
+
+```json
+{
+  "id": "my_app",
+  "name": "My Custom App",
+  "version": "1.0.0",
+  "author": "YourGitHubHandle",
+  "description": "Short, catchy summary of what your application does.",
+  "files": [
+    "manifest.json",
+    "main.lua",
+    "icon.raw"
+  ]
+}
+```
+*Note: Make sure all files required by your app are listed in `files`. The on-device App Store downloads each file in this list.*
+
+### Step 4: Open a GitHub Pull Request
+1. Fork [https://github.com/Mumfee/CrossSmudge](https://github.com/Mumfee/CrossSmudge).
+2. Commit your new application folder (`apps/<app_id>/...`) and your edit to `apps/catalog.json`.
+3. Submit a Pull Request with title `feat(apps): add <app_name>`.
+4. Once reviewed and merged into `main`, your application is immediately available in the on-device App Store across all CrossSmudge devices worldwide!
