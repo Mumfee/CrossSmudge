@@ -1,0 +1,200 @@
+{
+  "repo": "Mumfee/CrossSmudge",
+  "branch": "main",
+  "apps": [
+    {
+      "id": "dice",
+      "name": "Dice Roller",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Multi-polyhedral tabletop dice simulator with running history",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "icon.raw",
+        "sprites/coin_heads.raw",
+        "sprites/coin_tails.raw"
+      ]
+    },
+    {
+      "id": "lifecounter",
+      "name": "Life Counter",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Magic: The Gathering & card game life tracker with commander mode",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "icon.raw"
+      ]
+    },
+    {
+      "id": "rosary",
+      "name": "Holy Rosary",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Interactive Holy Rosary prayer guide with bead tracking and mysteries",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "icon.raw",
+        "sprites/crucifix.raw"
+      ]
+    },
+    {
+      "id": "dailyoffice",
+      "name": "Divine Worship",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Daily Office liturgical prayer book (Morning, Evening & Compline)",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "parser.lua",
+        "hymns.lua",
+        "icon.raw",
+        "propers.txt",
+        "psalter.txt",
+        "hours/compline.txt",
+        "hours/evensong.txt",
+        "hours/hymns.txt",
+        "hours/mattins.txt",
+        "hours/none.txt",
+        "hours/prime.txt",
+        "hours/sext.txt",
+        "hours/terce.txt"
+      ]
+    },
+    {
+      "id": "wordle",
+      "name": "Wordle",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "5-letter word deduction game with on-screen keyboard and statistics",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "icon.raw"
+      ]
+    },
+    {
+      "id": "2048",
+      "name": "2048",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Classic 4x4 sliding tile number puzzle with high scores",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "icon.raw"
+      ]
+    },
+    {
+      "id": "sudoku",
+      "name": "Sudoku",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Classic 9x9 Sudoku logic puzzle with puzzle generator",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "generator.lua",
+        "icon.raw"
+      ]
+    },
+    {
+      "id": "blackjack",
+      "name": "Blackjack",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Classic 21 card game with betting chips, hit, stand, and dealer rules",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "icon.raw",
+        "sprites/clubs.raw",
+        "sprites/diamonds.raw",
+        "sprites/hearts.raw",
+        "sprites/spades.raw"
+      ]
+    },
+    {
+      "id": "tetris",
+      "name": "Tetris",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Classic falling block puzzle optimized for e-paper displays",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "icon.raw"
+      ]
+    },
+    {
+      "id": "codex",
+      "name": "Codex: Ink & Iron",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Medieval illuminated manuscript deckbuilder with Couplet synergy and page progression",
+      "files": [
+        "card_ui.lua",
+        "cards.lua",
+        "cards.txt",
+        "combat_engine.lua",
+        "events.txt",
+        "icon.raw",
+        "load_save.lua",
+        "main.lua",
+        "manifest.json",
+        "monsters.txt",
+        "relics.lua",
+        "relics.txt",
+        "screens/combat.lua",
+        "screens/deck_view.lua",
+        "screens/game_over.lua",
+        "screens/outcome.lua",
+        "screens/reward.lua",
+        "screens/scriptorium.lua",
+        "screens/shop.lua",
+        "screens/title.lua",
+        "screens/victory.lua",
+        "sprites/event_0.raw",
+        "sprites/event_1.raw",
+        "sprites/event_2.raw",
+        "sprites/event_3.raw",
+        "sprites/event_4.raw",
+        "sprites/event_5.raw",
+        "sprites/event_6.raw",
+        "sprites/event_7.raw",
+        "sprites/event_8.raw",
+        "sprites/merchant.raw",
+        "sprites/monster_0.raw",
+        "sprites/monster_1.raw",
+        "sprites/monster_10.raw",
+        "sprites/monster_11.raw",
+        "sprites/monster_2.raw",
+        "sprites/monster_3.raw",
+        "sprites/monster_4.raw",
+        "sprites/monster_5.raw",
+        "sprites/monster_6.raw",
+        "sprites/monster_7.raw",
+        "sprites/monster_8.raw",
+        "sprites/monster_9.raw",
+        "sprites/relic_0.raw",
+        "sprites/relic_1.raw",
+        "sprites/relic_10.raw",
+        "sprites/relic_11.raw",
+        "sprites/relic_2.raw",
+        "sprites/relic_3.raw",
+        "sprites/relic_4.raw",
+        "sprites/relic_5.raw",
+        "sprites/relic_6.raw",
+        "sprites/relic_7.raw",
+        "sprites/relic_8.raw",
+        "sprites/relic_9.raw",
+        "state.lua",
+        "ui_base.lua"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+[0]
+Silver Quill|Gain +1 Ink on turn 1 of combat.
+[1]
+Iron Sigil|Start combat with 6 Ward.
+[2]
+Vampiric Seal|Heal 2 HP after winning combat.
+[3]
+Scholar's Ring|Start combat with +1 card in hand.
+[4]
+Whetstone|All Blade attacks deal +1 damage.
+[5]
+Monk's Rosary|Ward is not halved between turns.
+[6]
+Golden Bookmark|Gain +15 Gold after winning combat.
+[7]
+Obsidian Inkwell|Play 3 Script cards: gain 1 Ink.
+[8]
+Barbed Bookmark|When enemy hits Ward, deal 3 damage.
+[9]
+Hourglass of Sand|Every 3 turns, draw 2 additional cards.
+[10]
+Censer of Cleansing|Purge Weak & Vulnerable on turn 2.
+[11]
+Alchemical Flask|Heal 8 HP whenever you visit a Shop.

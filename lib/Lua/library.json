@@ -1,0 +1,9 @@
+{
+  "name": "Lua",
+  "version": "5.4.7",
+  "description": "Vendored PUC Lua 5.4.7 embedded interpreter",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src"
+  }
+}

@@ -1,0 +1,24 @@
+[0]
+Ink Imp|22|0|Attack|7|0|0
+[1]
+Stone Gargoyle|30|1|Defend|8|0|0
+[2]
+Cursed Scribe|26|2|Attack|6|0|0
+[3]
+Parchment Ghoul|28|3|Attack|8|0|0
+[4]
+Book Golem|46|4|Defend|12|1|0
+[5]
+Marginalia Fiend|44|5|Attack|14|1|0
+[6]
+The Grand Inquisitor|90|6|Attack|16|0|1
+[7]
+Quill Hound|24|7|Attack|7|0|0
+[8]
+Crypt Warden|34|8|Attack|9|0|0
+[9]
+Spine Horror|48|9|Attack|14|1|0
+[10]
+The Iron Scriptor|52|10|Defend|14|1|0
+[11]
+The Arch-Heretic|90|11|Attack|18|0|1

@@ -1,16 +1,14 @@
 #pragma once
 
-#include "FsHelpers.h"
 #include <Serialization.h>
 
 #include <algorithm>
 #include <string>
 #include <vector>
 
-enum class MenuSortMode : uint8_t {
-  Alphabetical = 0,
-  MostUsed = 1
-};
+#include "FsHelpers.h"
+
+enum class MenuSortMode : uint8_t { Alphabetical = 0, MostUsed = 1 };
 
 struct AppUsageData {
   std::string appName;
@@ -19,7 +17,7 @@ struct AppUsageData {
 };
 
 class SmudgeSettings {
-public:
+ public:
   static SmudgeSettings& getInstance() {
     static SmudgeSettings instance;
     return instance;
@@ -28,7 +26,7 @@ public:
   MenuSortMode sortMode = MenuSortMode::Alphabetical;
   std::vector<AppUsageData> apps;
 
-  static constexpr uint32_t SETTINGS_MAGIC = 0x534D4447; // 'SMDG'
+  static constexpr uint32_t SETTINGS_MAGIC = 0x534D4447;  // 'SMDG'
   static constexpr char settingsFile[] = "/.smudge/settings.bin";
 
   void ensureDirectoriesExist() {
@@ -42,9 +40,7 @@ public:
       app.usageScore *= 0.85f;
     }
 
-    auto it = std::find_if(apps.begin(), apps.end(), [&](const AppUsageData& a) {
-      return a.appName == name;
-    });
+    auto it = std::find_if(apps.begin(), apps.end(), [&](const AppUsageData& a) { return a.appName == name; });
 
     if (it != apps.end()) {
       it->usageScore += 1.0f;
@@ -55,15 +51,7 @@ public:
     save();
   }
 
-  bool isAppVisible(const std::string& name) {
-    auto it = std::find_if(apps.begin(), apps.end(), [&](const AppUsageData& a) {
-      return a.appName == name;
-    });
-    if (it != apps.end()) {
-      return it->visible;
-    }
-    return true;
-  }
+  bool isAppVisible(const std::string& name) { return true; }
 
   void save() {
     ensureDirectoriesExist();
@@ -108,8 +96,7 @@ public:
     uint8_t rawSort = 0;
     uint32_t appCount = 0;
 
-    if (!serialization::tryReadPod(file, rawSort) ||
-        !serialization::tryReadPod(file, appCount)) {
+    if (!serialization::tryReadPod(file, rawSort) || !serialization::tryReadPod(file, appCount)) {
       file.close();
       Storage.remove(settingsFile);
       return false;
@@ -122,8 +109,7 @@ public:
       AppUsageData data;
       uint8_t rawVisible = 1;
 
-      if (!serialization::tryReadString(file, data.appName) ||
-          !serialization::tryReadPod(file, rawVisible) ||
+      if (!serialization::tryReadString(file, data.appName) || !serialization::tryReadPod(file, rawVisible) ||
           !serialization::tryReadPod(file, data.usageScore)) {
         apps.clear();
         file.close();
@@ -141,15 +127,13 @@ public:
   void registerKnownApps(const std::vector<std::string>& knownNames) {
     for (const auto& name : knownNames) {
       if (name.empty()) continue;
-      auto it = std::find_if(apps.begin(), apps.end(), [&](const AppUsageData& a) {
-        return a.appName == name;
-      });
+      auto it = std::find_if(apps.begin(), apps.end(), [&](const AppUsageData& a) { return a.appName == name; });
       if (it == apps.end()) {
         apps.push_back({name, true, 0.0f});
       }
     }
   }
 
-private:
+ private:
   SmudgeSettings() { load(); }
 };

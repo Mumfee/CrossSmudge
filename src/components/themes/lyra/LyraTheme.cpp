@@ -690,7 +690,9 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
       UIIcon icon = rowIcon(i);
       const int iconY = textY + 3 + mainMenuIconYOffset(icon);
 
-      if (icon == UIIcon::BookmarkIcon) {
+      if (icon == UIIcon::None) {
+        textX += mainMenuIconSize + hPaddingInSelection + 2;
+      } else if (icon == UIIcon::BookmarkIcon) {
         const int ribbonWidth = 16;
         const int ribbonHeight = 22;
         const int notchSize = 6;

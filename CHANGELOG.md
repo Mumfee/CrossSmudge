@@ -2,6 +2,24 @@
 
 ### Added
 
+- Web Portal **Applications** Manager tab (`/applications`), allowing users to browse installed SD card applications with live 32x32 pixel logos, download or move applications to their PC as `.zip` packages, delete applications, and drag-and-drop or select folders and `.zip` archives for instant on-device installation.
+- Native streaming section reader `smudge.find_section(path, tag, [endPrefix], [maxBytes])` (aliased as `smudge.find_file_section`) in `LuaRunner` with 512-byte stack chunk buffer via `HalFile`, enabling memory-constrained devices (ESP32-C3) to search and extract individual liturgical propers, appointed psalms, and scripture lessons directly from SD card storage with zero heap fragmentation.
+- Developer-oriented extensions to the `smudge.*` Lua standard library:
+  - Full e-paper waveform refresh control via `smudge.full_refresh()` and `smudge.refresh([full])` to eliminate ghosting during high-contrast transitions.
+  - Pixel buffer inversion operations `smudge.invert_rect(x, y, w, h)` and `smudge.invert()` / `smudge.invert_screen()` for instant visual feedback and inverted banners.
+  - Geometry and hit-testing helper `smudge.in_rect(px, py, rx, ry, rw, rh)` / `smudge.point_in_rect` for streamlined touch handling.
+  - Triangle drawing primitive `smudge.triangle(x1, y1, x2, y2, x3, y3, [filled], [thickness], [color])` with outline stroke and scanline fill rasterization.
+  - Hardware and capability queries: `smudge.has_touch()`, `smudge.get_battery()`, and `smudge.get_device()`.
+  - Sandboxed file I/O operations for applications: `smudge.write_file(path, content, [append])`, `smudge.list_files([dir])`, and `smudge.delete_file(path)`.
+  - Native modal popup dialog helper `smudge.popup(message)` / `smudge.draw_popup`.
+- Classical engraved coin artwork for *Dice Roller* featuring a Roman laureate emperor bust face (Heads) and heraldic Roman eagle with laurel wreath backside (Tails) rendered via `smudge.draw_sprite()`.
+- Overlapping card layout in *Blackjack* ensuring hands with 5+ cards automatically step and fit cleanly on-screen without clipping.
+- Online App Store application (`AppStoreActivity.h`) connecting over Wi-Fi directly to the CrossSmudge GitHub repository (`apps/catalog.json`), featuring a two-level catalog and detail flow:
+  - Catalog list view with 32x32 1-bit icons, app name, author, version tags, and status pills (`[ Installed ]`, `[ Update ]`, `[ Install ]`).
+  - App detail view featuring a 2x-scaled 64x64 hero icon in an embossed badge frame, developer attribution, version tags, installation status, full multi-line description, and package details.
+  - One-click Install, Upgrade, Reinstall, and Uninstall with recursive directory deletion (`Storage.removeDir`) and automatic subdirectory creation during GitHub downloads, with full physical button and touchscreen hit-testing.
+- Converted all 11 applications (*2048*, *Blackjack*, *Codex: Ink & Iron*, *Dice Roller*, *Divine Worship: Daily Office*, *Holy Rosary*, *Life Counter*, *Sudoku*, *Tally Counter*, *Tetris*, and *Wordle*) into standalone modular Lua packages with custom 32x32 1-bit icons, dynamic discovery from SD card storage, and zero hardcoded C++ apps in firmware, freeing over 246 KB of flash headroom on ESP32-C3 devices.
+
 - 15-page Chapter 1 progression in *Codex: Ink & Iron* (renaming floors to pages and acts to chapters), introducing the Scriptorium Shop on Pages 5 and 10 with an illustrated merchant, card purchases, relic offerings, healing draughts, and parchment scraping card removal.
 - 5 new monsters and encounters in *Codex: Ink & Iron* featuring 128x128 woodcut illustrations (Quill Hound, Crypt Warden, Spine Horror, The Iron Scriptor elite, and The Arch-Heretic boss) with distinct multi-turn tactical AI patterns.
 - Expanded relic collection in *Codex: Ink & Iron* with 12 relics, all equipped with custom 48x48 1-bit woodcut illustrations and framed miniature gallery presentation (Silver Quill, Iron Sigil, Vampiric Seal, Scholar's Ring, Whetstone, Monk's Rosary, Golden Bookmark, Obsidian Inkwell, Barbed Bookmark, Hourglass of Sand, Censer of Cleansing, Alchemical Flask).
@@ -29,6 +47,110 @@
 - Firmware builds can include only selected UI languages to reduce flash usage while preserving English fallback.
 
 ### Changed
+
+- Renamed the Lua application API global and namespaces from `ink.*` to `smudge.*` (e.g. `smudge.clear()`, `smudge.text()`, `smudge.button_hints()`) across all 10 applications, runtime bindings, and developer documentation to match CrossSmudge branding, while maintaining `ink.*` as a backwards-compatible alias for existing scripts.
+- Added a generic 1-bit sprite drawing function `smudge.draw_sprite(x, y, w, h, data, [inverted], [dither])` (aliased as `smudge.sprite`), supporting on-demand streaming from SD card raw bitmap files, binary byte strings, or Lua byte arrays, with support for dark mode inversion and light-gray checkerboard e-paper dithering.
+- Added customizable line `thickness` (stroke width in pixels) to all 2D shape drawing primitives (`smudge.line`, `smudge.rect`, `smudge.rounded_rect`, `smudge.circle`), fixing thin coin borders in *Dice Roller* and allowing bold vector outlines across all applications.
+- Decoupled all application-specific graphics rendering (playing card suits, tetromino patterns, crucifix woodcuts, illuminated manuscript frames, and monster/relic plates) from the core C++ firmware engine into individual application packages, reducing firmware flash footprint and making apps fully standalone.
+- Streamlined App Settings by removing per-app show/hide toggles so all installed applications on SD card storage are immediately visible in the launcher, focusing the settings screen exclusively on selecting the menu sort order (`Alphabetical (A - Z)` vs. `Most Frequently Used`).
+
+### Fixed
+
+- Enhanced *Codex: Ink & Iron* chamber events, navigation, and rewards:
+  - Formatted all narrative lines across all 9 chamber events to $\le 44$ characters and trimmed choice descriptions, preventing text clipping and overflowing off the screen borders on 480px e-paper displays.
+  - Removed the Back bypass button during chamber events to force players to make a choice, and routed side buttons to the Grimoire (`Deck`) and Delve (`Menu`) tabs with `eventId` persistence, allowing players to inspect cards/relics and save during events.
+  - Mapped chamber event option cycling to the Left and Right front buttons with matching `<` and `>` button hints.
+  - Updated bottom button hints in the Delve Menu tab (`deck_view.lua`) to display "Up" and "Down" instead of "<" and ">", and corrected tab navigation so the top button cycles to the previous tab and the bottom button cycles to the next tab.
+  - Removed the redundant 4th "Skip Verse" card option from the victory reward screen in favor of direct skipping via the dedicated "Skip" front button.
+- Hardened Lua runtime memory management and eliminated `abort()` panics (`src/activities/apps/lua/LuaRunner.cpp`):
+  - Replaced unbounded `std::string` heap accumulation in `smudge.find_section()` with 512-byte stack buffers and `luaL_Buffer`, eliminating bare `operator new` allocations that called `abort()` / `std::terminate` (`PC 0x422aad1d`) when free contiguous DRAM dropped below allocation request sizes on ESP32-C3 devices.
+  - Added line-by-line callback streaming to `smudge.find_section(path, tag, [endPrefix], callback)` (and `smudge.read_lines(path, callback)`), streaming sections and files from SD storage directly into Lua closures with zero C++ heap footprint.
+  - Added live DRAM headroom bounds-checking for string-return mode on ESP32-C3, safely capping `maxBytes` to remaining free heap.
+  - Switched garbage collection mode to aggressive incremental GC (`LUA_GCINC`, pause 105%, step multiplier 250%) to collect memory continuously during allocations rather than waiting for heap to double, preventing heap exhaustion on ESP32-C3 devices.
+  - Tuned system safety cushion to 3 KB (`kMinSystemSafetyBytes = 3 * 1024`), preventing premature allocation rejections when free heap drops to 10-15 KB during valid peak loads.
+  - Added proactive full GC collection prior to compiling scripts in `smudge.dofile()`, ensuring memory from previous screens is cleanly reclaimed before parsing new Lua chunks.
+  - Optimized `smudge.wrapped_text()` with single-line bypass for text fitting within max bounds, eliminating temporary C++ vector allocations.
+- Added exact ESP32-C3 hardware DRAM simulation in host builds (`LuaRunner.cpp`):
+  - Setting environment variable `SMUDGE_X3_CONSTRAINTS=1` (or building with `-DSIMULATOR_DEVICE_X3`) enforces the strict 75 KB hardware DRAM ceiling on host simulator runs, enabling deterministic testing and profiling of embedded memory constraints without hardware guesswork.
+- Resolved out-of-memory errors in *Divine Worship: Daily Office* on ESP32-C3 devices when opening Mattins and long liturgical hours:
+  - Replaced in-memory page storage with a direct zero-RAM-page disk cache architecture (`cache_hour.txt`). Formatted pages stream directly to disk as they are compiled without allocating intermediate page tables, strings, or line vectors.
+  - Reader displays pages on-demand directly from `cache_hour.txt` via `smudge.find_section()`, keeping reader memory flat (~59–60 KB) regardless of how many pages an hour has.
+  - Migrated large office hymns (`ISTE_CONFESSOR`, `DEUS_TUORUM_MILITUM`, `ECCE_JAM_NOCTIS`, `LUCIS_CREATOR_OPTIME`), antiphons, and the 30-day psalter schedule out of Lua code into on-demand SD text file `hours/hymns.txt`.
+  - Unified menu controller and reader into an ultra-lean, disciplined script, reducing peak memory from 85+ KB down to 59–71 KB across all 7 hours and 35+ pages, safely within the 75 KB hardware limit.
+- Fixed out-of-memory errors in *Codex: Ink & Iron* when clicking "New Delve" and navigating combat, shop, and scriptorium screens on ESP32-C3 devices:
+  - Modularized combat and victory reward flow into separate screen controllers (`screens/combat.lua` and `screens/reward.lua`), and decoupled narrative chamber events from consequence outcomes (`screens/scriptorium.lua` and `screens/outcome.lua`).
+  - Enforced strict token ($\le 128$ identifiers) and bytecode instruction ($\le 256$ instructions per function) budgets across all 10 game screens, preventing Lua 5.4's compiler from doubling lexer hash tables (`ls->h`, a 6 KB contiguous DRAM allocation) and proto instruction buffers.
+  - Converted card and relic instance caches in `cards.lua` and `relics.lua` to weak-valued metatables (`{ __mode = "v" }`), allowing temporary card instances to be reclaimed automatically by garbage collection.
+  - Lazy-loaded relic definitions on-demand in shop and deck view rendering rather than preloading them into baseline memory at boot, maintaining a lean baseline DRAM footprint of ~40.9 KB.
+  - Replaced line-wrapping table allocations in narrative chambers with direct centered text rendering, eliminating frame-by-frame heap churn.
+  - Reduced peak memory consumption across an entire 15-floor delve (Title -> Delve -> Combat -> Cards -> Reward -> Scriptorium -> Outcome -> Shop -> Victory) from $>85$ KB down to **74.3 KB**, successfully executing under the 75 KB ESP32-C3 hardware DRAM limit without a single allocation failure.
+- Resolved out-of-memory errors and completed casino rules in *Blackjack* (`apps/blackjack/main.lua`):
+  - Replaced 416 separate Lua table allocations (`{rank = r, suit = s}`) for the shoe with integer-encoded cards (`(suit - 1) * 13 + rank`), preallocated in-place shoe shuffling, and reusable hand tables, keeping peak DRAM consumption under **67.9 KB** across 100+ rounds of gameplay.
+  - Added an interactive **Insurance Modal Dialog** when dealer upcard is an Ace, allowing players to purchase 2:1 insurance against dealer Blackjack.
+  - Added **Double Down** functionality on the `Confirm` button (with on-screen `"Double"` button hint) during player turn when holding two cards, doubling bet, drawing one card, and standing.
+  - Added **Split** functionality for matching pairs on top/bottom buttons (`Up`/`Down`/`PageBack`/`PageForward`) and tap, displaying an on-screen `[SPLIT (Side Button / Tap)]` indicator, with multi-hand play and review.
+- Fixed card split rules and button layout in *Blackjack* (`apps/blackjack/main.lua`):
+  - Fixed rank comparison in `can_split_hand` (`card_rank` instead of `card_value`), strictly restricting splits to identical card ranks (e.g. K-K, Q-Q, 8-8) and preventing different 10-value cards (e.g. King and Queen, Jack and 10) from being split.
+  - Redesigned the Split indicator button into a crisp, high-contrast rounded pill (`SPLIT (Side Button / Tap)`) with clean padding and standard typography, eliminating Unicode glyph corruption (`?` characters) and text clipping.
+  - Corrected section header spacing and font sizing (`UI_12_FONT_ID`) for dealer and player sections, eliminating card overlap against header text and preventing text overflow in the insurance modal dialog.
+  - Verified across multiple simulator scenarios under the exact 75 KB ESP32-C3 hardware DRAM limit (`SMUDGE_X3_CONSTRAINTS=1`).
+- Restored difficulty selection modal and procedural board generation in *Sudoku* matching original C++ `SudokuActivity`:
+  - Added "SELECT DIFFICULTY" modal dialog with options for Easy, Medium, and Hard on initial startup, when activating the "New Game" button, and on game completion.
+  - Replaced the single static hardcoded puzzle with a randomized procedural board generator module (`generator.lua`) using independent diagonal 3x3 block pre-filling, randomized backtracking, and difficulty-based clue carving (Easy: 35 removed, Medium: 45 removed, Hard: 52 removed), generating unique boards in under 2ms under **68.5 KB** peak DRAM.
+  - Added run state persistence (`smudge.save("state", ...)`) to restore ongoing games across reboots, and restored full physical button and touch navigation for the difficulty picker.
+- Fixed keyboard layout and button sizing in *Wordle*:
+  - Corrected the `ok` and `clear` button widths in row 2 to include the missing inter-key spacing (`keyPad`), ensuring both buttons together span the exact width of 3 keys (`3 * keyW + 2 * keyPad`) and align seamlessly with the rows above.
+  - Updated touch hit-testing in `on_tap` to accurately map touches across the full bounding boxes of both `ok` and `clear`.
+- Hardened the Lua runtime allocator and memory management in firmware (`LuaRunner.cpp`):
+  - Eliminated illegal re-entrant `lua_gc` calls inside `customLuaAlloc` that violated Lua VM GC invariants and caused CPU `Load access fault` panics (`MTVAL 0x000000BC` at `lgc.c`). `customLuaAlloc` now cleanly returns `nullptr` on memory limit exhaustion, delegating safely to Lua's native emergency GC (`gcemergency = 1`) and raising catchable `LUA_ERRMEM` without hardware crash.
+  - Optimized `smudge.read_file()` using Lua's native `luaL_buffinitsize()` buffer, eliminating intermediate C++ `String` heap churn and out-of-memory errors on large text files.
+  - Added `smudge.get_memory()` / `smudge.memory()` API returning real-time Lua memory allocation and ESP32 system DRAM heap status (`{lua_kb, lua_max_kb, free_heap, max_alloc}`).
+  - Added incremental GC pacing (`lua_gc(L, LUA_GCSTEP, 50)`) after drawing and button/touch events to avoid GC stalls.
+
+- Fixed sideways orientation of installed application icons in the Web Portal Applications manager (`/applications`), properly rotating 90° clockwise from the pre-rotated hardware e-ink bitmap format so icons render upright on the HTML canvas.
+- Restored dynamic liturgical content in *Divine Worship: Daily Office* (`apps/dailyoffice/main.lua`):
+  - Appointed 30-Day Coverdale Psalms dynamically loaded from `psalter.txt` for Mattins and Evensong, with *Gloria Patri* after every psalm and section dividers.
+  - Appointed Scripture readings and lesson citations (First and Second Lessons) dynamically loaded from `propers.txt` and `lessons/<date>.txt` with proper versicle & response dialogs ("Here endeth the First/Second Lesson." / "Thanks be to God.").
+  - Daily Collect of the Day dynamically loaded from `propers.txt` replacing placeholder rubrics, plus minor hour collects for Terce, Sext, and None.
+  - Seasonal and common Invitatory Antiphons before and after the Venite, Benedictus Antiphons, Magnificat Antiphons, and appointed Office Hymns (*Iste Confessor*, *Deus Tuorum Militum*, *Aeterna Christi Munera*) with versicle and response pairs.
+- Restored card detail inspector and stat/cost/synergy breakdown banner in the *Codex: Ink & Iron* victory card reward picker (`apps/codex/screens/reward.lua`), including dedicated miniature frame presentation when "Skip Card Reward" is selected.
+- Fixed hardware button navigation in the *Codex: Ink & Iron* Grimoire (`apps/codex/screens/deck_view.lua`): Top and Bottom side buttons (`up`/`down` and `page_back`/`page_forward`) continuously cycle through all 4 tabs (`Deck` -> `Discard` -> `Relics` -> `Menu`), while Left and Right front buttons navigate pages within lists and options in the Menu.
+- Corrected button movement mapping in *2048* so the physical front buttons (labeled "Up" and "Down" on the bottom bar) move tiles up and down, and top side buttons move tiles left and right, matching on-screen button hints.
+- Overhauled *Tetris* and `LuaAppActivity` to faithfully match the original C++ implementation and eliminate input lag:
+  - Migrated `LuaAppActivity` screen refresh to the FreeRTOS background `renderTaskLoop()` via `Activity::render(RenderLock&&)` protected by `luaMutex_`, preventing synchronous 150-250ms main-loop display freezes and eliminating dropped or delayed button presses during real-time game loops.
+  - Fixed duplicate button release dispatching on side buttons (`BTN_UP` firing both `up` and `page_back`, and `BTN_DOWN` firing both `down` and `page_forward`), preventing double-rotation (180°) and dropped inputs.
+  - Restored authentic visual styling from the original C++ `TetrisActivity`: light gray dither background surrounding the solid white board, 2px outer black outline, center dot grid on unoccupied cells, and distinct custom fill styles for all 7 tetrominoes (Solid Black, Solid White, Segmented White, Solid Light Gray, Segmented Light Gray, Solid Dark Gray, Segmented Dark Gray).
+  - Restored full original game mechanics: natural fit and left/right wall-kick rotation on `Up` / `PageBack`, "RESET GAME?" confirmation modal on `Down` / `PageForward`, continuous 50ms hold-to-drop on `Confirm`, 150ms solid-black line clear flash animation before rows collapse, rounded Next piece preview box, and persistent game state saving on exit and restoring on launch.
+  - Integrated hardware RTC (`HalClock`) with user-configured UTC time zone offset (`smudge.get_date()`), replacing the Jan 1, 1970 fallback date.
+  - Refactored text parser and paginator to use flat string prefix encoding and 1D page arrays, reducing Lua heap allocation by over 70% and preventing memory crashes when reading long liturgical offices (Mattins, Compline, Evensong).
+- Resolved sprite rotation issue in `smudge.draw_sprite()` / `smudge.sprite()` where external 1-bit `.raw` bitmaps were rendered sideways by 90° clockwise; raw bitmaps are now drawn in direct row-major logical orientation, restoring proper upright orientation for card suits (Spades and Clubs) in *Blackjack* and all monster/relic artwork in *Codex: Ink & Iron*.
+- Resolved Out of Memory (`[Application Error not enough memory]`) failure when launching *Codex: Ink & Iron* on memory-constrained ESP32-C3 devices (Xteink X3/X4):
+  - Architected a dynamic screen-overlay loader (`set_screen`) with eager garbage collection between screen transitions, ensuring only the active screen (`screens/title.lua`, `screens/combat.lua`, `screens/reward.lua`, `screens/shop.lua`, `screens/scriptorium.lua`, `screens/deck_view.lua`) resides in memory at any given time.
+  - Converted card and relic catalogs to compact array-backed tuples with shared metatables, separated monster definitions into combat-local storage, and isolated narrative event chambers, reducing peak startup heap consumption from 155 KB down to under 50 KB.
+  - Optimized the C++ firmware Lua runner (`LuaRunner`): trimmed loaded modules to essential standard libraries (`base`, `table`, `string`, `math`, `os`), immediately freeing 12+ KB of DRAM on every app launch; added an automatic emergency double-GC sweep and memory reallocation retry before reporting out-of-memory errors.
+  - Synchronized both `.crosssmudge/applications/codex/` and `fs_/.crosssmudge/applications/codex/` package distributions.
+- Fixed *Codex: Ink & Iron* combat screen stability and layout:
+  - Removed redundant total values in parentheses (e.g. `(9 tot)`, `(8 tot)`) from couplet descriptions, preventing text overflow across card borders and improving readability in the hand cards and card inspector.
+  - Corrected Floor 1 enemy identity to **Ink Imp** (goblin perched atop an inkwell, 22 HP) matching the woodcut artwork, restoring the intended 12-monster catalog progression.
+  - Fixed combat freeze/crash caused by nested table unpacking in text wrapping (`smudge.wrapped_text()`).
+  - Added white background card fill to `draw_card_item()` and tuned combat spacing using dynamic line heights to prevent overlapping text and dividers.
+- Corrected directional movement mapping in *Sudoku* so Up/Left and Down/Right match physical button expectations while preserving display button labels.
+- Enlarged *Blackjack* playing cards from 64x90 to 84x120 for clearer visibility and balanced vertical layout on 480x800 e-paper displays.
+- Fixed button width and woodcut plate spacing on the *Codex: Ink & Iron* title screen, eliminating duplicate frame borders and preventing "Continue Delve" text from overflowing the button boundary.
+- Restored authentic native app icons for all modular packages in the Applications menu, matching native high-resolution 32x32 graphics with dithered selection backgrounds.
+- Permanently removed the extraneous Tally Counter application from firmware and package catalogs.
+- Restored authentic visual designs, layouts, and exact button mappings across all applications:
+  - **Blackjack**: Restored 32x32 playing card suit bitmaps (Spades, Clubs, dithered Hearts/Diamonds), card outlines, and exact phase button mappings (`Back`, `Deal`, `- Bet`, `+ Bet` in betting; `Back`, ``, `Hit`, `Stand` in player turn; `Back`, `Next`, ``, `` on round over).
+  - **Dice Roller**: Restored polyhedral wireframes (Coin, D4, D6, D8, D10, D12, D20 with inner wireframe), die name below shape, wrapped roll history, and buttons `Back`, `Reset`, `Dice`, `Roll`.
+  - **Divine Worship: Daily Office**: Restored 7-hour liturgical menu list with active date banner and feast liturgical color, formatted prayer reader with versicles, responses, and rubrics, and buttons `Back`, `Select`, `Up`, `Down` and `Back`, ``, `Prev`, `Next`.
+  - **Holy Rosary**: Restored 5-decade loop with connecting lines, drop strand, active bead highlight, 64x64 crucifix icon at base, and buttons `Back`, `Reset`, `Prev`, `Next`.
+  - **Sudoku**: Restored hardware button labels to `Back`, `Select`, `Up`, `Down`, and corrected directional movement mapping so the bottom "Up" button moves the cursor up, bottom "Down" button moves the cursor down, and top buttons navigate left and right columns.
+  - **Tetris**: Restored real-time gravity game loop in `on_update()` using `ink.millis()`, hold-to-drop on Confirm, 7 distinct tetromino fill styles, next piece preview, and buttons `Back`, `Drop`, `Left`, `Right`.
+  - **Wordle**: Added on-screen `reset` button below keyboard with modal confirmation dialog, auto-advance cursor to `ok` upon entering 5 letters, and restored buttons to `Back`, `Select`, `Up`, `Down`.
+  - **Codex: Ink & Iron**: Restored full illuminated manuscript deckbuilder, 128x128 monster woodcut plates, intent, rhythm, illuminated card inspector with hatching, authentic cards in hand with manuscript borders, cost/meter badges, couplet bonuses, Grimoire tabs, Scriptorium shop, 12 relics, 30 cards, and combat buttons `End Turn`, `Play`, `< Card`, `Card >`.
+- Fixed floating-point conversion crash in Lua drawing bridge (`number has no integer representation`) by safely rounding coordinates and dimensions for all graphics primitives.
+- Resolved Lua heap limit exhaustion warnings during gameplay by expanding dynamic sandbox limits (up to 192 KB on ESP32-C3 and 2 MB on PSRAM/Simulator), implementing incremental garbage collection in the game loop, and refactoring *2048* to use preallocated scratch arrays with debounced state saving on exit.
+
 
 - Redesigned The Grand Inquisitor boss artwork in *Codex: Ink & Iron* as an ominous witch-hunter judge with an inquisitor's broad-brimmed peaked hat, dark hooded mantle, iron gorget, and executioner blade, removing the previous papal mitre and clerical robes.
 - PNG, XTC, and image-dithering scratch buffers use fewer heap allocations to reduce fragmentation.

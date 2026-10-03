@@ -26,10 +26,11 @@ JS_OUT = os.path.join(OUT, "js")
 
 # slug -> (generated identifier, <title>, active nav, extra <head> markup)
 PAGES = {
-    "home":     ("HomePageHtml",     "CrossSmudge",                   "home",     ""),
-    "files":    ("FilesPageHtml",    "Files - CrossSmudge",           "files",    '  <script src="/js/jszip.min.js"></script>'),
-    "settings": ("SettingsPageHtml", "Settings - CrossSmudge Reader", "settings", ""),
-    "fonts":    ("FontsPageHtml",    "Fonts - CrossSmudge",           "fonts",    ""),
+    "home":         ("HomePageHtml",         "CrossSmudge",                   "home",         ""),
+    "files":        ("FilesPageHtml",        "Files - CrossSmudge",           "files",        '  <script src="/js/jszip.min.js"></script>'),
+    "applications": ("ApplicationsPageHtml", "Applications - CrossSmudge",    "applications", '  <script src="/js/jszip.min.js"></script>'),
+    "settings":     ("SettingsPageHtml",     "Settings - CrossSmudge Reader", "settings",     ""),
+    "fonts":        ("FontsPageHtml",        "Fonts - CrossSmudge",           "fonts",        ""),
 }
 
 PRESERVE_TAGS = "pre|code|textarea|script|style"
@@ -99,7 +100,7 @@ for slug, (ident, title, active, head_extra) in PAGES.items():
     values = {
         "title": title, "v": v, "head_extra": head_extra,
         "styles": page_css, "body": page_html, "script": script,
-        "cls_home": "", "cls_files": "", "cls_settings": "", "cls_fonts": "",
+        "cls_home": "", "cls_files": "", "cls_applications": "", "cls_settings": "", "cls_fonts": "",
     }
     values[f"cls_{active}"] = ' class="active"'
     html = minify_html(render(base, values))

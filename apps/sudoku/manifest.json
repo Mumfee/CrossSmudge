@@ -1,0 +1,8 @@
+{
+  "id": "sudoku",
+  "name": "Sudoku",
+  "version": "1.0.0",
+  "author": "Mumfee",
+  "description": "Classic 9x9 Sudoku logic puzzle with puzzle generator",
+  "entry": "main.lua"
+}

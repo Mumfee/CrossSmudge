@@ -12,6 +12,7 @@ Refer to https://freeink.org/llms.txt for guidance.
 - The valid local simulator env in this repo is `simulator`, and `pio run -e simulator` currently builds cleanly.
 - The simulator `PNGdec` stub in `crossink-simulator/src/PNGdec.h` needs to mirror the real API shape used by app code, including `hasAlpha()` and `getTransparentColor()`, even though decode still fails intentionally.
 - Known simulator limits:
+  - `SMUDGE_X3_CONSTRAINTS=1 .pio/build/simulator/program` forces the strict 75 KB ESP32-C3 hardware DRAM ceiling in the simulator. Always use this when testing apps and Lua changes.
   - No image rendering: `platformio.ini` ignores `hal`, `PNGdec`, and `JPEGDEC`, so image decoders are intentionally absent.
   - JPEGDEC stub always fails; `JPEGDEC fallback: open failed (err=-1)` is expected in simulator.
   - `esp_deep_sleep_start()` is a no-op in simulator.

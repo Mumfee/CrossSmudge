@@ -1,0 +1,8 @@
+{
+  "id": "dailyoffice",
+  "name": "Divine Worship",
+  "version": "1.0.0",
+  "author": "Mumfee",
+  "description": "Daily Office liturgical prayer book (Morning, Evening & Compline)",
+  "entry": "main.lua"
+}

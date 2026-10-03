@@ -16,6 +16,7 @@ build
 /.venv
 *.local*
 fs_/
+/.crosssmudge/
 /site/node_modules/
 /site/dist/
 /site/.astro/

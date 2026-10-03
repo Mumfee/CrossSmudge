@@ -133,6 +133,31 @@ class CrossPointWebServer {
     FontUploadState() { buffer.resize(BUFFER_SIZE); }
   } fontUpload;
 
+  // Applications management handlers
+  void handleApplicationsPage() const;
+  void handleApplicationsList() const;
+  void handleApplicationsFileList() const;
+  void handleApplicationsFileDownload() const;
+  void handleAppUpload();
+  void handleAppUploadData();
+  void handleAppDelete();
+
+  // App upload state
+  struct AppUploadState {
+    HalFile file;
+    std::string appId;
+    std::string relPath;
+    std::string fullPath;
+    bool valid = false;
+    size_t bytesWritten = 0;
+    static constexpr size_t BUFFER_SIZE = 4096;
+    std::vector<uint8_t> buffer;
+    size_t bufferPos = 0;
+    std::string error;
+
+    AppUploadState() { buffer.resize(BUFFER_SIZE); }
+  } appUpload;
+
   // OPDS server handlers
   void handleGetOpdsServers() const;
   void handlePostOpdsServer();

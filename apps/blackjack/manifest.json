@@ -1,0 +1,8 @@
+{
+  "id": "blackjack",
+  "name": "Blackjack",
+  "version": "1.0.0",
+  "author": "Mumfee",
+  "description": "Classic 21 card game with betting chips, hit, stand, and dealer rules",
+  "entry": "main.lua"
+}

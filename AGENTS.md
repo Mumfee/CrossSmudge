@@ -156,6 +156,7 @@ SDK.
 - The simulator env in this repo is `simulator`.
 - For simulator work, build from this firmware repo unless the change belongs in `crosssmudge-simulator` itself.
 - Common validation commands:
+  - `SMUDGE_X3_CONSTRAINTS=1 .pio/build/simulator/program` to test apps and Lua under the exact 75 KB ESP32-C3 hardware DRAM limit. Always test apps with this constraint active.
   - `pio run -e simulator` for simulator-facing UI/reader work.
   - `pio run -e default` for the ESP32-C3 X3/X4 firmware.
   - `pio run -e sticky` for the ESP32-S3 Sticky firmware.

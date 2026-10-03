@@ -1,0 +1,60 @@
+[0]
+Rapier Thrust|1|Blade|Attack|6|AfterBlade|3|Deal 6 damage.|+3 dmg
+[1]
+Parchment Ward|1|Ward|Skill|5|AfterWard|3|Gain 5 Ward.|+3 Ward
+[2]
+Blot Out|0|Script|Skill|3|AfterScript|1|Draw 2 cards. Gain 3 Ward.|Refund 1 Ink
+[3]
+Heavy Pommel|2|Blade|Attack|12|AfterBlade|4|Deal 12 damage.|+4 dmg
+[4]
+Riposte|1|Blade|Attack|7|AfterWard|5|Deal 7 damage.|+5 dmg
+[5]
+Iron Aegis|1|Ward|Skill|7|AfterBlade|4|Gain 7 Ward.|+4 Ward
+[6]
+Spellblade|1|Blade|Attack|6|AfterScript|1|Deal 6 damage.|Refund 1 Ink
+[7]
+Runic Barrier|2|Ward|Skill|11|AfterScript|2|Gain 11 Ward.|Apply 2 Weak
+[8]
+Blood Ink|0|Script|Skill|2|None|0|Lose 3 HP. Gain 2 Ink.|
+[9]
+Poisoned Quill|1|Script|Attack|4|AfterBlade|3|Deal 4 dmg. Apply 4 Poison.|+3 Poison
+[10]
+Flurry|1|Blade|Attack|3|AfterBlade|3|Deal 3 damage twice (6).|Strikes 3x
+[11]
+Sanctuary|2|Ward|Skill|14|None|0|Gain 14 Ward.|
+[12]
+Hex of Frailty|1|Script|Skill|2|None|0|Apply 2 Weak & 2 Vulnerable.|
+[13]
+Litany of Fire|2|Script|Attack|14|AfterBlade|6|Deal 14 damage.|+6 dmg
+[14]
+Battle Focus|0|Script|Skill|3|None|0|Draw 3 cards.|
+[15]
+Fortify|1|Ward|Skill|8|AfterWard|4|Gain 8 Ward.|+4 Ward
+[16]
+Execution|2|Blade|Attack|16|None|0|Deal 16 damage.|
+[17]
+Corrosive Acid|1|Script|Attack|6|None|0|Deal 6 dmg. Apply 2 Vuln.|
+[18]
+Bulwark|3|Ward|Skill|22|None|0|Gain 22 Ward.|
+[19]
+Blood Rite|1|Script|Attack|9|None|0|Deal 9 dmg. Gain 4 Ward.|
+[20]
+Illumination: Fury|1|Blade|Power|2|None|0|+2 Strength for combat. [1-Use]|
+[21]
+Illumination: Bastion|1|Ward|Power|1|None|0|Ward does not halve. [1-Use]|
+[22]
+Illumination: Flow|1|Script|Power|1|None|0|Draw +1 card each turn. [1-Use]|
+[23]
+Sever|2|Blade|Attack|14|None|0|Deal 14 dmg (+10 if Vuln).|
+[24]
+Parry & Thrust|1|Blade|Attack|5|AfterWard|4|Gain 5 Ward. Deal 5 dmg.|+4 dmg
+[25]
+Divine Aegis|2|Ward|Skill|15|None|0|Gain 15 Ward. Retain Ward.|
+[26]
+Rebound|1|Ward|Skill|8|AfterBlade|0|Gain 8 Ward.|Deal dmg = Ward (max 12)
+[27]
+Ink Siphon|1|Script|Attack|7|None|0|Deal 7 dmg (+1 Ink if Weak).|
+[28]
+Illumination: Transcendence|2|Script|Power|1|None|0|All Couplets always active! [1-Use]|
+[29]
+Transcribe|0|Script|Skill|2|None|0|Draw 2 cards. Discard 1 card.|

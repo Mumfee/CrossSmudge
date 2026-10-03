@@ -1,0 +1,33 @@
+<div class="card">
+  <h2>Install Application</h2>
+  <div id="dropZone" class="drop-zone">
+    <div class="drop-zone-content">
+      <svg class="drop-icon" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="17 8 12 3 7 8"></polyline>
+        <line x1="12" y1="3" x2="12" y2="15"></line>
+      </svg>
+      <p class="drop-title">Drag &amp; drop an App folder or .zip file here</p>
+      <p class="drop-subtitle">or choose an option below to browse from your computer</p>
+      <div class="btn-group">
+        <button type="button" class="btn btn-primary" id="btnSelectFolder">Select App Folder</button>
+        <button type="button" class="btn btn-secondary" id="btnSelectZip">Select .zip Package</button>
+      </div>
+      <input type="file" id="inputFolder" webkitdirectory directory multiple style="display:none;" />
+      <input type="file" id="inputZip" accept=".zip,application/zip" style="display:none;" />
+    </div>
+    <div id="uploadProgress" class="progress-wrap" style="display:none;">
+      <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+      <p id="progressLabel" class="progress-text"></p>
+    </div>
+  </div>
+  <div id="status"></div>
+</div>
+
+<div class="card">
+  <div class="header-row">
+    <h2>Installed Applications</h2>
+    <button type="button" class="btn btn-refresh" id="btnRefresh" title="Refresh Applications">↻ Refresh</button>
+  </div>
+  <div id="appsList"><p class="empty">Loading applications...</p></div>
+</div>

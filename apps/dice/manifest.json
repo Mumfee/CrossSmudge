@@ -1,0 +1,8 @@
+{
+  "id": "dice",
+  "name": "Dice Roller",
+  "version": "1.0.0",
+  "author": "Mumfee",
+  "description": "Multi-polyhedral tabletop dice simulator with running history",
+  "entry": "main.lua"
+}

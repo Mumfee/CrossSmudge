@@ -1,30 +1,30 @@
 #pragma once
 
-#include "activities/Activity.h"
-#include "components/UITheme.h"
-#include "SmudgeSettings.h"
-
 #include <algorithm>
 #include <cstdio>
 #include <string>
 
+#include "SmudgeSettings.h"
+#include "activities/Activity.h"
+#include "components/UITheme.h"
+
 class AppSettingsActivity : public Activity {
-public:
+ public:
   AppSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("AppSettings", renderer, mappedInput) {}
 
-  ~AppSettingsActivity() override {
-    SmudgeSettings::getInstance().save();
-  }
+  ~AppSettingsActivity() override { SmudgeSettings::getInstance().save(); }
 
   void onEnter() override {
     Activity::onEnter();
+    auto& settings = SmudgeSettings::getInstance();
+    cursorIndex = (settings.sortMode == MenuSortMode::Alphabetical) ? 0 : 1;
     requestUpdate();
   }
 
   void loop() override {
     auto& settings = SmudgeSettings::getInstance();
-    int totalItems = 1 + static_cast<int>(settings.apps.size());
+    constexpr int totalItems = 2;
 
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       settings.save();
@@ -32,29 +32,23 @@ public:
       return;
     }
 
+    int touchedIndex = -1;
+    if (mappedInput.wasItemTapped(touchedIndex) && touchedIndex >= 0 && touchedIndex < totalItems) {
+      cursorIndex = touchedIndex;
+      applySelection();
+      return;
+    }
+
     if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
         mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-      cursorIndex = (cursorIndex + 1) % std::max(1, totalItems);
+      cursorIndex = (cursorIndex + 1) % totalItems;
       requestUpdate();
-    }
-    else if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
-             mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-      cursorIndex = (cursorIndex == 0) ? std::max(0, totalItems - 1) : (cursorIndex - 1);
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
+               mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+      cursorIndex = (cursorIndex - 1 + totalItems) % totalItems;
       requestUpdate();
-    }
-    else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      if (cursorIndex == 0) {
-        settings.sortMode = (settings.sortMode == MenuSortMode::Alphabetical)
-                                ? MenuSortMode::MostUsed
-                                : MenuSortMode::Alphabetical;
-      } else {
-        size_t appIdx = static_cast<size_t>(cursorIndex - 1);
-        if (appIdx < settings.apps.size()) {
-          settings.apps[appIdx].visible = !settings.apps[appIdx].visible;
-        }
-      }
-      settings.save();
-      requestUpdate();
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      applySelection();
     }
   }
 
@@ -67,57 +61,29 @@ public:
 
     const int headerY = metrics.topPadding;
     const int headerH = metrics.headerHeight;
-    const int startY  = headerY + headerH + metrics.verticalSpacing; 
+    const int startY = headerY + headerH + metrics.verticalSpacing;
     const int menuHeight = pageHeight - startY - metrics.buttonHintsHeight - metrics.verticalSpacing;
 
     auto& settings = SmudgeSettings::getInstance();
-    int totalItems = 1 + static_cast<int>(settings.apps.size());
+    constexpr int totalItems = 2;
 
     // 1. Draw Header
     GUI.drawHeader(renderer, Rect{0, headerY, pageWidth, headerH}, "App Settings");
 
-    // 2. Draw Menu with App-Specific Icons
+    // 2. Draw Menu with Sort Options
     GUI.drawButtonMenu(
-        renderer,
-        Rect{0, startY, pageWidth, menuHeight},
-        totalItems,
-        cursorIndex,
+        renderer, Rect{0, startY, pageWidth, menuHeight}, totalItems, cursorIndex,
         [&settings](int index) -> const char* {
-          static char itemBuf[64];
           if (index == 0) {
-            return (settings.sortMode == MenuSortMode::Alphabetical)
-                       ? "Menu Order: Alphabetical"
-                       : "Menu Order: Most Used";
-          }
-          size_t appIdx = static_cast<size_t>(index - 1);
-          if (appIdx < settings.apps.size()) {
-            const auto& app = settings.apps[appIdx];
-            snprintf(itemBuf, sizeof(itemBuf), "%s: %s", 
-                     app.appName.c_str(), 
-                     app.visible ? "SHOW" : "HIDE");
-            return itemBuf;
+            return (settings.sortMode == MenuSortMode::Alphabetical) ? "Alphabetical (A - Z)  [Active]"
+                                                                     : "Alphabetical (A - Z)";
+          } else if (index == 1) {
+            return (settings.sortMode == MenuSortMode::MostUsed) ? "Most Frequently Used  [Active]"
+                                                                 : "Most Frequently Used";
           }
           return "";
         },
-        [&settings](int index) {
-          if (index == 0) {
-            return UIIcon::Applications;
-          }
-          size_t appIdx = static_cast<size_t>(index - 1);
-          if (appIdx < settings.apps.size()) {
-            const std::string& name = settings.apps[appIdx].appName;
-            if (name == "Dice") return UIIcon::Dice;
-            if (name == "Wordle") return UIIcon::Wordle;
-            if (name == "Life Counter") return UIIcon::LifeCounter;
-            if (name == "Rosary") return UIIcon::Rosary;
-            if (name == "2048") return UIIcon::TwoZeroFourEight;
-            if (name == "Sudoku") return UIIcon::Sudoku;
-            if (name == "Blackjack") return UIIcon::Blackjack;
-            if (name == "Tetris") return UIIcon::Tetris;
-          }
-          return UIIcon::Applications;
-        }
-    );
+        [](int index) { return (index == 0) ? UIIcon::Applications : UIIcon::Recent; });
 
     // 3. Draw Footer Hints
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
@@ -126,6 +92,17 @@ public:
     renderer.displayBuffer();
   }
 
-private:
+ private:
   int cursorIndex = 0;
+
+  void applySelection() {
+    auto& settings = SmudgeSettings::getInstance();
+    if (cursorIndex == 0) {
+      settings.sortMode = MenuSortMode::Alphabetical;
+    } else {
+      settings.sortMode = MenuSortMode::MostUsed;
+    }
+    settings.save();
+    requestUpdate();
+  }
 };

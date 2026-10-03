@@ -30,6 +30,8 @@
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
+#include "activities/apps/lua/AppPackage.h"
+#include "html/ApplicationsPageHtml.generated.h"
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
@@ -383,6 +385,14 @@ void CrossPointWebServer::begin() {
   server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
   server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
   server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
+
+  // Application management endpoints
+  server->on("/applications", HTTP_GET, [this] { handleApplicationsPage(); });
+  server->on("/api/applications", HTTP_GET, [this] { handleApplicationsList(); });
+  server->on("/api/applications/files", HTTP_GET, [this] { handleApplicationsFileList(); });
+  server->on("/api/applications/download", HTTP_GET, [this] { handleApplicationsFileDownload(); });
+  server->on("/api/applications/upload", HTTP_POST, [this] { handleAppUpload(); }, [this] { handleAppUploadData(); });
+  server->on("/api/applications/delete", HTTP_POST, [this] { handleAppDelete(); });
 
   // OPDS server endpoints
   server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
@@ -2307,3 +2317,405 @@ void CrossPointWebServer::handleFontDelete() {
     LOG_ERR("WEB", "Failed to delete font family: %s", familyName);
   }
 }
+
+// --- Application management handlers ---
+
+namespace {
+struct AppScanFile {
+  std::string relPath;
+  size_t size;
+};
+
+void scanAppFilesRecursive(const std::string& baseDir, const std::string& subDir, std::vector<AppScanFile>& out) {
+  std::string fullDir = subDir.empty() ? baseDir : (baseDir + "/" + subDir);
+  HalFile dir = Storage.open(fullDir.c_str());
+  if (!dir || !dir.isDirectory()) {
+    if (dir) dir.close();
+    return;
+  }
+  char nameBuf[128];
+  for (HalFile f = dir.openNextFile(); f; f = dir.openNextFile()) {
+    nameBuf[0] = '\0';
+    f.getName(nameBuf, sizeof(nameBuf));
+    if (nameBuf[0] == '\0' || strcmp(nameBuf, ".") == 0 || strcmp(nameBuf, "..") == 0) {
+      f.close();
+      continue;
+    }
+    std::string rel = subDir.empty() ? nameBuf : (subDir + "/" + nameBuf);
+    if (f.isDirectory()) {
+      f.close();
+      scanAppFilesRecursive(baseDir, rel, out);
+    } else {
+      out.push_back({rel, static_cast<size_t>(f.size())});
+      f.close();
+    }
+    yield();
+  }
+  dir.close();
+}
+
+bool isValidAppIdentifier(const char* id) {
+  if (!id || *id == '\0') return false;
+  for (const char* p = id; *p; ++p) {
+    if (!isalnum(static_cast<unsigned char>(*p)) && *p != '_' && *p != '-') {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::string findAppDirectory(const char* appId) {
+  const char* candidates[] = {
+      "/.crosssmudge/applications",
+      "/applications",
+      "/apps",
+      "/.smudge/applications",
+      "/.crosspoint/applications"
+  };
+  for (const char* base : candidates) {
+    std::string path = std::string(base) + "/" + appId;
+    if (Storage.exists(path.c_str())) {
+      return path;
+    }
+  }
+  return "";
+}
+}  // namespace
+
+void CrossPointWebServer::handleApplicationsPage() const {
+  sendStaticContent(server.get(), ApplicationsPageHtml, sizeof(ApplicationsPageHtml), ApplicationsPageHtmlETag);
+}
+
+void CrossPointWebServer::handleApplicationsList() const {
+  auto apps = AppPackage::scanApplications();
+
+  server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server->send(200, "application/json", "");
+  FontListJsonWriter json(*server);
+  json.append("{\"apps\":[");
+
+  bool firstApp = true;
+  for (const auto& pkg : apps) {
+    if (!firstApp) json.append(",");
+    firstApp = false;
+
+    // Calculate total size of files in this app
+    std::vector<AppScanFile> appFiles;
+    scanAppFilesRecursive(pkg.path, "", appFiles);
+    size_t totalBytes = 0;
+    for (const auto& af : appFiles) {
+      totalBytes += af.size;
+    }
+
+    json.append("{\"id\":");
+    json.appendJsonString(pkg.id.c_str());
+    json.append(",\"name\":");
+    json.appendJsonString(pkg.name.c_str());
+    json.append(",\"version\":");
+    json.appendJsonString(pkg.version.c_str());
+    json.append(",\"author\":");
+    json.appendJsonString(pkg.author.c_str());
+    json.append(",\"description\":");
+    json.appendJsonString(pkg.description.c_str());
+    json.append(",\"path\":");
+    json.appendJsonString(pkg.path.c_str());
+    json.append(",\"size\":");
+    json.appendUnsigned(totalBytes);
+
+    if (pkg.hasIcon) {
+      char hex[257];
+      for (size_t b = 0; b < 128; ++b) {
+        snprintf(hex + b * 2, 3, "%02x", pkg.iconData[b]);
+      }
+      hex[256] = '\0';
+      json.append(",\"icon\":");
+      json.appendJsonString(hex);
+    } else {
+      json.append(",\"icon\":null");
+    }
+    json.append("}");
+    json.flush();
+    yield();
+  }
+
+  json.append("]}");
+  json.flush();
+  server->sendContent("");
+}
+
+void CrossPointWebServer::handleApplicationsFileList() const {
+  String id = server->arg("id");
+  if (!isValidAppIdentifier(id.c_str())) {
+    server->send(400, "application/json", "{\"error\":\"Invalid application id\"}");
+    return;
+  }
+
+  std::string appDir = findAppDirectory(id.c_str());
+  if (appDir.empty()) {
+    server->send(404, "application/json", "{\"error\":\"Application not found\"}");
+    return;
+  }
+
+  std::vector<AppScanFile> files;
+  scanAppFilesRecursive(appDir, "", files);
+
+  server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server->send(200, "application/json", "");
+  FontListJsonWriter json(*server);
+  json.append("{\"id\":");
+  json.appendJsonString(id.c_str());
+  json.append(",\"files\":[");
+
+  bool first = true;
+  for (const auto& f : files) {
+    if (!first) json.append(",");
+    first = false;
+    json.append("{\"name\":");
+    json.appendJsonString(f.relPath.c_str());
+    json.append(",\"size\":");
+    json.appendUnsigned(f.size);
+    json.append("}");
+    json.flush();
+    yield();
+  }
+  json.append("]}");
+  json.flush();
+  server->sendContent("");
+}
+
+void CrossPointWebServer::handleApplicationsFileDownload() const {
+  String id = server->arg("id");
+  String fileRel = server->arg("file");
+
+  if (!isValidAppIdentifier(id.c_str())) {
+    server->send(400, "text/plain", "Invalid application id");
+    return;
+  }
+
+  // Prevent path traversal
+  if (fileRel.indexOf("..") >= 0 || fileRel.startsWith("/") || fileRel.startsWith("\\")) {
+    server->send(400, "text/plain", "Invalid file path");
+    return;
+  }
+
+  std::string appDir = findAppDirectory(id.c_str());
+  if (appDir.empty()) {
+    server->send(404, "text/plain", "Application not found");
+    return;
+  }
+
+  std::string fullPath = appDir + "/" + fileRel.c_str();
+  if (!Storage.exists(fullPath.c_str())) {
+    server->send(404, "text/plain", "File not found");
+    return;
+  }
+
+  HalFile file = Storage.open(fullPath.c_str());
+  if (!file || file.isDirectory()) {
+    if (file) file.close();
+    server->send(400, "text/plain", "Cannot download directory");
+    return;
+  }
+
+  String contentType = "application/octet-stream";
+  if (fileRel.endsWith(".json")) contentType = "application/json";
+  else if (fileRel.endsWith(".lua")) contentType = "text/plain";
+  else if (fileRel.endsWith(".txt")) contentType = "text/plain";
+
+  const char* baseName = strrchr(fileRel.c_str(), '/');
+  String downloadName = baseName ? String(baseName + 1) : fileRel;
+
+  server->setContentLength(file.size());
+  server->sendHeader("Content-Disposition", "attachment; filename=\"" + downloadName + "\"");
+  server->send(200, contentType, "");
+
+  constexpr size_t BUFFER_SIZE = 1400;
+  auto buffer = makeUniqueNoThrow<uint8_t[]>(BUFFER_SIZE);
+  if (!buffer) {
+    LOG_ERR("WEB", "Failed to allocate file download buffer");
+    file.close();
+    return;
+  }
+
+  while (file.available()) {
+    size_t bytesRead = file.read(buffer.get(), BUFFER_SIZE);
+    if (bytesRead == 0) break;
+    server->sendContent(reinterpret_cast<char*>(buffer.get()), bytesRead);
+    yield();
+  }
+  file.close();
+}
+
+void CrossPointWebServer::handleAppUploadData() {
+  HTTPUpload& upload = server->upload();
+
+  switch (upload.status) {
+    case UPLOAD_FILE_START: {
+      appUpload.file = HalFile();
+      appUpload.appId.clear();
+      appUpload.relPath.clear();
+      appUpload.fullPath.clear();
+      appUpload.valid = false;
+      appUpload.bytesWritten = 0;
+      appUpload.bufferPos = 0;
+      appUpload.error.clear();
+
+      String appIdArg = server->arg("app");
+      String pathArg = server->arg("path");
+      if (pathArg.isEmpty()) {
+        pathArg = upload.filename;
+      }
+
+      if (!isValidAppIdentifier(appIdArg.c_str())) {
+        appUpload.error = "Invalid application ID";
+        LOG_ERR("WEB", "Invalid app ID: %s", appIdArg.c_str());
+        break;
+      }
+
+      // Check path traversal
+      if (pathArg.indexOf("..") >= 0 || pathArg.startsWith("/") || pathArg.startsWith("\\")) {
+        appUpload.error = "Invalid relative file path";
+        LOG_ERR("WEB", "Invalid relPath: %s", pathArg.c_str());
+        break;
+      }
+
+      appUpload.appId = appIdArg.c_str();
+      appUpload.relPath = pathArg.c_str();
+
+      // Canonical install root is /.crosssmudge/applications/<appId>
+      std::string appBaseDir = "/.crosssmudge/applications/" + appUpload.appId;
+      Storage.ensureDirectoryExists("/.crosssmudge");
+      Storage.ensureDirectoryExists("/.crosssmudge/applications");
+      Storage.ensureDirectoryExists(appBaseDir.c_str());
+
+      std::string fullPath = appBaseDir + "/" + appUpload.relPath;
+      appUpload.fullPath = fullPath;
+
+      // Ensure any subdirectories in relPath exist
+      size_t lastSlash = appUpload.fullPath.find_last_of('/');
+      if (lastSlash != std::string::npos) {
+        std::string parentDir = appUpload.fullPath.substr(0, lastSlash);
+        Storage.ensureDirectoryExists(parentDir.c_str());
+      }
+
+      // If file already exists, remove it before writing
+      if (Storage.exists(fullPath.c_str())) {
+        Storage.remove(fullPath.c_str());
+      }
+
+      if (!Storage.openFileForWrite("APP", fullPath.c_str(), appUpload.file)) {
+        appUpload.error = "Failed to open file for writing on SD card";
+        LOG_ERR("WEB", "Failed to open app file for write: %s", fullPath.c_str());
+        break;
+      }
+
+      appUpload.valid = true;
+      LOG_DBG("WEB", "App upload started: %s (%s)", fullPath.c_str(), appUpload.appId.c_str());
+      break;
+    }
+
+    case UPLOAD_FILE_WRITE: {
+      if (!appUpload.valid) break;
+
+      size_t remaining = upload.currentSize;
+      const uint8_t* src = upload.buf;
+      while (remaining > 0) {
+        size_t space = AppUploadState::BUFFER_SIZE - appUpload.bufferPos;
+        size_t chunk = (remaining < space) ? remaining : space;
+        memcpy(appUpload.buffer.data() + appUpload.bufferPos, src, chunk);
+        appUpload.bufferPos += chunk;
+        src += chunk;
+        remaining -= chunk;
+
+        if (appUpload.bufferPos >= AppUploadState::BUFFER_SIZE) {
+          appUpload.file.write(appUpload.buffer.data(), appUpload.bufferPos);
+          appUpload.bytesWritten += appUpload.bufferPos;
+          appUpload.bufferPos = 0;
+        }
+      }
+      break;
+    }
+
+    case UPLOAD_FILE_END: {
+      if (appUpload.valid && appUpload.bufferPos > 0) {
+        appUpload.file.write(appUpload.buffer.data(), appUpload.bufferPos);
+        appUpload.bytesWritten += appUpload.bufferPos;
+        appUpload.bufferPos = 0;
+      }
+      if (appUpload.file.isOpen()) {
+        appUpload.file.close();
+      }
+      if (!appUpload.valid && !appUpload.fullPath.empty()) {
+        Storage.remove(appUpload.fullPath.c_str());
+      }
+      LOG_DBG("WEB", "App upload end: valid=%d, %zu bytes", appUpload.valid, appUpload.bytesWritten);
+      break;
+    }
+
+    case UPLOAD_FILE_ABORTED: {
+      if (appUpload.file.isOpen()) {
+        appUpload.file.close();
+      }
+      if (!appUpload.fullPath.empty()) {
+        Storage.remove(appUpload.fullPath.c_str());
+      }
+      appUpload.valid = false;
+      LOG_DBG("WEB", "App upload aborted");
+      break;
+    }
+  }
+}
+
+void CrossPointWebServer::handleAppUpload() {
+  if (appUpload.valid) {
+    server->send(200, "application/json", "{\"ok\":true}");
+    LOG_DBG("WEB", "App upload complete: %s", appUpload.fullPath.c_str());
+  } else {
+    String err = appUpload.error.empty() ? "App upload failed" : appUpload.error.c_str();
+    server->send(400, "application/json", "{\"error\":\"" + err + "\"}");
+  }
+}
+
+void CrossPointWebServer::handleAppDelete() {
+  String body = server->arg("plain");
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, body);
+
+  if (err || !doc["id"].is<const char*>()) {
+    server->send(400, "application/json", "{\"error\":\"Invalid request payload\"}");
+    return;
+  }
+
+  const char* appId = doc["id"];
+  if (!isValidAppIdentifier(appId)) {
+    server->send(400, "application/json", "{\"error\":\"Invalid application id\"}");
+    return;
+  }
+
+  bool removedAny = false;
+  const char* baseDirs[] = {
+      "/.crosssmudge/applications",
+      "/applications",
+      "/apps",
+      "/.smudge/applications",
+      "/.crosspoint/applications"
+  };
+  for (const char* base : baseDirs) {
+    std::string path = std::string(base) + "/" + appId;
+    if (Storage.exists(path.c_str())) {
+      if (Storage.removeDir(path.c_str())) {
+        removedAny = true;
+        LOG_DBG("WEB", "Removed app dir: %s", path.c_str());
+      } else {
+        LOG_ERR("WEB", "Failed to remove app dir: %s", path.c_str());
+      }
+    }
+  }
+
+  if (removedAny) {
+    server->send(200, "application/json", "{\"ok\":true}");
+  } else {
+    server->send(404, "application/json", "{\"error\":\"Application not found or could not be removed\"}");
+  }
+}
+

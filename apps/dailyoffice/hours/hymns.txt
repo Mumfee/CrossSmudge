@@ -1,0 +1,123 @@
+[ISTE_CONFESSOR]
+TITLE=ISTE CONFESSOR
+V=The Lord loved him, and adorned him.
+R=He clothed him with a robe of glory.
+This the Confessor of the Lord, whose triumph
+Now all the people celebrate with gladness,
+On this his feast day stood serene, victorious,
+Reigning in heaven.
+
+Now holy Church his heavenly crown proclaiming,
+Sings of his virtue, purity and valour,
+Bearing glad witness to the faith and courage
+He showed before men.
+
+Glory and honour, virtue, strength and conquest,
+Be unto thee, O Father, Son and Spirit,
+One God eternal in the highest heaven,
+World without end.
+[END]
+
+[DEUS_TUORUM_MILITUM]
+TITLE=DEUS TUORUM MILITUM
+V=Thou hast crowned him with glory and worship, O Lord.
+R=And hast made him to have dominion of the works of thy hands.
+O God, of those that fought thy fight,
+Whose warrior vanquished in the strife,
+From every sin deliver us,
+And grant us now eternal life.
+
+O grant that we, like him faithful,
+May fight the fight and keep the faith,
+And win the victor's crown of life
+Through triumph over sin and death.
+[END]
+
+[ECCE_JAM_NOCTIS]
+TITLE=ECCE JAM NOCTIS
+V=The Lord is King, and hath put on glorious apparel.
+R=The Lord hath put on his apparel, and girded himself with strength.
+(Translation by W. J. Courthope)
+Lo, the dim shadows of the night are waning;
+Radiantly glowing, dawn of day returneth;
+Fervent in spirit, to the mighty Maker
+Humbly make we our prayer.
+
+So may our God, his boundless mercy showing,
+Banish all sorrow, pardon all our weakness,
+Granting us heaven, where in bliss eternal
+Saints ever praise him.
+
+Praise be to Father, praise to Son be given,
+And to thee, Spirit, heavenly Comforter,
+Blessed and glorious Trinity undivided,
+Now and for ever. Amen.
+[END]
+
+[LUCIS_CREATOR_OPTIME]
+TITLE=LUCIS CREATOR OPTIME
+V=Lord, let my prayer be set forth in thy sight.
+R=As the incense.
+O blest Creator of the light,
+Who mak'st the day with splendour bright,
+And framing all at first for man,
+Didst with the light the world began.
+
+O Father, that we ask be done,
+Through Jesus Christ, thine only Son;
+Who, with the Holy Ghost and thee,
+Doth live and reign eternally. Amen.
+[END]
+
+[ANTIPHONS]
+INV_DOCTOR=The Lord, the King of Confessors : * O come, let us adore him.
+INV_EASTER=Alleluia. The Lord is risen indeed : * O come, let us adore him. Alleluia.
+INV_LENT=The Lord is full of compassion and mercy : * O come, let us adore him.
+INV_ADVENT=Our King and Saviour draweth nigh : * O come, let us adore him.
+INV_DEFAULT=The Lord is gracious and merciful : * O come, let us adore him.
+BEN_DOCTOR=O Teacher right excellent, light of holy Church, blessed Jerome, lover of the divine law: entreat for us the Son of God.
+BEN_MARTYR=Except a corn of wheat fall into the ground and die, it abideth alone: * but if it die, it bringeth forth much fruit.
+BEN_APOSTLE=Ye which have forsaken all, * and followed me, shall receive an hundredfold, and shall inherit everlasting life.
+BEN_MARY=Blessed art thou, * O Mary, for thou hast believed; and there shall be a performance in thee of those things which were told thee from the Lord, alleluia.
+BEN_SAINT=Well done, good and faithful servant; thou hast been faithful over a few things: enter thou into the joy of thy Lord.
+BEN_DEFAULT=In holiness and righteousness let us serve the Lord all our days.
+MAG_DOCTOR=O Teacher right excellent, light of holy Church, blessed Jerome, lover of the divine law: entreat for us the Son of God.
+MAG_MARTYR=This is indeed a Martyr who for the Name of Christ poured forth his life-blood: * who feared not the threats of judges, but with joy attained unto the heavenly kingdom.
+MAG_MARY=All generations shall call me blessed: * for God hath regarded his lowly handmaiden.
+MAG_SAINT=O how glorious is the kingdom wherein all the Saints rejoice with Christ; * arrayed in white robes, they follow the Lamb whithersoever he goeth.
+MAG_DEFAULT=My soul doth magnify the Lord, and my spirit hath rejoiced in God my Saviour.
+[END]
+
+[30DAY_PSALTER]
+1=1, 2, 3, 4, 5|6, 7, 8
+2=9, 10, 11|12, 13, 14
+3=15, 16, 17|18
+4=19, 20, 21|22, 23
+5=24, 25, 26|27, 28, 29
+6=30, 31|32, 33, 34
+7=35, 36|37
+8=38, 39, 40|41, 42, 43
+9=44, 45, 46|47, 48, 49
+10=50, 51, 52|53, 54, 55
+11=56, 57, 58|59, 60, 61
+12=62, 63, 64|65, 66, 67
+13=68|69, 70
+14=71, 72|73, 74
+15=75, 76, 77|78
+16=79, 80, 81|82, 83, 84, 85
+17=86, 87, 88|89
+18=90, 91, 92|93, 94
+19=95, 96, 97|98, 99, 100, 101
+20=102, 103|104
+21=105|106
+22=107|108, 109
+23=110, 111, 112, 113|114, 115
+24=116, 117, 118|119:1-32
+25=119:33-72|119:73-104
+26=119:105-144|119:145-176
+27=120-125|126-131
+28=132-135|136, 137, 138
+29=139, 140, 141|142, 143
+30=144, 145, 146|147, 148, 149, 150
+31=144, 145, 146|147, 148, 149, 150
+[END]
