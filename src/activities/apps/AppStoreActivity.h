@@ -469,13 +469,26 @@ class AppStoreActivity : public Activity {
     const int rowsPerPage = 8;
     int pageStart = (selectedIndex_ / rowsPerPage) * rowsPerPage;
 
-    if (mappedInput.wasReleased(MappedInputManager::Button::Down) ||
+    if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
+        mappedInput.wasReleased(MappedInputManager::Button::Down) ||
         mappedInput.wasReleased(MappedInputManager::Button::PageForward)) {
       selectedIndex_ = (selectedIndex_ + 1) % count;
       requestUpdate();
       return;
-    } else if (mappedInput.wasReleased(MappedInputManager::Button::Up) ||
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
+               mappedInput.wasReleased(MappedInputManager::Button::Up) ||
                mappedInput.wasReleased(MappedInputManager::Button::PageBack)) {
+      selectedIndex_ = (selectedIndex_ - 1 + count) % count;
+      requestUpdate();
+      return;
+    }
+
+    auto swipe = mappedInput.wasSwipe();
+    if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Left) {
+      selectedIndex_ = (selectedIndex_ + 1) % count;
+      requestUpdate();
+      return;
+    } else if (swipe == MappedInputManager::SwipeDir::Down || swipe == MappedInputManager::SwipeDir::Right) {
       selectedIndex_ = (selectedIndex_ - 1 + count) % count;
       requestUpdate();
       return;
@@ -495,7 +508,7 @@ class AppStoreActivity : public Activity {
       int h = renderer.getScreenHeight();
       const auto& m = UITheme::getInstance().getMetrics();
 
-      if (ty > h - m.buttonHintsHeight) {
+      if (ty > h - m.buttonHintsHeight - 20) {
         if (tx < w / 4) {
           finish();
           return;
@@ -579,7 +592,7 @@ class AppStoreActivity : public Activity {
       int h = renderer.getScreenHeight();
       const auto& m = UITheme::getInstance().getMetrics();
 
-      if (ty > h - m.buttonHintsHeight) {
+      if (ty > h - m.buttonHintsHeight - 20) {
         if (tx < w / 4) {
           state_ = State::CATALOG_READY;
           requestUpdate();

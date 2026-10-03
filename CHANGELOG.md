@@ -62,6 +62,7 @@
   - Streamed GitHub `catalog.json` downloads directly to an SD temp cache file (`/.crosssmudge/cache/catalog.tmp`) via lightweight `Transport::WOLFSSL` (with fallback to `Transport::ESP_HTTP`), parsing JSON from the file stream and eliminating RAM buffering during TLS.
   - Removed 10 sequential blocking HTTPS icon downloads from `fetchCatalog()`, loading only locally installed or cached icons during catalog fetch and deferring icon downloads to individual app detail views, reducing initial catalog load time from 30+ seconds down to 1–2 seconds.
   - Added full interactive Retry and Back handling for physical buttons and touch in the error view (`renderError()`), ensuring clear diagnostic feedback if Wi-Fi or GitHub transfers fail.
+  - Fixed physical front button and on-screen button hint navigation in the App Store catalog list by mapping `Button::Left` (Button 3 / "Up") to previous and `Button::Right` (Button 4 / "Down") to next, and added swipe gestures and expanded touch tolerance for bottom hints.
 
 - Enhanced *Codex: Ink & Iron* chamber events, navigation, and rewards:
   - Formatted all narrative lines across all 9 chamber events to $\le 44$ characters and trimmed choice descriptions, preventing text clipping and overflowing off the screen borders on 480px e-paper displays.
