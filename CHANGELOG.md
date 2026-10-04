@@ -1,3 +1,14 @@
+## [v1.6.5.1] - 2026-10-03
+
+### Fixed
+
+- Hardened on-device App Store application downloads and error reporting (`src/activities/apps/AppStoreActivity.h`):
+  - Added Wi-Fi connection check before starting app installations to prevent silent timeouts on dropped connections.
+  - Added pre-download validation of application target directories on SD card storage.
+  - Added automatic 3-stage retry loop with transport switching (`WOLFSSL` -> `ESP_HTTP` -> `WOLFSSL`) and 500ms backoff per file.
+  - Differentiated between `Storage Error` (SD card write-lock, full card, or filesystem failure) and `Network Error` (Wi-Fi disconnect or TLS handshake timeout).
+  - Enhanced the error screen's "Retry" action to automatically retry the failed application installation instead of resetting to catalog fetch.
+
 ## [v1.6.5] - 2026-10-03
 
 ### Added

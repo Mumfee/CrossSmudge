@@ -271,10 +271,10 @@ CrossSmudge preserves the reader improvements and typography enhancements origin
 You can flash CrossSmudge directly from any Chromium browser (Google Chrome, Microsoft Edge, Opera, or Brave) using WebSerial — no command-line tools or drivers needed!
 
 1. Download the latest `firmware-*.bin` for your device model from the **[CrossSmudge Releases](https://github.com/Mumfee/CrossSmudge/releases/latest)**:
-   - **Xteink X3 / X4**: `firmware-x3-x4-v1.6.5.bin`
-   - **Xteink X4 Pro**: `firmware-x4-pro-v1.6.5.bin`
-   - **Xteink X4 Classic**: `firmware-x4-classic-v1.6.5.bin`
-   - **Seeed Studio Sticky**: `firmware-sticky-v1.6.5.bin`
+   - **Xteink X3 / X4**: `firmware-x3-x4-v1.6.5.1.bin`
+   - **Xteink X4 Pro**: `firmware-x4-pro-v1.6.5.1.bin`
+   - **Xteink X4 Classic**: `firmware-x4-classic-v1.6.5.1.bin`
+   - **Seeed Studio Sticky**: `firmware-sticky-v1.6.5.1.bin`
 2. Connect your device to your computer using a USB-C data cable and ensure the device is powered on.
 3. Open the **CrossPoint Web Flasher**:
    👉 **[https://crosspointreader.com/#flash-tools](https://crosspointreader.com/#flash-tools)**
@@ -298,10 +298,10 @@ If your device is already running CrossSmudge and connected to Wi-Fi, open **Set
 For terminal users on macOS or Linux:
 ```bash
 # For ESP32-C3 (Xteink X3 / X4):
-esptool.py --chip esp32c3 write_flash 0x10000 firmware-x3-x4-v1.6.5.bin
+esptool.py --chip esp32c3 write_flash 0x10000 firmware-x3-x4-v1.6.5.1.bin
 
 # For ESP32-S3 (X4 Pro / Sticky / X4 Classic):
-esptool.py --chip esp32s3 write_flash 0x10000 firmware-x4-pro-v1.6.5.bin
+esptool.py --chip esp32s3 write_flash 0x10000 firmware-x4-pro-v1.6.5.1.bin
 ```
 
 ---

@@ -31,7 +31,9 @@ class AppStoreActivity : public Activity {
     catalogUrl_ = "https://raw.githubusercontent.com/Mumfee/CrossSmudge/main/apps/catalog.json";
     baseUrl_ = "https://raw.githubusercontent.com/Mumfee/CrossSmudge/main/apps/";
     selectedIndex_ = 0;
+    errorTitle_ = "Network Error";
     errorMessage_.clear();
+    lastFailedAppIndex_ = -1;
     if (isWifiConnected()) {
       state_ = State::FETCHING_CATALOG;
     } else {
@@ -175,9 +177,13 @@ class AppStoreActivity : public Activity {
       case State::ERROR: {
         if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
           if (isWifiConnected()) {
-            state_ = State::FETCHING_CATALOG;
-            requestUpdateAndWait();
-            fetchCatalog();
+            if (lastFailedAppIndex_ >= 0 && lastFailedAppIndex_ < static_cast<int>(apps_.size())) {
+              installApp(apps_[lastFailedAppIndex_]);
+            } else {
+              state_ = State::FETCHING_CATALOG;
+              requestUpdateAndWait();
+              fetchCatalog();
+            }
           } else {
             state_ = State::CHECK_WIFI;
             requestUpdate();
@@ -200,9 +206,13 @@ class AppStoreActivity : public Activity {
               return;
             } else {
               if (isWifiConnected()) {
-                state_ = State::FETCHING_CATALOG;
-                requestUpdateAndWait();
-                fetchCatalog();
+                if (lastFailedAppIndex_ >= 0 && lastFailedAppIndex_ < static_cast<int>(apps_.size())) {
+                  installApp(apps_[lastFailedAppIndex_]);
+                } else {
+                  state_ = State::FETCHING_CATALOG;
+                  requestUpdateAndWait();
+                  fetchCatalog();
+                }
               } else {
                 state_ = State::CHECK_WIFI;
                 requestUpdate();
@@ -235,7 +245,9 @@ class AppStoreActivity : public Activity {
   State state_ = State::CHECK_WIFI;
   std::string catalogUrl_;
   std::string baseUrl_;
+  std::string errorTitle_ = "Network Error";
   std::string errorMessage_;
+  int lastFailedAppIndex_ = -1;
   std::vector<CatalogApp> apps_;
   int selectedIndex_ = 0;
   bool cancelDownload_ = false;
@@ -384,6 +396,8 @@ class AppStoreActivity : public Activity {
     if (err != HttpDownloader::OK) {
       Storage.remove(tmpCatalog.c_str());
       state_ = State::ERROR;
+      lastFailedAppIndex_ = -1;
+      errorTitle_ = "Network Error";
       errorMessage_ = "Failed to download catalog.json.\nCheck network connection.";
       requestUpdate();
       return;
@@ -393,7 +407,9 @@ class AppStoreActivity : public Activity {
     if (!Storage.openFileForRead("STORE", tmpCatalog.c_str(), catalogFile)) {
       Storage.remove(tmpCatalog.c_str());
       state_ = State::ERROR;
-      errorMessage_ = "Failed to read catalog.tmp.";
+      lastFailedAppIndex_ = -1;
+      errorTitle_ = "Storage Error";
+      errorMessage_ = "Failed to read catalog.tmp.\nCheck SD card.";
       requestUpdate();
       return;
     }
@@ -405,6 +421,8 @@ class AppStoreActivity : public Activity {
 
     if (jsonErr) {
       state_ = State::ERROR;
+      lastFailedAppIndex_ = -1;
+      errorTitle_ = "Catalog Error";
       errorMessage_ = std::string("JSON Parse Error: ") + jsonErr.c_str();
       requestUpdate();
       return;
@@ -631,16 +649,34 @@ class AppStoreActivity : public Activity {
   }
 
   void installApp(CatalogApp& app) {
+    if (!isWifiConnected()) {
+      state_ = State::ERROR;
+      lastFailedAppIndex_ = selectedIndex_;
+      errorTitle_ = "Network Error";
+      errorMessage_ = "Wi-Fi disconnected.\nPlease reconnect to Wi-Fi.";
+      requestUpdate();
+      return;
+    }
+
     state_ = State::DOWNLOADING;
     cancelDownload_ = false;
     totalFiles_ = static_cast<int>(app.files.size());
+    lastFailedAppIndex_ = selectedIndex_;
 
     sdFontSystem.releaseForNetwork(renderer);
 
     std::string targetDir = "/.crosssmudge/applications/" + app.id;
-    Storage.ensureDirectoryExists("/.crosssmudge");
-    Storage.ensureDirectoryExists("/.crosssmudge/applications");
-    Storage.ensureDirectoryExists(targetDir.c_str());
+    bool dirOk = Storage.ensureDirectoryExists("/.crosssmudge") &&
+                 Storage.ensureDirectoryExists("/.crosssmudge/applications") &&
+                 Storage.ensureDirectoryExists(targetDir.c_str());
+    if (!dirOk) {
+      LOG_ERR("STORE", "Failed to create target directory: %s", targetDir.c_str());
+      state_ = State::ERROR;
+      errorTitle_ = "Storage Error";
+      errorMessage_ = "Failed creating app folder.\nCheck SD card space & write-lock.";
+      requestUpdate();
+      return;
+    }
 
     for (int i = 0; i < totalFiles_; ++i) {
       if (cancelDownload_) {
@@ -657,7 +693,14 @@ class AppStoreActivity : public Activity {
       size_t lastSlash = destPath.find_last_of('/');
       if (lastSlash != std::string::npos) {
         std::string parentDir = destPath.substr(0, lastSlash);
-        Storage.ensureDirectoryExists(parentDir.c_str());
+        if (!Storage.ensureDirectoryExists(parentDir.c_str())) {
+          LOG_ERR("STORE", "Failed to create parent directory: %s", parentDir.c_str());
+          state_ = State::ERROR;
+          errorTitle_ = "Storage Error";
+          errorMessage_ = "Failed creating folder:\n" + parentDir;
+          requestUpdate();
+          return;
+        }
       }
 
       if (Storage.exists(destPath.c_str())) {
@@ -672,8 +715,9 @@ class AppStoreActivity : public Activity {
       options.transport = HttpDownloader::Transport::WOLFSSL;
 #endif
 
-#if defined(SIMULATOR)
       HttpDownloader::DownloadError err = HttpDownloader::HTTP_ERROR;
+
+#if defined(SIMULATOR)
       std::string hostSrc = "apps/" + app.id + "/" + app.files[i];
       FILE* inHost = fopen(hostSrc.c_str(), "rb");
       if (!inHost) inHost = fopen(("../" + hostSrc).c_str(), "rb");
@@ -688,6 +732,8 @@ class AppStoreActivity : public Activity {
           }
           outF.close();
           err = HttpDownloader::OK;
+        } else {
+          err = HttpDownloader::FILE_ERROR;
         }
         fclose(inHost);
       }
@@ -695,13 +741,18 @@ class AppStoreActivity : public Activity {
         err = HttpDownloader::downloadToFile(fileUrl, destPath, nullptr, &cancelDownload_, "", "", options);
       }
 #else
-      auto err = HttpDownloader::downloadToFile(fileUrl, destPath, nullptr, &cancelDownload_, "", "", options);
+      for (int attempt = 0; attempt < 3 && err != HttpDownloader::OK && !cancelDownload_; ++attempt) {
+        if (attempt > 0) {
+          delay(500);
+        }
 #if defined(FREEINK_NET_WOLFSSL)
-      if (err != HttpDownloader::OK && !cancelDownload_) {
-        options.transport = HttpDownloader::Transport::ESP_HTTP;
-        err = HttpDownloader::downloadToFile(fileUrl, destPath, nullptr, &cancelDownload_, "", "", options);
-      }
+        options.transport = (attempt == 1) ? HttpDownloader::Transport::ESP_HTTP : HttpDownloader::Transport::WOLFSSL;
 #endif
+        err = HttpDownloader::downloadToFile(fileUrl, destPath, nullptr, &cancelDownload_, "", "", options);
+        if (err == HttpDownloader::FILE_ERROR) {
+          break;
+        }
+      }
 #endif
 
       if (err != HttpDownloader::OK) {
@@ -711,7 +762,17 @@ class AppStoreActivity : public Activity {
         }
         LOG_ERR("STORE", "Failed downloading %s: %d", app.files[i].c_str(), err);
         state_ = State::ERROR;
-        errorMessage_ = "Failed downloading: " + app.files[i];
+        if (err == HttpDownloader::FILE_ERROR) {
+          errorTitle_ = "Storage Error";
+          errorMessage_ = "Failed writing to SD Card:\n" + app.files[i] + "\nCheck space & write-lock.";
+        } else {
+          errorTitle_ = "Network Error";
+          if (!isWifiConnected()) {
+            errorMessage_ = "Wi-Fi disconnected.\nPlease reconnect to Wi-Fi.";
+          } else {
+            errorMessage_ = "Failed downloading:\n" + app.files[i] + "\nCheck connection or retry.";
+          }
+        }
         requestUpdate();
         return;
       }
@@ -992,7 +1053,8 @@ class AppStoreActivity : public Activity {
     renderer.clearScreen();
     GUI.drawHeader(renderer, Rect{0, m.topPadding, w, m.headerHeight}, "App Store", "Error");
 
-    renderer.drawCenteredText(UI_12_FONT_ID, h / 2 - 40, "Network Error", true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_12_FONT_ID, h / 2 - 40, errorTitle_.empty() ? "Error" : errorTitle_.c_str(), true,
+                              EpdFontFamily::BOLD);
     auto lines = renderer.wrappedText(SMALL_FONT_ID, errorMessage_.c_str(), w - 64, 4);
     int dy = h / 2;
     for (const auto& l : lines) {
