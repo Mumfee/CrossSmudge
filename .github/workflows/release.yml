@@ -185,4 +185,3 @@ jobs:
             release-firmware/firmware-sticky-v${{ env.RELEASE_VERSION }}.bin
             release-firmware/firmware-x4-pro-v${{ env.RELEASE_VERSION }}.bin
             release-firmware/firmware-x4-classic-v${{ env.RELEASE_VERSION }}.bin
-            data/daily_office_sd_package.zip

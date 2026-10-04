@@ -9,6 +9,10 @@
   - Differentiated between `Storage Error` (SD card write-lock, full card, or filesystem failure) and `Network Error` (Wi-Fi disconnect or TLS handshake timeout).
   - Enhanced the error screen's "Retry" action to automatically retry the failed application installation instead of resetting to catalog fetch.
 
+### Removed
+
+- Obsolete release asset `daily_office_sd_package.zip`: Divine Worship Daily Office is now distributed and installed as a standalone modular application directly via the on-device App Store (`apps/dailyoffice/`).
+
 ## [v1.6.5] - 2026-10-03
 
 ### Added
