@@ -137,7 +137,7 @@ To enable them:
 
 The option appears only when the current EPUB contains valid CrossSmudge reference
 metadata. To create that metadata, optimize the EPUB in the CrossSmudge web
-interface or with [Inky](https://inky.crosssmudge.dev) before uploading it to the reader.
+interface or with [Inky](https://inky.crossink.dev) before uploading it to the reader.
 In the optimizer's settings, the **Characters per Page** controls the reference-page size; the default
 is 1,500 characters. Lower values create more reference pages, while higher
 values create fewer.

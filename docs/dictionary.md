@@ -6,7 +6,7 @@ nav_order: 5
 # Dictionary
 
 > [!TIP]
-> For the best experience, prepare your dictionary using CrossSmudge's web companion tool [Inky](https://inky.crosssmudge.dev/#dictionary-tools), which creates `.oft` and `.oft.cspt` accelerator files. An unprepared dictionary with uncompressed `.dict` and `.idx` files also works: on its first lookup, CrossSmudge creates a smaller on-device `.qidx` quick index automatically.
+> For the best experience, prepare your dictionary using the web companion tool [Inky](https://inky.crossink.dev/#dictionary-tools), which creates `.oft` and `.oft.cspt` accelerator files. An unprepared dictionary with uncompressed `.dict` and `.idx` files also works: on its first lookup, CrossSmudge creates a smaller on-device `.qidx` quick index automatically.
 
 ## Supported Format
 
@@ -181,7 +181,7 @@ Only one SD-card font family is loaded at a time: CrossSmudge temporarily swaps 
 
 Built-in fonts keep the glyphs they contain and approximate only unsupported pronunciation symbols. If you see a filled diamond, choose an SD-card font that includes that character.
 
-You can download CrossSmudge's SD card catalog of fonts with IPA glyphs built-in from [Inky](https://inky.crosssmudge.dev/#downloads).
+You can download an SD card catalog of fonts with IPA glyphs built-in from [Inky](https://inky.crossink.dev/#downloads).
 
 See the [dictionary font builder](dictionary-development.md#generating-dictionary-fonts) if you want to build your own dictionary fonts via the CLI.
 
@@ -191,7 +191,7 @@ See the [dictionary font builder](dictionary-development.md#generating-dictionar
 
 ## Inky
 
-CrossSmudge's companion app, [Inky](https://inky.crosssmudge.dev/#dictionary-tools), prepares one StarDict dictionary at a time and generates the accelerator indexes used for fast lookups. It accepts either:
+The web companion app, [Inky](https://inky.crossink.dev/#dictionary-tools), prepares one StarDict dictionary at a time and generates the accelerator indexes used for fast lookups. It accepts either:
 
 - an uncompressed dictionary folder; or
 - a `.zip`, `.tar.zst`, or `.rar` archive containing that folder or its dictionary files.

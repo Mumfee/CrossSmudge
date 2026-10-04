@@ -91,7 +91,7 @@ on the SD card. Use `--only FamilyA,FamilyB` to generate selected families.
 
 ## Available Pre-Built Fonts
 
-You can view pre-built fonts available for download at [Inky](https://inky.crosssmudge.dev/#downloads).
+You can view pre-built fonts available for download at [Inky](https://inky.crossink.dev/#downloads).
 
 ## Converting Custom Fonts with CrossPoint's Font Builder
 

@@ -19,13 +19,14 @@ Note: Your purchases using the above affiliate links help support ongoing develo
 
 #### For new installs and updates.
 
-1. Navigate to [https://inky.crosssmudge.dev/#flash-tools](https://inky.crosssmudge.dev/#flash-tools) and select your device model.
-2. The latest version will be automatically selected, but if you ever want to revert to an earlier build, you can select it from the dropdown.
-3. Choose the firmware option you want to install.
-4. Click on the "Flash Firmware" button
+1. Download the `firmware-*.bin` file for your device from the [CrossSmudge Releases](https://github.com/Mumfee/CrossSmudge/releases/latest).
+2. Connect your device (Xteink X3, X4, X4 Pro, Sticky) to your computer via USB-C and ensure it is powered on.
+3. Navigate to [https://crosspointreader.com/#flash-tools](https://crosspointreader.com/#flash-tools) in a WebSerial-compatible browser (Chrome, Edge, Brave, Opera).
+4. Select your device model from the list.
+5. Under firmware selection, choose **"Custom .bin"** (*Upload file*).
+6. Select the downloaded `firmware-*.bin` file and click **Flash**.
 
-X4 Pro uses the ESP32-S3 firmware option. Keep the reader connected during the
-download-mode and flashing steps shown by Inky.
+Keep the reader connected during the download-mode and flashing steps.
 
 ## USB Drive
 
@@ -38,18 +39,17 @@ removed.
 
 #### For installing newer versions of CrossSmudge. Can be used by USB locked devices.
 
-1. Follow the same steps from the Web Installation method above. There will be an option to download the firmware instead of USB flashing.
+1. Download the `firmware-*.bin` file from the [CrossSmudge Releases](https://github.com/Mumfee/CrossSmudge/releases/latest).
 2. Place the downloaded `firmware-*.bin` file on your SD card. You can place this file anywhere.
-3. Go to `Settings > System > SD Card Firmware Update` and navigate to the `.bin` file and update.
+3. On your device, go to `Settings > System > SD Card Firmware Update` and navigate to the `.bin` file and update.
 
 ## USB Locked Devices
 
 If your device has USB data transfer disabled:
 
-1. Navigate to [https://inky.crosssmudge.dev/#flash-tools](https://inky.crosssmudge.dev/#flash-tools) and check the box for "I have a locked device" at the top.
-2. The latest version will be automatically selected, but if you ever want to revert to an earlier build, you can select it from the dropdown.
-3. Choose the firmware option you want to download.
-4. Click on the "Download update.bin" button and follow the instructions.
+1. Download the `firmware-*.bin` file from the [CrossSmudge Releases](https://github.com/Mumfee/CrossSmudge/releases/latest).
+2. Copy the `.bin` file to the root of your SD card using an SD card reader.
+3. Insert the card into your device, go to `Settings > System > SD Card Firmware Update`, and select the `.bin` file.
 
 ## Command Line
 
@@ -61,7 +61,7 @@ Install `esptool`:
 pip3 install esptool
 ```
 
-Download the `firmware-*.bin` file from the [releases page](https://github.com/uxjulia/CrossSmudge/releases), then connect your device with USB-C.
+Download the `firmware-*.bin` file from the [CrossSmudge Releases](https://github.com/Mumfee/CrossSmudge/releases/latest), then connect your device with USB-C.
 
 Find the device port:
 

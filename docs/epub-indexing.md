@@ -96,4 +96,4 @@ or reading statistics.
 Indexing Method changes _when_ CrossSmudge performs layout work; it does not
 simplify the publisher's CSS, images, or tables. If a difficult EPUB is still
 slow or runs out of memory, try a lighter [EPUB Render Mode](./epub-render-modes.md)
-or [optimize](https://inky.crosssmudge.dev) the EPUB before copying it to the device.
+or [optimize](https://inky.crossink.dev) the EPUB before copying it to the device.

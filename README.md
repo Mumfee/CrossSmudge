@@ -267,21 +267,42 @@ CrossSmudge preserves the reader improvements and typography enhancements origin
 
 ## Installation & Flashing ⚡
 
-### Method 1: Web Installer (Recommended)
-The fastest way to install CrossSmudge is via the web companion tool:
-👉 **[https://inky.crosssmudge.dev/#flash-tools](https://inky.crosssmudge.dev/#flash-tools)**
+### Method 1: In-Browser Web Flasher (Recommended)
+You can flash CrossSmudge directly from any Chromium browser (Google Chrome, Microsoft Edge, Opera, or Brave) using WebSerial — no command-line tools or drivers needed!
 
-### Method 2: Manual Flashing
-1. Download the pre-built `firmware-*.bin` for your target device from the **[Releases Page](https://github.com/Mumfee/CrossSmudge/releases)**.
-2. Connect your device via USB while holding the boot button if necessary.
-3. Flash using `esptool.py` or PlatformIO:
-   ```bash
-   # Example for ESP32-C3 X3/X4
-   esptool.py --chip esp32c3 write_flash 0x10000 firmware-default.bin
-   ```
+1. Download the latest `firmware-*.bin` for your device model from the **[CrossSmudge Releases](https://github.com/Mumfee/CrossSmudge/releases/latest)**:
+   - **Xteink X3 / X4**: `firmware-x3-x4-v1.6.5.bin`
+   - **Xteink X4 Pro**: `firmware-x4-pro-v1.6.5.bin`
+   - **Xteink X4 Classic**: `firmware-x4-classic-v1.6.5.bin`
+   - **Seeed Studio Sticky**: `firmware-sticky-v1.6.5.bin`
+2. Connect your device to your computer using a USB-C data cable and ensure the device is powered on.
+3. Open the **CrossPoint Web Flasher**:
+   👉 **[https://crosspointreader.com/#flash-tools](https://crosspointreader.com/#flash-tools)**
+4. Select your device model from the list (e.g. *XTEINK X4/X3*, *XTEINK X4Pro*, or *reTerminal Sticky*).
+5. Under the firmware selection, click **"Custom .bin"** (*Upload file*).
+6. Select your downloaded `firmware-*.bin` file and click **Flash**!
+
+*(You can also use the official [Espressif Web Flasher](https://espressif.github.io/esptool-js/) with flash address `0x10000`).*
+
+### Method 2: On-Device SD Card Firmware Update (Zero PC Tools)
+If you already have CrossPoint, CrossInk, or CrossSmudge installed:
+1. Download the `firmware-*.bin` file for your device from the **[CrossSmudge Releases](https://github.com/Mumfee/CrossSmudge/releases/latest)**.
+2. Copy the `.bin` file onto your SD card (it can be placed in root or any folder).
+3. On your device, open **Settings → System → SD Card Firmware Update**.
+4. Select the `.bin` file to install and restart.
 
 ### Method 3: Over-The-Air (OTA) Updates
-If you are already running CrossSmudge, open **Settings → Firmware Update** while connected to Wi-Fi to check for and install the latest release automatically.
+If your device is already running CrossSmudge and connected to Wi-Fi, open **Settings → Firmware Update** to check for and install the latest release wirelessly.
+
+### Method 4: Command Line (`esptool.py`)
+For terminal users on macOS or Linux:
+```bash
+# For ESP32-C3 (Xteink X3 / X4):
+esptool.py --chip esp32c3 write_flash 0x10000 firmware-x3-x4-v1.6.5.bin
+
+# For ESP32-S3 (X4 Pro / Sticky / X4 Classic):
+esptool.py --chip esp32s3 write_flash 0x10000 firmware-x4-pro-v1.6.5.bin
+```
 
 ---
 
