@@ -195,6 +195,18 @@
         "state.lua",
         "ui_base.lua"
       ]
+    },
+    {
+      "id": "watertracker",
+      "name": "Water Tracker",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Daily hydration tracker with a cute water cup that fills as you drink",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "icon.raw"
+      ]
     }
   ]
 }

@@ -13,6 +13,7 @@
 
 ### Added
 
+- Added *Water Tracker* (`apps/watertracker/`) to the on-device App Store catalog (`apps/catalog.json`): a responsive, cute daily hydration tracking application featuring animated pixel cup water levels, cup facial expressions, 14-day history archive with daily completion badges, configurable volume units (`ml`, `cups`, `oz`, `gallons`, `L`), automatic banner timeouts, and multi-device display scaling across ESP32-C3 and ESP32-S3 e-paper readers.
 - Added comprehensive icon converter utility (`scripts/convert_icon.py`) with terminal ASCII `view`, `raw2png`, `png2raw`, and `header` generation commands, along with complete format and design specifications in `apps/README.md`.
 
 ## [v1.6.5.1] - 2026-10-03
