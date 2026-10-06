@@ -109,7 +109,7 @@ class ApplicationsActivity : public Activity {
         const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
         const int textY = tileY + (metrics.menuRowHeight - lineHeight) / 2;
         const int iconY = textY + 3;
-        const int iconX = metrics.contentSidePadding + 24;
+        const int iconX = metrics.contentSidePadding + 16;
         renderer.drawIcon(visibleApps[i].iconData, iconX, iconY, 32, 32);
       }
     }
@@ -145,32 +145,7 @@ class ApplicationsActivity : public Activity {
       std::string entry = pkg.entryScript;
       AppEntry app;
       app.name = pkg.name;
-
-      std::string id = pkg.id;
-      for (auto& c : id) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
-
-      if (id == "2048")
-        app.icon = UIIcon::TwoZeroFourEight;
-      else if (id == "blackjack")
-        app.icon = UIIcon::Blackjack;
-      else if (id == "codex")
-        app.icon = UIIcon::Codex;
-      else if (id == "dailyoffice")
-        app.icon = UIIcon::DailyOffice;
-      else if (id == "dice")
-        app.icon = UIIcon::Dice;
-      else if (id == "lifecounter")
-        app.icon = UIIcon::LifeCounter;
-      else if (id == "rosary")
-        app.icon = UIIcon::Rosary;
-      else if (id == "sudoku")
-        app.icon = UIIcon::Sudoku;
-      else if (id == "tetris")
-        app.icon = UIIcon::Tetris;
-      else if (id == "wordle")
-        app.icon = UIIcon::Wordle;
-      else
-        app.icon = pkg.hasIcon ? UIIcon::None : UIIcon::Applications;
+      app.icon = pkg.hasIcon ? UIIcon::None : UIIcon::Applications;
 
       app.factory = [this, dir, name, entry]() {
         return std::make_unique<LuaAppActivity>(renderer, mappedInput, dir, name, entry);

@@ -1,3 +1,20 @@
+## [v1.6.5.2] - 2026-10-06
+
+### Fixed
+
+- Fixed 8-pixel horizontal right offset bug in the Applications launcher for SD card package icons (`src/activities/apps/ApplicationsActivity.h`), ensuring all dynamically loaded App Store apps with `icon.raw` align with built-in system applications (`metrics.contentSidePadding + 16`).
+- Fixed date query in Lua applications on physical hardware to query the battery-backed RTC chip and timezone offset via `smudge.get_date()` / `smudge.date()`, preventing un-synchronized POSIX `"Jan 1"` displays on devices without active Wi-Fi.
+
+### Removed
+
+- Decoupled downloadable applications from the core firmware: removed hardcoded application IDs and baked-in icons from the launcher (`src/activities/apps/ApplicationsActivity.h`) so that all App Store and SD card applications dynamically load their own 32x32 `icon.raw`.
+- Removed obsolete, dead C++ application activities and large baked-in asset headers (`WordleActivity.h`, `TetrisActivity.h`, `SudokuActivity.h`, `TwoZeroFourEightActivity.h`, `BlackjackActivity.h`, `CodexActivity.h`, `DailyOfficeActivity.h`, `DiceSimActivity.h`, `LifeCounterActivity.h`, `RosaryActivity.h`, `assets/`, `codex/`), reducing firmware flash footprint and eliminating duplicated logic with App Store packages.
+- Removed unused application icon enums and flash assets (`Dice`, `Wordle`, `LifeCounter`, `Rosary`, `Sudoku`, `TwoZeroFourEight`, `Blackjack`, `Tetris`, `DailyOffice`, `Codex`) from `UIIcon` in `src/components/themes/BaseTheme.h` and `src/components/themes/lyra/LyraTheme.cpp`.
+
+### Added
+
+- Added comprehensive icon converter utility (`scripts/convert_icon.py`) with terminal ASCII `view`, `raw2png`, `png2raw`, and `header` generation commands, along with complete format and design specifications in `apps/README.md`.
+
 ## [v1.6.5.1] - 2026-10-03
 
 ### Fixed

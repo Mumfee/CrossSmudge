@@ -83,36 +83,37 @@ The `manifest.json` file describes your application to CrossSmudge, the App Stor
 
 Each application can provide an authentic 32x32 monochrome icon:
 
-- **Format:** Raw 1-bit monochrome bitmap, 32 pixels wide by 32 pixels high.
+- **Format:** Raw 1-bit monochrome uncompressed bitmap, 32 pixels wide by 32 pixels high.
 - **File Size:** Exactly **128 bytes** (`32 * 32 / 8 = 128`).
 - **Bit Convention:** 
   - `0` bit = **Drawn / Black pixel**
   - `1` bit = **White / Transparent background**
-- **Row Format:** 4 bytes per row (32 bits), MSB first, from top row to bottom row.
+- **Hardware Coordinate Alignment:** Because CrossSmudge operates in portrait mode on landscape e-ink hardware panels, the icon pixel stream is stored pre-rotated 90° counter-clockwise so the ESP32 can blit it directly into the screen framebuffer with zero rotation overhead.
 
-### Generating `icon.raw` with Python
-You can convert any 32x32 PNG image to `icon.raw` with this simple script:
+### Managing and Editing `icon.raw` with `scripts/convert_icon.py`
 
-```python
-from PIL import Image
+The repository includes a helper utility at `scripts/convert_icon.py`:
 
-def png_to_icon_raw(png_path, raw_out_path):
-    img = Image.open(png_path).convert('L').resize((32, 32))
-    raw_bytes = bytearray(128)
-    for y in range(32):
-        for x in range(32):
-            pixel = img.getpixel((x, y))
-            # Black pixel is 0 bit, white is 1 bit
-            is_white = 1 if pixel > 128 else 0
-            byte_idx = (y * 4) + (x // 8)
-            bit_idx = 7 - (x % 8)
-            if is_white:
-                raw_bytes[byte_idx] |= (1 << bit_idx)
-    with open(raw_out_path, "wb") as f:
-        f.write(raw_bytes)
+```bash
+# 1. View an icon directly in your terminal (ASCII art preview):
+python scripts/convert_icon.py view apps/watertracker/icon.raw
 
-png_to_icon_raw("my_icon.png", "icon.raw")
+# 2. Convert icon.raw to an editable PNG:
+python scripts/convert_icon.py raw2png apps/watertracker/icon.raw icon.png
+
+# 3. Convert an edited PNG/SVG back to icon.raw:
+python scripts/convert_icon.py png2raw icon.png apps/watertracker/icon.raw
+
+# 4. Generate a C header (for built-in system firmware icons):
+python scripts/convert_icon.py header icon.png my_icon
 ```
+
+### Editing Workflow
+
+1. Export the icon to PNG: `python scripts/convert_icon.py raw2png apps/myapp/icon.raw my_icon.png`
+2. Open `my_icon.png` in any image editor (Aseprite, Photoshop, GIMP, MS Paint, Piskel).
+3. Draw your 32x32 black and white pixel art.
+4. Convert back to `icon.raw`: `python scripts/convert_icon.py png2raw my_icon.png apps/myapp/icon.raw`
 
 ---
 
@@ -203,6 +204,15 @@ CrossSmudge standardizes button names across all hardware variations:
 | `"down"` | Navigate Down / Submenu | Top Right Button |
 | `"page_back"` | Page Previous | Top Left Button |
 | `"page_forward"` | Page Next | Top Right Button |
+
+### Menu Navigation Convention
+In vertical menu lists (settings menus, grimoires, selection menus):
+- **Bottom Left Button (`"left"`)**: Navigates **Up** (previous menu item).
+- **Bottom Right Button (`"right"`)**: Navigates **Down** (next menu item).
+- **Top Buttons (`"up"` / `"page_back"`, `"down"` / `"page_forward"`)**: Adjust values **Left** and **Right** (e.g. decrease/increase values, cycle options).
+- **Confirm Button (`"confirm"`)**: Selects or cycles the highlighted row.
+- **Back Button (`"back"`)**: Saves changes and exits/returns.
+- **Button Hints Convention**: In menu screens, use `smudge.button_hints("Back", "Select", "Up", "Down")`.
 
 ---
 

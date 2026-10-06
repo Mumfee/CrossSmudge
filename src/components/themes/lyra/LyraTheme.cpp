@@ -21,17 +21,7 @@
 #include "components/UiAppHelpers.h"
 #include "components/icons/applications.h"
 #include "components/icons/applications24.h"
-#include "components/icons/blackjack.h"
-#include "components/icons/codex.h"
-#include "components/icons/dailyoffice.h"
-#include "components/icons/dice.h"
-#include "components/icons/lifecounter.h"
 #include "components/icons/readingStatsIcons.h"
-#include "components/icons/rosary.h"
-#include "components/icons/sudoku.h"
-#include "components/icons/tetris.h"
-#include "components/icons/twozerofoureight.h"
-#include "components/icons/wordle.h"
 #include "fontIds.h"
 
 // Internal constants
@@ -115,24 +105,6 @@ const freeink::Icon* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
       return &icon_radio_tower_32;
     case UIIcon::Applications:
       return reinterpret_cast<const freeink::Icon*>(AppIcon);
-    case UIIcon::Dice:
-      return reinterpret_cast<const freeink::Icon*>(DiceIcon);
-    case UIIcon::Wordle:
-      return reinterpret_cast<const freeink::Icon*>(WordleIcon);
-    case UIIcon::LifeCounter:
-      return reinterpret_cast<const freeink::Icon*>(LifeCounterIcon);
-    case UIIcon::Rosary:
-      return reinterpret_cast<const freeink::Icon*>(RosaryIcon);
-    case UIIcon::Sudoku:
-      return reinterpret_cast<const freeink::Icon*>(SudokuIcon);
-    case UIIcon::TwoZeroFourEight:
-      return reinterpret_cast<const freeink::Icon*>(TwoZeroFourEightIcon);
-    case UIIcon::Blackjack:
-      return reinterpret_cast<const freeink::Icon*>(BlackjackIcon);
-    case UIIcon::Tetris:
-      return reinterpret_cast<const freeink::Icon*>(TetrisIcon);
-    case UIIcon::DailyOffice:
-      return reinterpret_cast<const freeink::Icon*>(DailyOfficeIcon);
     default:
       return nullptr;
   }
@@ -707,36 +679,6 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
         textX += mainMenuIconSize + hPaddingInSelection + 2;
       } else if (icon == UIIcon::Applications) {
         renderer.drawIcon(AppIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
-        textX += mainMenuIconSize + hPaddingInSelection + 2;
-      } else if (icon == UIIcon::Dice) {
-        renderer.drawIcon(DiceIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
-        textX += mainMenuIconSize + hPaddingInSelection + 2;
-      } else if (icon == UIIcon::Wordle) {
-        renderer.drawIcon(WordleIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
-        textX += mainMenuIconSize + hPaddingInSelection + 2;
-      } else if (icon == UIIcon::LifeCounter) {
-        renderer.drawIcon(LifeCounterIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
-        textX += mainMenuIconSize + hPaddingInSelection + 2;
-      } else if (icon == UIIcon::Rosary) {
-        renderer.drawIcon(RosaryIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
-        textX += mainMenuIconSize + hPaddingInSelection + 2;
-      } else if (icon == UIIcon::Sudoku) {
-        renderer.drawIcon(SudokuIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
-        textX += mainMenuIconSize + hPaddingInSelection + 2;
-      } else if (icon == UIIcon::TwoZeroFourEight) {
-        renderer.drawIcon(TwoZeroFourEightIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
-        textX += mainMenuIconSize + hPaddingInSelection + 2;
-      } else if (icon == UIIcon::Blackjack) {
-        renderer.drawIcon(BlackjackIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
-        textX += mainMenuIconSize + hPaddingInSelection + 2;
-      } else if (icon == UIIcon::Tetris) {
-        renderer.drawIcon(TetrisIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
-        textX += mainMenuIconSize + hPaddingInSelection + 2;
-      } else if (icon == UIIcon::DailyOffice) {
-        renderer.drawIcon(DailyOfficeIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
-        textX += mainMenuIconSize + hPaddingInSelection + 2;
-      } else if (icon == UIIcon::Codex) {
-        renderer.drawIcon(CodexIcon, textX, iconY, mainMenuIconSize, mainMenuIconSize);
         textX += mainMenuIconSize + hPaddingInSelection + 2;
       } else {
         const freeink::Icon* iconBitmap = iconForName(icon, mainMenuIconSize);

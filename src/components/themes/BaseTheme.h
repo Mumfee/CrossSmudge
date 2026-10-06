@@ -146,17 +146,7 @@ enum UIIcon {
   Wifi,
   Hotspot,
   Chart,
-  Applications,
-  Dice,
-  Wordle,
-  LifeCounter,
-  Rosary,
-  Sudoku,
-  TwoZeroFourEight,
-  Blackjack,
-  Tetris,
-  DailyOffice,
-  Codex
+  Applications
 };
 
 // Default theme implementation (Classic Theme)
