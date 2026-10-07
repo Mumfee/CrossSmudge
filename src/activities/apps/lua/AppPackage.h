@@ -1,37 +1,35 @@
 #pragma once
 
+#include <ArduinoJson.h>
+#include <HalStorage.h>
+
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <string>
 #include <vector>
-#include <algorithm>
-#include <cctype>
 
-#include <ArduinoJson.h>
-#include <HalStorage.h>
 #include "Logging.h"
 
 struct AppPackage {
-  std::string id;          // Directory name, e.g. "counter"
-  std::string name;        // Display name, e.g. "Tally Counter"
-  std::string version;     // e.g. "1.0.0"
-  std::string author;      // e.g. "Community"
-  std::string description; // e.g. "Simple e-ink tally counter"
-  std::string entryScript; // default "main.lua"
-  std::string path;        // e.g. "/.crosssmudge/applications/counter"
+  std::string id;           // Directory name, e.g. "counter"
+  std::string name;         // Display name, e.g. "Tally Counter"
+  std::string version;      // e.g. "1.0.0"
+  std::string author;       // e.g. "Community"
+  std::string description;  // e.g. "Simple e-ink tally counter"
+  std::string entryScript;  // default "main.lua"
+  std::string path;         // e.g. "/.crosssmudge/applications/counter"
 
   // 32x32 1-bit icon (32 * 32 / 8 = 128 bytes)
   bool hasIcon = false;
   uint8_t iconData[128] = {0};
+  bool preventSleep = false;
+  int minApi = 0;
 
   static std::vector<AppPackage> scanApplications() {
     std::vector<AppPackage> apps;
-    const char* searchDirs[] = {
-        "/.crosssmudge/applications",
-        "/applications",
-        "/apps",
-        "/.smudge/applications",
-        "/.crosspoint/applications"
-    };
+    const char* searchDirs[] = {"/.crosssmudge/applications", "/applications", "/apps", "/.smudge/applications",
+                                "/.crosspoint/applications"};
 
     for (const char* baseDir : searchDirs) {
       if (!Storage.exists(baseDir)) {
@@ -104,6 +102,8 @@ struct AppPackage {
             if (doc["author"].is<const char*>()) pkg.author = doc["author"].as<const char*>();
             if (doc["description"].is<const char*>()) pkg.description = doc["description"].as<const char*>();
             if (doc["entry"].is<const char*>()) pkg.entryScript = doc["entry"].as<const char*>();
+            if (doc["prevent_sleep"].is<bool>()) pkg.preventSleep = doc["prevent_sleep"].as<bool>();
+            if (doc["min_api"].is<int>()) pkg.minApi = doc["min_api"].as<int>();
           } else {
             LOG_ERR("APP", "Failed to parse manifest for %s: %s", folderName, err.c_str());
           }

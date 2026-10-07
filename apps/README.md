@@ -23,6 +23,7 @@ Welcome to the **CrossSmudge Application Platform**! CrossSmudge features a ligh
 10. [Complete "Hello World" Example](#complete-hello-world-example)
 11. [Testing & Installing Apps](#testing--installing-apps)
 12. [Submitting to the App Store](#submitting-to-the-app-store)
+13. [Official Applications](#official-applications)
 
 ---
 
@@ -76,6 +77,8 @@ The `manifest.json` file describes your application to CrossSmudge, the App Stor
 | `author` | string | Creator name or handle. |
 | `description`| string | One-sentence summary displayed in the App Store / Web Viewer. |
 | `entry` | string | Entry point script filename (default: `"main.lua"`). |
+| `min_api` | integer | Optional: Minimum required CrossSmudge Lua API version (e.g. `2` for apps utilizing `prevent_sleep`, `set_orientation`, or `has_feature`). Firmware older than this version will prevent launching and show a clear update prompt rather than crashing. |
+| `prevent_sleep` | boolean | Optional: If `true`, disables the device's automatic inactivity sleep timer while this app is running (e.g. for desk clocks, timers, dashboards). Standard auto-sleep resumes immediately when the app exits. |
 
 ---
 
@@ -240,6 +243,15 @@ In vertical menu lists (settings menus, grimoires, selection menus):
   Inverts the 1-bit pixel buffer inside the specified rectangular region (turns white pixels black and black pixels white).
 - **`smudge.invert()`** *(or `smudge.invert_screen()`)*  
   Inverts the entire screen buffer.
+- **`smudge.set_orientation(mode)`**  
+  Dynamically changes the display rotation at runtime. `mode` can be:
+  - `"portrait"` (default, 0°)
+  - `"landscape"` / `"landscape_cw"` (90° clockwise)
+  - `"portrait_inverted"` (180° upside down)
+  - `"landscape_ccw"` (270° counter-clockwise)  
+  *Note:* When the application exits, CrossSmudge automatically restores the system's prior orientation.
+- **`smudge.get_orientation()`**  
+  Returns the current display orientation string (`"portrait"`, `"landscape"`, `"portrait_inverted"`, or `"landscape_ccw"`).
 - **`smudge.popup(message)`** *(or `smudge.draw_popup(message)`)*  
   Renders a standard system modal popup box centered on screen with the given message.
 - **`smudge.millis()`** *(or `smudge.get_time_ms()`)*  
@@ -350,6 +362,16 @@ All shape drawing functions support a customizable line **thickness** (stroke wi
   - `max_alloc`: Largest contiguous allocatable block in DRAM (in bytes).
 - **`smudge.is_button_down(btn)`**  
   Returns `true` if the specified hardware button (`"back"`, `"confirm"`, `"up"`, `"down"`, `"left"`, `"right"`) is currently pressed/held down.
+- **`smudge.prevent_sleep([enabled])`** *(or `smudge.keep_awake([enabled])`)*  
+  Controls the device's automatic inactivity sleep timer while the app is active. Pass `true` (default if omitted) to keep the display awake indefinitely (ideal for desk stands, live clocks, timers, and dashboards). Pass `false` to re-enable normal auto-sleep timeout. The device's physical Power button continues to enter deep sleep immediately on demand, and regular auto-sleep is automatically restored as soon as the user exits the app.
+- **`smudge.is_prevent_sleep()`** *(or `smudge.is_keep_awake()`)*  
+  Returns `true` if auto-sleep prevention is currently active, or `false` otherwise.
+- **`smudge.version()`** *(or `smudge.get_version()`)*  
+  Returns the current CrossSmudge firmware version string (e.g. `"1.6.5.3"`).
+- **`smudge.api_version`** *(or `smudge.get_api_version()`)*  
+  Returns the integer API level (currently `2`). API `1` was the initial app engine release; API `2` adds sleep prevention, dynamic orientation switching, full-refresh requests, and version/feature introspection.
+- **`smudge.has_feature(name)`**  
+  Returns `true` if a specific feature is supported (e.g. `"prevent_sleep"`, `"orientation"`, `"full_refresh"`, `"touch"`).
 
 ---
 
@@ -446,6 +468,28 @@ Follow these proven patterns to ensure your app is rock-solid:
 
 8. **Debounce File Writes:**  
    Flash memory has wear limits. Call `smudge.save()` when a game finishes or when exiting in `on_exit()`, rather than after every individual tap or score increment.
+
+9. **Version Compatibility & Defensive Programming:**  
+   As new firmware updates introduce newer Lua APIs (such as `smudge.prevent_sleep`, `smudge.set_orientation`, or `smudge.full_refresh`), apps in the wild might be loaded on devices running older firmware.
+   - **How Older Firmware Behaves:**  
+     In Lua, accessing an unassigned table key (e.g. `smudge.prevent_sleep`) safely evaluates to `nil` without raising an error. However, directly invoking `nil` as a function (`smudge.prevent_sleep(true)`) throws a fatal Lua runtime exception (`attempt to call a nil value`), halting the app and displaying the e-ink "Application Error" crash screen.
+   - **Best Practice — Feature Detection:**  
+     Always guard newly added APIs with idiomatic Lua feature checks:
+     ```lua
+     if smudge and smudge.prevent_sleep then
+         smudge.prevent_sleep(true)
+     end
+     ```
+   - **Declaring Minimum API Level in Manifest:**  
+     If your application fundamentally depends on a newer capability to function (e.g. dynamic screen rotation), declare `"min_api": 2` in your `manifest.json`. CrossSmudge validates `min_api` before launching the script; if the device firmware is older, it gracefully displays an informative "Firmware update required" screen instead of executing and crashing.
+   - **Querying API Version at Runtime:**  
+     You can programmatically inspect the environment at runtime:
+     ```lua
+     local api_lvl = smudge.api_version or 1
+     if smudge.has_feature and smudge.has_feature("prevent_sleep") then
+         smudge.prevent_sleep(true)
+     end
+     ```
 
 ---
 
@@ -592,3 +636,28 @@ Open [`apps/catalog.json`](./catalog.json) and add an entry under the `"apps"` a
 2. Commit your new application folder (`apps/<app_id>/...`) and your edit to `apps/catalog.json`.
 3. Submit a Pull Request with title `feat(apps): add <app_name>`.
 4. Once reviewed and merged into `main`, your application is immediately available in the on-device App Store across all CrossSmudge devices worldwide!
+
+---
+
+## Official Applications
+
+The following applications are included in the repository and available through the on-device App Store:
+
+| App ID | Name | Category | Description |
+|---|---|---|---|
+| `dashboard` | **Desk Stand** | Productivity | Multi-style ambient desk clock with calendar, year progress, 12h/24h toggle, auto-sleep prevention, and 800×480 landscape stand. |
+| `hourglass` | **Hourglass** | Productivity | Expressive countdown timer with dynamic parabolic sand funnel physics, full neck passage, bottom sand accumulation mound, and auto-sleep prevention. |
+| `stopwatch` | **Stopwatch** | Productivity | Pixel cartoon stopwatch character with animated mechanical crown plunger, facial expressions, digital LCD window (`MM:SS.cc`), lap split recording, and auto-sleep prevention. |
+| `solitaire` | **Solitaire** | Games | Classic 7-column Klondike Solitaire card game optimized for e-paper with draw-1 and draw-3 modes. |
+| `watertracker` | **Water Tracker** | Health | Cute daily hydration companion with animated pixel cup expressions, 14-day history archive, and customizable volume units (`ml`, `cups`, `oz`, `gallons`, `L`). |
+| `rosary` | **Holy Rosary** | Devotion | Interactive Holy Rosary prayer guide with bead tracking, mystery reflections, and authentic pixel crucifix art. |
+| `dailyoffice` | **Divine Worship** | Devotion | Daily Office liturgical prayer book (Morning, Evening & Compline) featuring zero-allocation SD card section streaming for propers and psalter. |
+| `codex` | **Codex: Ink & Iron** | Games | Medieval illuminated manuscript roguelike deckbuilder with Couplet synergy, relic system, and page progression. |
+| `wordle` | **Wordle** | Games | 5-letter word deduction puzzle with on-screen keyboard, guess evaluation, and local statistics. |
+| `sudoku` | **Sudoku** | Games | Classic 9×9 Sudoku logic puzzle with on-device puzzle generator and conflict validation. |
+| `tetris` | **Tetris** | Games | Classic falling block puzzle with ghost piece guide and e-paper optimized refresh scheduling. |
+| `2048` | **2048** | Games | Classic 4×4 sliding tile number puzzle with high scores and smooth e-paper rendering. |
+| `blackjack` | **Blackjack** | Games | Classic 21 casino card game with betting chips, hit, stand, double down, and dealer AI. |
+| `dice` | **Dice Roller** | Utilities | Multi-polyhedral tabletop dice simulator (d4, d6, d8, d10, d12, d20, d100) with coin flipper and roll history. |
+| `lifecounter` | **Life Counter** | Utilities | Magic: The Gathering & card game life tracker supporting multiplayer and commander damage tracking. |
+

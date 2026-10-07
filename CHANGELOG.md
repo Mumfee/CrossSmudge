@@ -1,3 +1,43 @@
+## [v1.6.5.3] - 2026-10-06
+
+### Added
+
+- Added *Stopwatch* (`apps/stopwatch/`): a retro pixel cartoon stopwatch application featuring a charming handheld stopwatch character with animated mechanical crown plunger, blinking/workout facial expressions, digital LCD window (`MM:SS.cc`), real-time second sweep indicator, and a full lap split recording card beneath displaying lap numbers, split times, cumulative elapsed times, and best lap highlights with persistent timing data.
+- Added *Solitaire* (`apps/solitaire/`): classic 7-column Klondike Solitaire card game optimized for e-paper with draw-1 and draw-3 modes, auto-move logic, touch tap-to-move, and full button navigation.
+- Added *Water Tracker* (`apps/watertracker/`) to the on-device App Store catalog (`apps/catalog.json`): a responsive, cute daily hydration tracking application featuring animated pixel cup water levels, cup facial expressions, 14-day history archive with daily completion badges, configurable volume units (`ml`, `cups`, `oz`, `gallons`, `L`), automatic banner timeouts, and multi-device display scaling across ESP32-C3 and ESP32-S3 e-paper readers.
+- Added native auto-sleep prevention APIs to the Lua engine: `smudge.prevent_sleep([enabled])` (aliased as `smudge.keep_awake([enabled])`) and `smudge.is_prevent_sleep()` / `smudge.is_keep_awake()`, alongside declarative `"prevent_sleep": true` manifest support in `manifest.json`. Enables continuous desk clock, timer, and dashboard displays without triggering the system's inactivity sleep timer; physical Power button sleep remains immediate, and regular auto-sleep automatically resumes when the app exits.
+- Enabled auto-sleep prevention across desktop productivity apps: Desk Stand (`apps/dashboard/`), Hourglass Timer (`apps/hourglass/`), and Stopwatch (`apps/stopwatch/`), allowing timers and desk displays to stay visible on desks indefinitely.
+- Added native orientation control APIs to the Lua engine: `smudge.set_orientation("portrait" | "landscape" | "portrait_inverted" | "landscape_ccw")` and `smudge.get_orientation()`, with automatic orientation restoration on app exit.
+- Added Lua API versioning and feature detection infrastructure:
+  - `smudge.api_version` / `smudge.get_api_version()` returning integer API level (current: `2`).
+  - `smudge.version()` / `smudge.get_version()` returning firmware version string.
+  - `smudge.has_feature(name)` for programmatic capability checks (`"prevent_sleep"`, `"orientation"`, `"full_refresh"`, `"touch"`, `"version"`).
+  - Manifest `"min_api"` specification in `manifest.json` with pre-flight check in `LuaRunner::init()`, displaying a helpful update notification instead of crashing on outdated firmware.
+
+### Changed
+
+- Overhauled **Desk Stand** (`apps/dashboard/`) from a single clock style into a multi-layout desk companion featuring 7 full-app styles with distinct element placements, dynamic layout scaling, and persistent settings (`dashboard.dat`):
+  - **Classic Station**: Balanced vertical portrait station with top pill bar, flip clock, daylight progress bar, monthly calendar, and 3-column Year Overview card (Quarter, Week number, Days remaining, Season).
+  - **Big Clock Focus**: Clock-dominant layout featuring giant 124px digital numerals, daylight bar, and bottom monthly calendar.
+  - **Calendar Planner**: Calendar-dominant layout with a compact digital status bar, full-height monthly grid, and month progress card.
+  - **Executive Dark**: High-contrast inverted dark theme for portrait desk display.
+  - **Minimal Studio**: Frameless Swiss typography layout with hairline rules, battery/power stats, and centered calendar grid.
+  - **Landscape Desk Stand**: Rotates the display to landscape (800x480) for side-by-side placement on a desk stand (clock & year stats on the left, full calendar on the right).
+  - **Landscape Dark**: High-contrast inverted dark mode for landscape desk stand placement.
+- Enhanced **Hourglass** (`apps/hourglass/`): eliminated rigid flat sand cutoffs across the glass by adding a natural parabolic funnel crater in the top bulb, flowing sand completely through the neck channel with a tapered conical nozzle tip, slenderizing the neck waist (`neck_w = 22`, `neck_h = 10`), rendering a continuous falling sand stream that stays visible during pauses, and building a conical bottom sand mound with animated landing bounce particles, all while maintaining the cute facial expressions and zero-allocation performance on ESP32-C3.
+- Replaced the quotes section in Desk Stand with bi-directional style cycling buttons (`[Style -]` and `[Style +]`) alongside `[12-Hour]` / `[24-Hour]` time format toggling.
+- Eliminated redundant and duplicated information across Desk Stand layouts: removed duplicate digital time text from Minimal Studio, removed duplicated clock time and day-of-year counters from landscape styles, and refined vertical progress bar spacing to prevent text-outline collisions.
+
+### Fixed
+
+- Fixed full screen refresh flickering during style transitions in Desk Stand and Lua applications: updated `LuaRunner` (`l_fullRefresh`) to defer full e-ink display refreshes until after `on_draw` renders the new layout into the framebuffer, eliminating stale-buffer flashes.
+- Fixed Desk Stand landscape layout clipping and overlap on physical devices by switching the display renderer to 800x480 (`smudge.set_orientation("landscape")`), providing full two-column side-by-side cards with clean left tab insets and automatic portrait restoration on exit.
+- Fixed calendar day highlight and clock 24H/AM/PM badge clipping in Desk Stand: replaced undersized square boxes with properly padded rounded pills centered around the glyph baseline to eliminate digit truncation.
+
+### Removed
+
+- Removed the quote card section and unneeded nested tables in Desk Stand, compressing digit segments into bitmask arrays to cut Lua compilation heap usage from ~70 KB down to ~25 KB and strictly adhere to ESP32-C3's 75 KB DRAM ceiling (`SMUDGE_X3_CONSTRAINTS=1`).
+
 ## [v1.6.5.2] - 2026-10-06
 
 ### Fixed
@@ -13,7 +53,6 @@
 
 ### Added
 
-- Added *Water Tracker* (`apps/watertracker/`) to the on-device App Store catalog (`apps/catalog.json`): a responsive, cute daily hydration tracking application featuring animated pixel cup water levels, cup facial expressions, 14-day history archive with daily completion badges, configurable volume units (`ml`, `cups`, `oz`, `gallons`, `L`), automatic banner timeouts, and multi-device display scaling across ESP32-C3 and ESP32-S3 e-paper readers.
 - Added comprehensive icon converter utility (`scripts/convert_icon.py`) with terminal ASCII `view`, `raw2png`, `png2raw`, and `header` generation commands, along with complete format and design specifications in `apps/README.md`.
 
 ## [v1.6.5.1] - 2026-10-03

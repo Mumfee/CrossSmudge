@@ -30,10 +30,12 @@ class LuaAppActivity : public Activity {
 
   void onEnter() override {
     Activity::onEnter();
+    initialOrientation_ = renderer.getOrientation();
     runner_ = std::make_unique<ink::LuaRunner>(renderer, mappedInput, appDir_, appId_);
 
     if (!runner_->init()) {
-      renderError("Failed to initialize Lua VM");
+      const std::string& err = runner_->getErrorMessage();
+      renderError(err.empty() ? "Failed to initialize Lua VM" : err.c_str());
       return;
     }
 
@@ -49,6 +51,8 @@ class LuaAppActivity : public Activity {
     }
     requestUpdate();
   }
+
+  bool preventAutoSleep() override { return runner_ && runner_->preventAutoSleep(); }
 
   void loop() override {
     if (!runner_ || runner_->shouldExit()) {
@@ -158,7 +162,10 @@ class LuaAppActivity : public Activity {
       renderError(runner_->getErrorMessage().c_str());
       return;
     }
-    renderer.displayBuffer();
+    HalDisplay::RefreshMode refreshMode = (runner_ && runner_->checkAndClearFullRefreshRequested())
+                                              ? HalDisplay::RefreshMode::FULL_REFRESH
+                                              : HalDisplay::RefreshMode::FAST_REFRESH;
+    renderer.displayBuffer(refreshMode);
   }
 
   void onExit() override {
@@ -170,6 +177,7 @@ class LuaAppActivity : public Activity {
         runner_.reset();
       }
     }
+    renderer.setOrientation(initialOrientation_);
     Activity::onExit();
   }
 
@@ -180,8 +188,10 @@ class LuaAppActivity : public Activity {
   std::string appId_;
   std::unique_ptr<ink::LuaRunner> runner_;
   std::mutex luaMutex_;
+  GfxRenderer::Orientation initialOrientation_ = GfxRenderer::Orientation::Portrait;
 
   void renderError(const char* msg) {
+    renderer.setOrientation(initialOrientation_);
     int w = renderer.getScreenWidth();
     int h = renderer.getScreenHeight();
     const auto& m = UITheme::getInstance().getMetrics();

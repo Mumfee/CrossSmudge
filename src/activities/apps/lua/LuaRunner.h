@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -17,6 +18,8 @@ namespace ink {
 
 class LuaRunner {
  public:
+  static constexpr int LUA_API_VERSION = 2;
+
   LuaRunner(GfxRenderer& renderer, MappedInputManager& input, const std::string& appDir, const std::string& appId);
   ~LuaRunner();
 
@@ -40,9 +43,18 @@ class LuaRunner {
     return r;
   }
 
+  bool checkAndClearFullRefreshRequested() {
+    bool r = fullRefreshRequested_;
+    fullRefreshRequested_ = false;
+    return r;
+  }
+
   bool shouldExit() const { return requestedExit_; }
   bool hasError() const { return hasError_; }
   const std::string& getErrorMessage() const { return errorMessage_; }
+
+  bool preventAutoSleep() const { return preventAutoSleep_.load(std::memory_order_relaxed); }
+  void setPreventAutoSleep(bool prevent) { preventAutoSleep_.store(prevent, std::memory_order_relaxed); }
 
  private:
   GfxRenderer& renderer_;
@@ -55,6 +67,8 @@ class LuaRunner {
   bool requestedExit_ = false;
   bool hasError_ = false;
   bool redrawRequested_ = false;
+  bool fullRefreshRequested_ = false;
+  std::atomic<bool> preventAutoSleep_{false};
   std::string errorMessage_;
 
   // Memory sandbox tracking
@@ -115,6 +129,13 @@ class LuaRunner {
   static int l_deleteFile(lua_State* L);
   static int l_popup(lua_State* L);
   static int l_getMemory(lua_State* L);
+  static int l_setOrientation(lua_State* L);
+  static int l_getOrientation(lua_State* L);
+  static int l_preventSleep(lua_State* L);
+  static int l_isPreventSleep(lua_State* L);
+  static int l_getVersion(lua_State* L);
+  static int l_getApiVersion(lua_State* L);
+  static int l_hasFeature(lua_State* L);
 };
 
 }  // namespace ink

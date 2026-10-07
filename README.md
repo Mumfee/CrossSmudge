@@ -41,6 +41,11 @@ CrossSmudge includes a collection of e-paper applications and games:
 
 | Application | Description |
 | :--- | :--- |
+| **Desk Stand** | Multi-layout ambient e-ink desk companion with 7 portrait and landscape styles, digital flip clock, daylight/year progress bars, monthly calendar, and auto-sleep suspension. |
+| **Stopwatch** | Pixel cartoon stopwatch with mechanical crown plunger, workout facial expressions, digital LCD window, and comprehensive lap split recording. |
+| **Hourglass** | Visual countdown sand timer with animated parabolic sand funnel crater, falling sand stream, conical sand mound, and cute expressive face. |
+| **Solitaire** | Classic 7-column Klondike card game with stock, waste, foundations, and smooth multi-card dragging. |
+| **Water Tracker** | Daily hydration tracker with an animated pixel cup character, configurable volume units, and 14-day history archive. |
 | **Codex: Ink & Iron** | Full roguelike deckbuilding card RPG featuring 7 animated encounters, card rewards, relics, events, shop, and scriptorium. |
 | **Blackjack** | Authentic casino blackjack with split pairs, double down, insurance, dealer AI, custom face-card sprites, and persistent bankroll. |
 | **Divine Worship** | Complete daily prayer companion and liturgical psalter for the Anglican/Personal Ordinariate tradition with automated liturgical calendar computation. |
@@ -62,6 +67,36 @@ CrossSmudge includes a collection of e-paper applications and games:
 ## Screenshot Gallery 📸
 
 <table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="./docs/images/apps/dashboard.png" alt="Desk Stand: Ambient E-Ink Desk Station" /><br/>
+      <em>Desk Stand: Portrait Flip Clock & Calendar Station</em>
+    </td>
+    <td align="center" width="50%">
+      <img src="./docs/images/apps/dashboard_landscape.png" alt="Desk Stand: Landscape Mode" /><br/>
+      <em>Desk Stand: 800×480 Side-by-Side Landscape Mode</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="./docs/images/apps/stopwatch.png" alt="Stopwatch: Pixel Cartoon Character with Lap Splits" /><br/>
+      <em>Stopwatch: Cartoon Character, LCD Timer & Splits</em>
+    </td>
+    <td align="center" width="50%">
+      <img src="./docs/images/apps/hourglass.png" alt="Hourglass: Dynamic Sand Funnel Timer" /><br/>
+      <em>Hourglass: Dynamic Sand Funnel Crater & Stream</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="./docs/images/apps/solitaire.png" alt="Solitaire: Klondike Card Game" /><br/>
+      <em>Solitaire: 7-Column Klondike Card Game</em>
+    </td>
+    <td align="center" width="50%">
+      <img src="./docs/images/apps/watertracker.png" alt="Water Tracker: Daily Hydration Companion" /><br/>
+      <em>Water Tracker: Pixel Cup & Daily Hydration</em>
+    </td>
+  </tr>
   <tr>
     <td align="center" width="50%">
       <img src="./docs/images/apps/app_store_catalog.png" alt="On-Device App Store Catalog" /><br/>
@@ -271,10 +306,10 @@ CrossSmudge preserves the reader improvements and typography enhancements origin
 You can flash CrossSmudge directly from any Chromium browser (Google Chrome, Microsoft Edge, Opera, or Brave) using WebSerial — no command-line tools or drivers needed!
 
 1. Download the latest `firmware-*.bin` for your device model from the **[CrossSmudge Releases](https://github.com/Mumfee/CrossSmudge/releases/latest)**:
-   - **Xteink X3 / X4**: `firmware-x3-x4-v1.6.5.2.bin`
-   - **Xteink X4 Pro**: `firmware-x4-pro-v1.6.5.2.bin`
-   - **Xteink X4 Classic**: `firmware-x4-classic-v1.6.5.2.bin`
-   - **Seeed Studio Sticky**: `firmware-sticky-v1.6.5.2.bin`
+   - **Xteink X3 / X4**: `firmware-x3-x4-v1.6.5.3.bin`
+   - **Xteink X4 Pro**: `firmware-x4-pro-v1.6.5.3.bin`
+   - **Xteink X4 Classic**: `firmware-x4-classic-v1.6.5.3.bin`
+   - **Seeed Studio Sticky**: `firmware-sticky-v1.6.5.3.bin`
 2. Connect your device to your computer using a USB-C data cable and ensure the device is powered on.
 3. Open the **CrossPoint Web Flasher**:
    👉 **[https://crosspointreader.com/#flash-tools](https://crosspointreader.com/#flash-tools)**
@@ -298,10 +333,10 @@ If your device is already running CrossSmudge and connected to Wi-Fi, open **Set
 For terminal users on macOS or Linux:
 ```bash
 # For ESP32-C3 (Xteink X3 / X4):
-esptool.py --chip esp32c3 write_flash 0x10000 firmware-x3-x4-v1.6.5.2.bin
+esptool.py --chip esp32c3 write_flash 0x10000 firmware-x3-x4-v1.6.5.3.bin
 
 # For ESP32-S3 (X4 Pro / Sticky / X4 Classic):
-esptool.py --chip esp32s3 write_flash 0x10000 firmware-x4-pro-v1.6.5.2.bin
+esptool.py --chip esp32s3 write_flash 0x10000 firmware-x4-pro-v1.6.5.3.bin
 ```
 
 ---

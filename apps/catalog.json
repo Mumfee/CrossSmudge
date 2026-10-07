@@ -207,6 +207,57 @@
         "main.lua",
         "icon.raw"
       ]
+    },
+    {
+      "id": "stopwatch",
+      "name": "Stopwatch",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Pixel cartoon stopwatch with digital display and lap split recording",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "icon.raw"
+      ]
+    },
+    {
+      "id": "dashboard",
+      "name": "Desk Stand",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Multi-style ambient desk clock with calendar, year progress, and landscape stand",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "icon.raw"
+      ]
+    },
+    {
+      "id": "hourglass",
+      "name": "Hourglass",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Expressive countdown timer with dynamic sand funnel physics and cute expressions",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "icon.raw"
+      ]
+    },
+    {
+      "id": "solitaire",
+      "name": "Solitaire",
+      "version": "1.0.0",
+      "author": "Mumfee",
+      "description": "Classic 7-column Klondike Solitaire card game optimized for e-paper",
+      "files": [
+        "manifest.json",
+        "main.lua",
+        "engine.lua",
+        "input.lua",
+        "suits.lua",
+        "icon.raw"
+      ]
     }
   ]
 }

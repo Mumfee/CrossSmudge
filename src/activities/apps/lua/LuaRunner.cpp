@@ -1,5 +1,6 @@
 #include "activities/apps/lua/LuaRunner.h"
 
+#include <ArduinoJson.h>
 #include <HalClock.h>
 #include <HalStorage.h>
 
@@ -72,7 +73,8 @@ void* LuaRunner::customLuaAlloc(void* ud, void* ptr, size_t osize, size_t nsize)
   // an internal emergency GC safely (gcemergency=1) if this allocator returns nullptr.
   constexpr size_t kMinSystemSafetyBytes = 3 * 1024;
   uint32_t freeH = ESP.getFreeHeap();
-  if (freeH < kMinSystemSafetyBytes + addedBytes || self->currentAllocatedBytes_ + addedBytes > self->maxLuaHeapBytes_) {
+  if (freeH < kMinSystemSafetyBytes + addedBytes ||
+      self->currentAllocatedBytes_ + addedBytes > self->maxLuaHeapBytes_) {
     return nullptr;
   }
 #else
@@ -100,6 +102,7 @@ bool LuaRunner::init() {
   hasError_ = false;
   errorMessage_.clear();
   currentAllocatedBytes_ = 0;
+  preventAutoSleep_.store(false, std::memory_order_relaxed);
 
 #if defined(SIMULATOR_DEVICE_X3)
   maxLuaHeapBytes_ = 75 * 1024;  // 75 KB exact X3 hardware DRAM ceiling
@@ -113,7 +116,7 @@ bool LuaRunner::init() {
 #elif defined(BOARD_HAS_PSRAM)
   maxLuaHeapBytes_ = 2 * 1024 * 1024;  // 2 MB for PSRAM
 #else
-  maxLuaHeapBytes_ = 220 * 1024;       // 220 KB ceiling on C3 (governed by live free heap)
+  maxLuaHeapBytes_ = 220 * 1024;  // 220 KB ceiling on C3 (governed by live free heap)
 #endif
 
   LOG_INF("LUA", "[%s] Init with heap limit: %zu bytes", appId_.c_str(), maxLuaHeapBytes_);
@@ -132,18 +135,37 @@ bool LuaRunner::init() {
   lua_gc(L, LUA_GCINC, 105, 250, 0);
 
   // Open only essential libraries (base, table, string, math, os) to save 12+ KB of heap on embedded devices
-  static const luaL_Reg essentialLibs[] = {
-      {LUA_GNAME, luaopen_base},
-      {LUA_TABLIBNAME, luaopen_table},
-      {LUA_STRLIBNAME, luaopen_string},
-      {LUA_MATHLIBNAME, luaopen_math},
-      {LUA_OSLIBNAME, luaopen_os},
-      {nullptr, nullptr}};
+  static const luaL_Reg essentialLibs[] = {{LUA_GNAME, luaopen_base},        {LUA_TABLIBNAME, luaopen_table},
+                                           {LUA_STRLIBNAME, luaopen_string}, {LUA_MATHLIBNAME, luaopen_math},
+                                           {LUA_OSLIBNAME, luaopen_os},      {nullptr, nullptr}};
   for (const luaL_Reg* lib = essentialLibs; lib->func; lib++) {
     luaL_requiref(L, lib->name, lib->func, 1);
     lua_pop(L, 1);
   }
   registerSmudgeApi();
+
+  // Check if application manifest declares prevent_sleep
+  std::string manifestPath = appDir_ + "/manifest.json";
+  if (Storage.exists(manifestPath.c_str())) {
+    String jsonStr = Storage.readFile(manifestPath.c_str());
+    JsonDocument doc;
+    if (!deserializeJson(doc, jsonStr)) {
+      if (doc["prevent_sleep"].is<bool>() && doc["prevent_sleep"].as<bool>()) {
+        preventAutoSleep_.store(true, std::memory_order_relaxed);
+      }
+      if (doc["min_api"].is<int>()) {
+        int reqApi = doc["min_api"].as<int>();
+        if (reqApi > LUA_API_VERSION) {
+          char err[128];
+          snprintf(err, sizeof(err), "Requires API v%d (firmware has v%d).\nPlease update device firmware.", reqApi,
+                   LUA_API_VERSION);
+          setError(err);
+          return false;
+        }
+      }
+    }
+  }
+
   return true;
 }
 
@@ -156,6 +178,7 @@ void LuaRunner::shutdown() {
     s_activeRunner = nullptr;
   }
   currentAllocatedBytes_ = 0;
+  preventAutoSleep_.store(false, std::memory_order_relaxed);
 }
 
 void LuaRunner::setError(const char* msg) {
@@ -458,6 +481,22 @@ void LuaRunner::registerSmudgeApi() {
   lua_pushcfunction(L, l_triangle);
   lua_setfield(L, -2, "triangle");
 
+  lua_pushcfunction(L, l_setOrientation);
+  lua_setfield(L, -2, "set_orientation");
+
+  lua_pushcfunction(L, l_getOrientation);
+  lua_setfield(L, -2, "get_orientation");
+
+  lua_pushcfunction(L, l_preventSleep);
+  lua_setfield(L, -2, "prevent_sleep");
+  lua_pushcfunction(L, l_preventSleep);
+  lua_setfield(L, -2, "keep_awake");
+
+  lua_pushcfunction(L, l_isPreventSleep);
+  lua_setfield(L, -2, "is_prevent_sleep");
+  lua_pushcfunction(L, l_isPreventSleep);
+  lua_setfield(L, -2, "is_keep_awake");
+
   lua_pushcfunction(L, l_inRect);
   lua_setfield(L, -2, "in_rect");
   lua_pushcfunction(L, l_inRect);
@@ -497,6 +536,19 @@ void LuaRunner::registerSmudgeApi() {
 
   lua_pushcfunction(L, l_dofile);
   lua_setfield(L, -2, "dofile");
+
+  lua_pushcfunction(L, l_getVersion);
+  lua_setfield(L, -2, "version");
+  lua_pushcfunction(L, l_getVersion);
+  lua_setfield(L, -2, "get_version");
+
+  lua_pushinteger(L, LUA_API_VERSION);
+  lua_setfield(L, -2, "api_version");
+  lua_pushcfunction(L, l_getApiVersion);
+  lua_setfield(L, -2, "get_api_version");
+
+  lua_pushcfunction(L, l_hasFeature);
+  lua_setfield(L, -2, "has_feature");
 
   lua_pushvalue(L, -1);
   lua_setglobal(L, "smudge");
@@ -612,7 +664,8 @@ int LuaRunner::l_refresh(lua_State* L) {
 
 int LuaRunner::l_fullRefresh(lua_State*) {
   if (s_activeRunner) {
-    s_activeRunner->renderer_.displayBuffer(HalDisplay::RefreshMode::FULL_REFRESH);
+    s_activeRunner->fullRefreshRequested_ = true;
+    s_activeRunner->redrawRequested_ = true;
   }
   return 0;
 }
@@ -1048,6 +1101,10 @@ int LuaRunner::l_getBounds(lua_State* L) {
 
 int LuaRunner::l_buttonHints(lua_State* L) {
   if (!s_activeRunner) return 0;
+  if (s_activeRunner->renderer_.getOrientation() == GfxRenderer::Orientation::LandscapeClockwise ||
+      s_activeRunner->renderer_.getOrientation() == GfxRenderer::Orientation::LandscapeCounterClockwise) {
+    return 0;
+  }
   const char* b1 = luaL_optstring(L, 1, nullptr);
   const char* b2 = luaL_optstring(L, 2, nullptr);
   const char* b3 = luaL_optstring(L, 3, nullptr);
@@ -1065,7 +1122,12 @@ int LuaRunner::l_header(lua_State* L) {
 
   const auto& m = UITheme::getInstance().getMetrics();
   int w = s_activeRunner->renderer_.getScreenWidth();
-  GUI.drawHeader(s_activeRunner->renderer_, Rect{0, m.topPadding, w, m.headerHeight}, title, subtitle);
+  int x = 0;
+  if (s_activeRunner->renderer_.getOrientation() == GfxRenderer::Orientation::LandscapeClockwise) {
+    x = 54;
+    w -= 54;
+  }
+  GUI.drawHeader(s_activeRunner->renderer_, Rect{x, m.topPadding, w, m.headerHeight}, title, subtitle);
   return 0;
 }
 
@@ -1299,8 +1361,7 @@ int LuaRunner::l_findSection(lua_State* L) {
         lua_pushvalue(L, callbackIdx);
         lua_pushlstring(L, lineBuf, lineLen);
         if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-          LOG_ERR("LUA", "[%s] find_section callback error: %s", s_activeRunner->appId_.c_str(),
-                  lua_tostring(L, -1));
+          LOG_ERR("LUA", "[%s] find_section callback error: %s", s_activeRunner->appId_.c_str(), lua_tostring(L, -1));
           lua_pop(L, 1);
           file.close();
           lua_pushboolean(L, false);
@@ -1801,6 +1862,88 @@ int LuaRunner::l_popup(lua_State* L) {
   const char* msg = luaL_checkstring(L, 1);
   GUI.drawPopup(s_activeRunner->renderer_, msg);
   return 0;
+}
+
+int LuaRunner::l_setOrientation(lua_State* L) {
+  if (!s_activeRunner) return 0;
+  const char* str = luaL_checkstring(L, 1);
+  if (strcmp(str, "landscape") == 0 || strcmp(str, "landscape_cw") == 0) {
+    s_activeRunner->renderer_.setOrientation(GfxRenderer::Orientation::LandscapeClockwise);
+  } else if (strcmp(str, "landscape_ccw") == 0) {
+    s_activeRunner->renderer_.setOrientation(GfxRenderer::Orientation::LandscapeCounterClockwise);
+  } else if (strcmp(str, "portrait_inverted") == 0) {
+    s_activeRunner->renderer_.setOrientation(GfxRenderer::Orientation::PortraitInverted);
+  } else {
+    s_activeRunner->renderer_.setOrientation(GfxRenderer::Orientation::Portrait);
+  }
+  return 0;
+}
+
+int LuaRunner::l_getOrientation(lua_State* L) {
+  if (!s_activeRunner) {
+    lua_pushliteral(L, "portrait");
+    return 1;
+  }
+  switch (s_activeRunner->renderer_.getOrientation()) {
+    case GfxRenderer::Orientation::LandscapeClockwise:
+      lua_pushliteral(L, "landscape");
+      break;
+    case GfxRenderer::Orientation::LandscapeCounterClockwise:
+      lua_pushliteral(L, "landscape_ccw");
+      break;
+    case GfxRenderer::Orientation::PortraitInverted:
+      lua_pushliteral(L, "portrait_inverted");
+      break;
+    default:
+      lua_pushliteral(L, "portrait");
+      break;
+  }
+  return 1;
+}
+
+int LuaRunner::l_preventSleep(lua_State* L) {
+  if (!s_activeRunner) return 0;
+  bool prevent = true;
+  if (lua_gettop(L) >= 1) {
+    prevent = lua_toboolean(L, 1);
+  }
+  s_activeRunner->setPreventAutoSleep(prevent);
+  return 0;
+}
+
+int LuaRunner::l_isPreventSleep(lua_State* L) {
+  if (!s_activeRunner) {
+    lua_pushboolean(L, false);
+    return 1;
+  }
+  lua_pushboolean(L, s_activeRunner->preventAutoSleep());
+  return 1;
+}
+
+int LuaRunner::l_getVersion(lua_State* L) {
+#ifdef CROSSSMUDGE_VERSION
+  lua_pushstring(L, CROSSSMUDGE_VERSION);
+#else
+  lua_pushliteral(L, "unknown");
+#endif
+  return 1;
+}
+
+int LuaRunner::l_getApiVersion(lua_State* L) {
+  lua_pushinteger(L, LUA_API_VERSION);
+  return 1;
+}
+
+int LuaRunner::l_hasFeature(lua_State* L) {
+  const char* feat = luaL_checkstring(L, 1);
+  bool supported = false;
+  if (strcmp(feat, "prevent_sleep") == 0 || strcmp(feat, "keep_awake") == 0 || strcmp(feat, "orientation") == 0 ||
+      strcmp(feat, "set_orientation") == 0 || strcmp(feat, "full_refresh") == 0 || strcmp(feat, "invert") == 0 ||
+      strcmp(feat, "touch") == 0 || strcmp(feat, "version") == 0) {
+    supported = true;
+  }
+  lua_pushboolean(L, supported);
+  return 1;
 }
 
 }  // namespace ink

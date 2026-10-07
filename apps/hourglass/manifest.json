@@ -1,0 +1,9 @@
+{
+  "id": "hourglass",
+  "name": "Hourglass",
+  "version": "1.0.0",
+  "author": "Mumfee",
+  "description": "Minimalist timer with cute hourglass and customizable increments",
+  "entry": "main.lua",
+  "prevent_sleep": true
+}
