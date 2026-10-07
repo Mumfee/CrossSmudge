@@ -170,7 +170,7 @@ end
 ```
 
 ### `on_update()` *(Optional Real-Time Loop)*
-For games or animations requiring real-time gravity or ticking (e.g. *Tetris* piece falling):
+For games or animations requiring real-time gravity or ticking (e.g. *Block Drop* piece falling):
 ```lua
 local last_tick = 0
 function on_update()
@@ -655,7 +655,7 @@ The following applications are included in the repository and available through 
 | `codex` | **Codex: Ink & Iron** | Games | Medieval illuminated manuscript roguelike deckbuilder with Couplet synergy, relic system, and page progression. |
 | `wordle` | **Wordle** | Games | 5-letter word deduction puzzle with on-screen keyboard, guess evaluation, and local statistics. |
 | `sudoku` | **Sudoku** | Games | Classic 9×9 Sudoku logic puzzle with on-device puzzle generator and conflict validation. |
-| `tetris` | **Tetris** | Games | Classic falling block puzzle with ghost piece guide and e-paper optimized refresh scheduling. |
+| `blockdrop` | **Block Drop** | Games | Classic falling block puzzle with ghost piece guide and e-paper optimized refresh scheduling. |
 | `2048` | **2048** | Games | Classic 4×4 sliding tile number puzzle with high scores and smooth e-paper rendering. |
 | `blackjack` | **Blackjack** | Games | Classic 21 casino card game with betting chips, hit, stand, double down, and dealer AI. |
 | `dice` | **Dice Roller** | Utilities | Multi-polyhedral tabletop dice simulator (d4, d6, d8, d10, d12, d20, d100) with coin flipper and roll history. |

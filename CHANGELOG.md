@@ -33,6 +33,7 @@
   - Implemented random-access offset reading support in `smudge.read_file(filename, [len], [offset])` in `LuaRunner`, allowing zero-RAM secret word lookups directly from flash/SD.
   - Implemented full game state persistence across app exits and device sleep (`wordle_state.dat`), saving secret word, all past guesses with tile evaluations, in-progress typed letters, and keyboard cursor position so players can resume where they left off.
   - Fixed duplicate letter evaluation in `evaluate_guess` where surplus letters in a guess would erroneously mark valid secret letters as absent on the keyboard.
+- Renamed *Tetris* (`apps/tetris/`) to **Block Drop** (`apps/blockdrop/`) across the app package, on-device App Store catalog (`apps/catalog.json`), documentation, and screenshots to adhere to trademark naming guidelines, releasing **Block Drop v1.0.1**.
 
 ### Fixed
 

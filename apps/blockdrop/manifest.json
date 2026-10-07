@@ -1,7 +1,7 @@
 {
-  "id": "tetris",
-  "name": "Tetris",
-  "version": "1.0.0",
+  "id": "blockdrop",
+  "name": "Block Drop",
+  "version": "1.0.1",
   "author": "Mumfee",
   "description": "Classic falling block puzzle optimized for e-paper displays",
   "entry": "main.lua"

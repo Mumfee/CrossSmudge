@@ -49,7 +49,7 @@ CrossSmudge includes a collection of e-paper applications and games:
 | **Codex: Ink & Iron** | Full roguelike deckbuilding card RPG featuring 7 animated encounters, card rewards, relics, events, shop, and scriptorium. |
 | **Blackjack** | Authentic casino blackjack with split pairs, double down, insurance, dealer AI, custom face-card sprites, and persistent bankroll. |
 | **Divine Worship** | Complete daily prayer companion and liturgical psalter for the Anglican/Personal Ordinariate tradition with automated liturgical calendar computation. |
-| **Tetris** | E-ink optimized falling block puzzle with ghosting prevention, high scores, pause/resume, and reset modals. |
+| **Block Drop** | E-ink optimized falling block puzzle with ghosting prevention, high scores, pause/resume, and reset modals. |
 | **Wordle** | 5-letter word deduction game with interactive on-screen keyboard, letter hints, and win statistics. |
 | **Sudoku** | Infinite procedural 9×9 logic puzzles with difficulty tiers, conflict highlights, and board generator. |
 | **2048** | Classic 4×4 sliding tile puzzle with persistent state saving, smooth input debouncing, and high scores. |
@@ -139,8 +139,8 @@ CrossSmudge includes a collection of e-paper applications and games:
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="./docs/images/apps/tetris.png" alt="Tetris Falling Block Game" /><br/>
-      <em>Tetris: Fast E-Ink Partial Refresh Gameplay</em>
+      <img src="./docs/images/apps/blockdrop.png" alt="Block Drop Falling Block Game" /><br/>
+      <em>Block Drop: Fast E-Ink Partial Refresh Gameplay</em>
     </td>
     <td align="center" width="50%">
       <img src="./docs/images/apps/rosary.png" alt="Holy Rosary Prayer Companion" /><br/>

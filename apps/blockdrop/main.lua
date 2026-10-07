@@ -1,5 +1,5 @@
--- Tetris game for CrossSmudge (Lua)
--- Faithful port of original C++ TetrisActivity with real-time gravity, 7 piece patterns, dithering & background render
+-- Block Drop game for CrossSmudge (Lua)
+-- Classic falling block game with real-time gravity, 7 piece patterns, dithering & background render
 
 local kGridWidth = 10
 local kGridHeight = 20
@@ -284,7 +284,7 @@ function on_exit()
     end
 end
 
--- Game loop: matching C++ TetrisActivity::loop()
+-- Game loop: real-time gravity and input ticking
 function on_update()
     if show_reset_confirm or is_game_over then
         return
@@ -379,7 +379,7 @@ local function draw_block(x, y, size, style)
     end
 end
 
--- Render function: matching C++ TetrisActivity::render()
+-- Render function for game board, next piece, and stats
 function on_draw()
     smudge.clear()
 
@@ -393,7 +393,7 @@ function on_draw()
 
     -- 2. Header with Score, Lines, Level
     local headerRight = string.format("Score:%d | Lns:%d | Lvl:%d", score, lines_cleared, level)
-    smudge.header("Tetris", headerRight)
+    smudge.header("Block Drop", headerRight)
 
     -- Calculate grid tile dimensions
     local blockSize = math.min(math.floor(availableHeight / kGridHeight), math.floor((w - 110) / kGridWidth))
@@ -524,7 +524,7 @@ function on_draw()
     end
 end
 
--- Button handling: matching C++ TetrisActivity::loop()
+-- Button handling
 function on_button(btn, pressed)
     if not pressed then return end
 
