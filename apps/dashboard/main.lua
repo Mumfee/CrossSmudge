@@ -144,26 +144,6 @@ end
 
 dofile("styles.lua")
 
-local function draw_buttons(w, h, is_dark)
-    local is_land = (w >= 800)
-    local b2_label = is_24h and "12-Hour" or "24-Hour"
-    local labels = {"Exit", b2_label, "Style -", "Style +"}
-    local fg = not is_dark
-    local bg = is_dark
-
-    local by = is_land and 432 or 746
-    local bh = 38
-    local bw = is_land and 146 or 98
-    local gap = is_land and 16 or 10
-    local total_w = 4 * bw + 3 * gap
-    local start_x = math.floor((w - total_w) / 2)
-    for i = 1, 4 do
-        local bx = start_x + (i - 1) * (bw + gap)
-        smudge.rounded_rect(bx, by, bw, bh, 6, true, bg)
-        smudge.rounded_rect(bx, by, bw, bh, 6, false, fg)
-        smudge.text(bx + math.floor(bw / 2), by + 11, labels[i], 10, true, "center", fg)
-    end
-end
 
 function on_init()
     if smudge.prevent_sleep then smudge.prevent_sleep(true) end
@@ -321,8 +301,8 @@ function on_draw()
     end
 
     if buttons_visible then
-        local is_dark = (theme_style == 4 or theme_style == 7)
-        draw_buttons(w, h, is_dark)
+        local b2_label = is_24h and "12-Hour" or "24-Hour"
+        smudge.button_hints("Exit", b2_label, "Style -", "Style +")
     end
 
     if needs_full_refresh then
@@ -375,10 +355,14 @@ function on_touch(action, tx, ty)
     if smudge.get_bounds then w, h = smudge.get_bounds() end
 
     local is_land = (theme_style >= 6 and w >= 800)
-    local in_btn_zone = is_land and (ty >= 415) or (ty >= 730)
+    local in_btn_zone = is_land and (ty >= 440) or (ty >= 760)
     if in_btn_zone then
-        local b_idx = is_land and (tx < 235 and 1 or (tx < 400 and 2 or (tx < 565 and 3 or 4)))
-                               or (tx < 132 and 1 or (tx < 240 and 2 or (tx < 348 and 3 or 4)))
+        local b_idx
+        if is_land then
+            b_idx = (tx < 200 and 1 or (tx < 400 and 2 or (tx < 600 and 3 or 4)))
+        else
+            b_idx = (tx < 140 and 1 or (tx < 240 and 2 or (tx < 340 and 3 or 4)))
+        end
         if b_idx == 1 then
             if smudge.prevent_sleep then smudge.prevent_sleep(false) end
             if smudge.set_orientation then smudge.set_orientation("portrait") end

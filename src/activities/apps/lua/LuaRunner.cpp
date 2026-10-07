@@ -16,6 +16,7 @@
 #include "Logging.h"
 #include "MappedInputManager.h"
 #include "Memory.h"
+#include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -1101,16 +1102,43 @@ int LuaRunner::l_getBounds(lua_State* L) {
 
 int LuaRunner::l_buttonHints(lua_State* L) {
   if (!s_activeRunner) return 0;
-  if (s_activeRunner->renderer_.getOrientation() == GfxRenderer::Orientation::LandscapeClockwise ||
-      s_activeRunner->renderer_.getOrientation() == GfxRenderer::Orientation::LandscapeCounterClockwise) {
-    return 0;
-  }
   const char* b1 = luaL_optstring(L, 1, nullptr);
   const char* b2 = luaL_optstring(L, 2, nullptr);
   const char* b3 = luaL_optstring(L, 3, nullptr);
   const char* b4 = luaL_optstring(L, 4, nullptr);
 
   const auto labels = s_activeRunner->input_.mapLabels(b1 ? b1 : "", b2 ? b2 : "", b3 ? b3 : "", b4 ? b4 : "");
+
+  auto orientation = s_activeRunner->renderer_.getOrientation();
+  if (orientation == GfxRenderer::Orientation::LandscapeClockwise ||
+      orientation == GfxRenderer::Orientation::LandscapeCounterClockwise) {
+    if (s_activeRunner->input_.hasTouchHardware()) return 0;
+
+    auto& renderer = s_activeRunner->renderer_;
+    const int pageH = renderer.getScreenHeight();
+    constexpr int buttonWidth = 110;
+    constexpr int buttonHeight = 35;
+    constexpr int cornerRadius = 8;
+    constexpr int textYOffset = 7;
+    const int buttonPositions[4] = {58, 234, 456, 632};
+    const char* hintLabels[4] = {labels.btn1, labels.btn2, labels.btn3, labels.btn4};
+
+    for (int i = 0; i < 4; i++) {
+      if (hintLabels[i] != nullptr && hintLabels[i][0] != '\0') {
+        const int x = buttonPositions[i];
+        TouchRegistry::getInstance().add(Rect{x, pageH - buttonHeight, buttonWidth, buttonHeight}, i,
+                                         TouchRegistry::Button);
+        renderer.fillRoundedRect(x, pageH - buttonHeight, buttonWidth, buttonHeight, cornerRadius, Color::White);
+        renderer.drawRoundedRect(x, pageH - buttonHeight, buttonWidth, buttonHeight, 1, cornerRadius, true, true,
+                                 false, false, true);
+        const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, hintLabels[i]);
+        const int textX = x + (buttonWidth - 1 - textWidth) / 2;
+        renderer.drawText(SMALL_FONT_ID, textX, pageH - buttonHeight + textYOffset, hintLabels[i]);
+      }
+    }
+    return 0;
+  }
+
   GUI.drawButtonHints(s_activeRunner->renderer_, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   return 0;
 }
@@ -1939,7 +1967,7 @@ int LuaRunner::l_hasFeature(lua_State* L) {
   bool supported = false;
   if (strcmp(feat, "prevent_sleep") == 0 || strcmp(feat, "keep_awake") == 0 || strcmp(feat, "orientation") == 0 ||
       strcmp(feat, "set_orientation") == 0 || strcmp(feat, "full_refresh") == 0 || strcmp(feat, "invert") == 0 ||
-      strcmp(feat, "touch") == 0 || strcmp(feat, "version") == 0) {
+      strcmp(feat, "touch") == 0 || strcmp(feat, "version") == 0 || strcmp(feat, "button_hints_landscape") == 0) {
     supported = true;
   }
   lua_pushboolean(L, supported);
