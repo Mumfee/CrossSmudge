@@ -1,53 +1,48 @@
 -- Desk Stand Styles & Layouts
--- Provides calendar grids, year stats cards, and landscape station layouts
+-- Restored exact published layout logic from v1.6.5.3
 
 function draw_calendar(cx, y, w, h, yr, mo, current_day, is_dark, is_minimal)
     local fg = not is_dark
     local left_x = cx - math.floor(w / 2)
-    local card_x = left_x
-
     if not is_minimal then
-        if is_dark then
-            smudge.rounded_rect(card_x, y, w, h, 8, true, false)
-            smudge.rounded_rect(card_x, y, w, h, 8, false, true)
-        else
-            smudge.rounded_rect(card_x, y, w, h, 8, false)
-        end
+        smudge.rounded_rect(left_x, y, w, h, 8, is_dark)
+        smudge.rounded_rect(left_x, y, w, h, 8, false, fg)
     end
 
-    local mo_name = string.upper(MONTHS[mo] or "")
-    smudge.text(cx, y + 14, string.format("%s %d", mo_name, yr), 12, true, "center", fg)
+    smudge.text(cx, y + 10, string.format("%s %d", string.upper(MONTHS[mo] or ""), yr), 10, true, "center", fg)
     smudge.line(left_x + 10, y + 36, left_x + w - 10, y + 36, fg)
 
     local day_names = {"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
     local col_w = math.floor((w - 20) / 7)
     local grid_left = left_x + 10
+
     for i = 1, 7 do
-        smudge.text(grid_left + (i - 1) * col_w + math.floor(col_w / 2), y + 42, day_names[i], 9, true, "center", fg)
+        smudge.text(grid_left + (i - 1) * col_w + math.floor(col_w / 2), y + 42, day_names[i], 8, true, "center", fg)
     end
-    smudge.line(left_x + 10, y + 60, left_x + w - 10, y + 60, fg)
+    smudge.line(left_x + 10, y + 62, left_x + w - 10, y + 62, fg)
 
     local start_col = first_wday(yr, mo)
     local num_days = days_in_mo(yr, mo)
-    local row_h = math.max(26, math.floor((h - 80) / 6))
+    local row_h = math.floor((h - 76) / 6)
     local day_num = 1
 
     for row = 0, 5 do
-        local row_top = y + 66 + (row * row_h)
+        local row_top = y + 68 + (row * row_h)
         for col = 1, 7 do
             if (row == 0 and col < start_col) or day_num > num_days then
-                -- empty cell
+                -- empty
             else
-                local dcx = grid_left + (col - 1) * col_w + math.floor(col_w / 2)
+                local cell_cx = grid_left + (col - 1) * col_w + math.floor(col_w / 2)
                 if day_num == current_day then
                     local hl_w = math.min(col_w - 4, 30)
-                    local hl_h = math.min(row_h - 4, 22)
-                    local hl_x = dcx - math.floor(hl_w / 2)
+                    local hl_h = 22
+                    local hl_x = cell_cx - math.floor(hl_w / 2)
                     local hl_y = row_top + math.floor((row_h - hl_h) / 2)
                     smudge.rounded_rect(hl_x, hl_y, hl_w, hl_h, 5, true, fg)
-                    smudge.text(dcx, hl_y + 4, tostring(day_num), 10, true, "center", not fg)
+                    smudge.text(cell_cx, hl_y + 3, tostring(day_num), 8, true, "center", not fg)
                 else
-                    smudge.text(dcx, row_top + 4, tostring(day_num), 10, false, "center", fg)
+                    local text_y = row_top + math.floor((row_h - 14) / 2)
+                    smudge.text(cell_cx, text_y, tostring(day_num), 10, false, "center", fg)
                 end
                 day_num = day_num + 1
             end
@@ -58,13 +53,7 @@ end
 function draw_year_stats(cx, y, w, h, yr, doy, total_days, is_dark)
     local fg = not is_dark
     local left_x = cx - math.floor(w / 2)
-    local card_x = left_x
-    if is_dark then
-        smudge.rounded_rect(card_x, y, w, h, 8, true, false)
-        smudge.rounded_rect(card_x, y, w, h, 8, false, true)
-    else
-        smudge.rounded_rect(card_x, y, w, h, 8, false)
-    end
+    smudge.rounded_rect(left_x, y, w, h, 8, is_dark)
 
     local col_w = math.floor(w / 3)
     local c1 = left_x + math.floor(col_w / 2)
@@ -91,7 +80,7 @@ end
 
 function draw_landscape_view(is_dark, dt, hour_str, min_str, ampm_str, doy, total_days, day_pct)
     local fg = not is_dark
-    local left_x, card_w, right_x, top_y, card_h = 24, 364, 412, 36, 428
+    local left_x, card_w, right_x, top_y, card_h = 24, 364, 412, 36, 414
 
     if is_dark then smudge.rect(0, 0, 800, 480, true, true) end
     smudge.text(400, 10, "DESK STAND", 10, true, "center", fg)
@@ -159,15 +148,15 @@ function draw_landscape_view(is_dark, dt, hour_str, min_str, ampm_str, doy, tota
             if (row == 0 and col < start_col) or day_num > num_days then
                 -- empty
             else
-                local dcx = grid_left + (col - 1) * col_w + math.floor(col_w / 2)
+                local cx = grid_left + (col - 1) * col_w + math.floor(col_w / 2)
                 if day_num == dt.day then
                     local hl_w, hl_h = math.min(col_w - 4, 30), 20
-                    local hl_x = dcx - math.floor(hl_w / 2)
+                    local hl_x = cx - math.floor(hl_w / 2)
                     local hl_y = row_top + 2
                     smudge.rounded_rect(hl_x, hl_y, hl_w, hl_h, 5, true, fg)
-                    smudge.text(dcx, hl_y + 3, tostring(day_num), 8, true, "center", not fg)
+                    smudge.text(cx, hl_y + 3, tostring(day_num), 8, true, "center", not fg)
                 else
-                    smudge.text(dcx, row_top + 4, tostring(day_num), 8, false, "center", fg)
+                    smudge.text(cx, row_top + 4, tostring(day_num), 8, false, "center", fg)
                 end
                 day_num = day_num + 1
             end

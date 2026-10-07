@@ -214,10 +214,10 @@ function on_draw()
     if theme_style == 1 then
         smudge.header("Desk Stand", date_header)
         draw_clock_cards(card_x, 86, card_w, 130, hour_str, min_str, ampm_str, false, false)
-        smudge.text(card_x, 230, "DAYLIGHT PROGRESS", 8, false, "left", true)
-        smudge.text(card_x + card_w, 230, string.format("%d%%", day_pct), 8, false, "right", true)
-        draw_bar(card_x, 256, card_w, 8, day_pct, false)
-        draw_calendar(cx, 280, card_w, 320, dt.year, dt.month, dt.day, false, false)
+        smudge.text(card_x, 226, "DAYLIGHT PROGRESS", 8, false, "left", true)
+        smudge.text(card_x + card_w, 226, string.format("%d%%", day_pct), 8, false, "right", true)
+        draw_bar(card_x, 252, card_w, 8, day_pct, false)
+        draw_calendar(cx, 276, card_w, 324, dt.year, dt.month, dt.day, false, false)
         draw_year_stats(cx, 616, card_w, 92, dt.year, doy, total_days, false)
 
     elseif theme_style == 2 then
