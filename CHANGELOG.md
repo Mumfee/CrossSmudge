@@ -31,6 +31,10 @@
 
 ### Fixed
 
+- Fixed out-of-memory error on ESP32-C3 hardware when launching Desk Stand (`apps/dashboard/`) after updating from the App Store:
+  - Eliminated runtime `dofile("styles.lua")` compilation peak by merging all layouts back into a single streamlined `main.lua`, using `local` static tables and functions to avoid global environment churn and redundant AST allocations.
+  - Released Wi-Fi stack memory (`WiFi.mode(WIFI_OFF)`) in `AppStoreActivity::onExit()` so all ~50 KB of network DRAM is immediately restored to the system heap before launching applications.
+  - Released Desk Stand v1.0.2 in the on-device App Store catalog (`apps/catalog.json`).
 - Fixed full screen refresh flickering during style transitions in Desk Stand and Lua applications: updated `LuaRunner` (`l_fullRefresh`) to defer full e-ink display refreshes until after `on_draw` renders the new layout into the framebuffer, eliminating stale-buffer flashes.
 - Fixed Desk Stand landscape layout clipping and overlap on physical devices by switching the display renderer to 800x480 (`smudge.set_orientation("landscape")`), providing full two-column side-by-side cards with clean left tab insets and automatic portrait restoration on exit.
 - Fixed calendar day highlight and clock 24H/AM/PM badge clipping in Desk Stand: replaced undersized square boxes with properly padded rounded pills centered around the glyph baseline to eliminate digit truncation.

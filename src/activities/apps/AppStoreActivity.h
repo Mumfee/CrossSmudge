@@ -45,6 +45,13 @@ class AppStoreActivity : public Activity {
   void onExit() override {
     apps_.clear();
     apps_.shrink_to_fit();
+#if !defined(SIMULATOR)
+    if (WiFi.getMode() != WIFI_MODE_NULL) {
+      WiFi.disconnect(false);
+      delay(30);
+      WiFi.mode(WIFI_OFF);
+    }
+#endif
     sdFontSystem.ensureLoaded(renderer);
     sdFontSystem.releaseRegistry();
     Activity::onExit();

@@ -223,13 +223,12 @@
     {
       "id": "dashboard",
       "name": "Desk Stand",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "author": "Mumfee",
       "description": "Multi-style ambient desk clock with calendar, year progress, and landscape stand",
       "files": [
         "manifest.json",
         "main.lua",
-        "styles.lua",
         "icon.raw"
       ]
     },
