@@ -6,28 +6,31 @@ local theme_style = 1
 local NUM_STYLES = 7
 local last_min, last_hour = -1, -1
 local needs_full_refresh = false
+local buttons_visible = true
+local last_interact_ms = 0
+local BUTTON_TIMEOUT_MS = 5000
 
-local MONTHS = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"}
-local DAYS = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
+MONTHS = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"}
+DAYS = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
 local SEGS = {119, 36, 93, 109, 46, 107, 123, 37, 127, 111}
 
-local function is_leap(yr)
+function is_leap(yr)
     return (yr % 4 == 0 and yr % 100 ~= 0) or (yr % 400 == 0)
 end
 
-local function days_in_mo(yr, mo)
+function days_in_mo(yr, mo)
     if mo == 2 then return is_leap(yr) and 29 or 28 end
     if mo == 4 or mo == 6 or mo == 9 or mo == 11 then return 30 end
     return 31
 end
 
-local function first_wday(yr, mo)
+function first_wday(yr, mo)
     local t = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4}
     local y = (mo < 3) and (yr - 1) or yr
     return ((y + math.floor(y/4) - math.floor(y/100) + math.floor(y/400) + t[mo] + 1) % 7) + 1
 end
 
-local function day_of_yr(yr, mo, dy)
+function day_of_yr(yr, mo, dy)
     local d = dy
     for m = 1, mo - 1 do d = d + days_in_mo(yr, m) end
     return d
@@ -53,7 +56,7 @@ local function load_data()
     end
 end
 
-local function draw_digit(x, y, d, dw, dh, th, col)
+function draw_digit(x, y, d, dw, dh, th, col)
     local n = tonumber(d) or 0
     local hh = math.floor(dh / 2)
     local thh = math.floor(th / 2)
@@ -74,14 +77,14 @@ local function draw_digit(x, y, d, dw, dh, th, col)
     if (s & 64) ~= 0 then smudge.rect(((s & 16) ~= 0) and x or (x + th), y + dh - th, dw - (((s & 16) == 0 and th or 0) + ((s & 32) == 0 and th or 0)), th, true, col) end
 end
 
-local function draw_badge(x, y, str, is_dark)
+function draw_badge(x, y, str, is_dark)
     if not str or str == "" then return end
     local tag_w, tag_h = 42, 22
     smudge.rounded_rect(x, y, tag_w, tag_h, 4, true, not is_dark)
     smudge.text(x + math.floor(tag_w / 2), y + 3, str, 8, true, "center", is_dark)
 end
 
-local function draw_clock_cards(x, y, w, h, hour_str, min_str, ampm_str, is_dark, is_minimal)
+function draw_clock_cards(x, y, w, h, hour_str, min_str, ampm_str, is_dark, is_minimal)
     local fg = not is_dark
     local box_gap = 14
     local card_w = math.floor((w - box_gap) / 2)
@@ -103,11 +106,6 @@ local function draw_clock_cards(x, y, w, h, hour_str, min_str, ampm_str, is_dark
     draw_digit(x + d_margin_x, d_y, string.sub(hour_str, 1, 1), dw, dh, thick, fg)
     draw_digit(x + d_margin_x + dw + d_gap, d_y, string.sub(hour_str, 2, 2), dw, dh, thick, fg)
 
-    local colon_x = x + card_w + math.floor(box_gap / 2)
-    local cy = y + math.floor(h / 2)
-    smudge.circle(colon_x, cy - 14, 3, true, fg)
-    smudge.circle(colon_x, cy + 14, 3, true, fg)
-
     local min_x = x + card_w + box_gap
     if not is_minimal then
         smudge.rounded_rect(min_x, y, card_w, h, 8, is_dark)
@@ -116,205 +114,55 @@ local function draw_clock_cards(x, y, w, h, hour_str, min_str, ampm_str, is_dark
         smudge.rect(min_x, y, card_w, h, false, fg)
     end
 
-    local min_margin = (ampm_str and ampm_str ~= "") and math.max(16, d_margin_x - 18) or d_margin_x
-    draw_digit(min_x + min_margin, d_y, string.sub(min_str, 1, 1), dw, dh, thick, fg)
-    draw_digit(min_x + min_margin + dw + d_gap, d_y, string.sub(min_str, 2, 2), dw, dh, thick, fg)
+    local min_margin_x = (ampm_str and ampm_str ~= "") and math.max(14, d_margin_x - 14) or d_margin_x
+    draw_digit(min_x + min_margin_x, d_y, string.sub(min_str, 1, 1), dw, dh, thick, fg)
+    draw_digit(min_x + min_margin_x + dw + d_gap, d_y, string.sub(min_str, 2, 2), dw, dh, thick, fg)
 
     if ampm_str and ampm_str ~= "" then
         draw_badge(min_x + card_w - 48, y + h - 28, ampm_str, is_dark)
     end
-end
 
-local function draw_bar(x, y, w, h, pct, is_dark)
-    local fg = not is_dark
-    smudge.rounded_rect(x, y, w, h, math.floor(h / 2), false, fg)
-    local fill_w = math.max(0, math.min(w - 4, math.floor((w - 4) * (pct / 100))))
-    if fill_w > 0 then
-        smudge.rounded_rect(x + 2, y + 2, fill_w, h - 4, math.max(1, math.floor((h - 4) / 2)), true, fg)
-    end
-end
+    local colon_x = x + card_w + math.floor(box_gap / 2)
+    local colon_y = y + math.floor(h / 2)
+    smudge.circle(colon_x, colon_y - 14, 4, true, fg)
+    smudge.circle(colon_x, colon_y + 14, 4, true, fg)
 
-local function draw_calendar(cx, y, w, h, yr, mo, current_day, is_dark, is_minimal)
-    local fg = not is_dark
-    local left_x = cx - math.floor(w / 2)
     if not is_minimal then
-        smudge.rounded_rect(left_x, y, w, h, 8, is_dark)
-        smudge.rounded_rect(left_x, y, w, h, 8, false, fg)
-    end
-
-    smudge.text(cx, y + 10, string.format("%s %d", string.upper(MONTHS[mo] or ""), yr), 10, true, "center", fg)
-    smudge.line(left_x + 10, y + 36, left_x + w - 10, y + 36, fg)
-
-    local day_names = {"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
-    local col_w = math.floor((w - 20) / 7)
-    local grid_left = left_x + 10
-
-    for i = 1, 7 do
-        smudge.text(grid_left + (i - 1) * col_w + math.floor(col_w / 2), y + 42, day_names[i], 8, true, "center", fg)
-    end
-    smudge.line(left_x + 10, y + 62, left_x + w - 10, y + 62, fg)
-
-    local start_col = first_wday(yr, mo)
-    local num_days = days_in_mo(yr, mo)
-    local row_h = math.floor((h - 76) / 6)
-    local day_num = 1
-
-    for row = 0, 5 do
-        local row_top = y + 68 + (row * row_h)
-        for col = 1, 7 do
-            if (row == 0 and col < start_col) or day_num > num_days then
-                -- empty
-            else
-                local cell_cx = grid_left + (col - 1) * col_w + math.floor(col_w / 2)
-                if day_num == current_day then
-                    local hl_w = math.min(col_w - 4, 30)
-                    local hl_h = 22
-                    local hl_x = cell_cx - math.floor(hl_w / 2)
-                    local hl_y = row_top + math.floor((row_h - hl_h) / 2)
-                    smudge.rounded_rect(hl_x, hl_y, hl_w, hl_h, 5, true, fg)
-                    smudge.text(cell_cx, hl_y + 3, tostring(day_num), 8, true, "center", not fg)
-                else
-                    local text_y = row_top + math.floor((row_h - 14) / 2)
-                    smudge.text(cell_cx, text_y, tostring(day_num), 10, false, "center", fg)
-                end
-                day_num = day_num + 1
-            end
-        end
+        smudge.line(x + 10, colon_y, x + card_w - 10, colon_y, fg)
+        smudge.line(min_x + 10, colon_y, min_x + card_w - 10, colon_y, fg)
     end
 end
 
-local function draw_year_stats(cx, y, w, h, yr, doy, total_days, is_dark)
+function draw_bar(x, y, w, h, pct, is_dark)
     local fg = not is_dark
-    local left_x = cx - math.floor(w / 2)
-    smudge.rounded_rect(left_x, y, w, h, 8, is_dark)
-
-    local col_w = math.floor(w / 3)
-    local c1 = left_x + math.floor(col_w / 2)
-    local c2 = left_x + col_w + math.floor(col_w / 2)
-    local c3 = left_x + col_w * 2 + math.floor(col_w / 2)
-
-    local yr_pct = math.floor((doy / total_days) * 100)
-    smudge.text(c1, y + 10, "YEAR PROGRESS", 8, false, "center", fg)
-    smudge.text(c1, y + 26, string.format("%d%%", yr_pct), 12, true, "center", fg)
-    smudge.text(c1, y + 48, string.format("Day %d / %d", doy, total_days), 8, false, "center", fg)
-
-    local wk = math.floor((doy - 1) / 7) + 1
-    smudge.text(c2, y + 10, "WEEK", 8, false, "center", fg)
-    smudge.text(c2, y + 26, string.format("W%02d", wk), 12, true, "center", fg)
-    smudge.text(c2, y + 48, string.format("%d of 52", wk), 8, false, "center", fg)
-
-    smudge.text(c3, y + 10, "COUNTDOWN", 8, false, "center", fg)
-    smudge.text(c3, y + 26, tostring(total_days - doy), 12, true, "center", fg)
-    smudge.text(c3, y + 48, "days left", 8, false, "center", fg)
-
-    smudge.line(left_x + col_w, y + 8, left_x + col_w, y + h - 8, fg)
-    smudge.line(left_x + col_w * 2, y + 8, left_x + col_w * 2, y + h - 8, fg)
+    smudge.rounded_rect(x, y, w, h, 4, false, fg)
+    local fill_w = math.max(0, math.min(w - 4, math.floor(((w - 4) * pct) / 100)))
+    if fill_w > 0 then
+        smudge.rounded_rect(x + 2, y + 2, fill_w, h - 4, 2, true, fg)
+    end
 end
 
-local function draw_landscape_view(is_dark, dt, hour_str, min_str, ampm_str, doy, total_days, day_pct)
+dofile("styles.lua")
+
+local function draw_buttons(w, h, is_dark)
+    local is_land = (w >= 800)
+    local b2_label = is_24h and "12-Hour" or "24-Hour"
+    local labels = {"Exit", b2_label, "Style -", "Style +"}
     local fg = not is_dark
-    local left_x, card_w, right_x, top_y, card_h = 24, 364, 412, 36, 414
+    local bg = is_dark
 
-    if is_dark then smudge.rect(0, 0, 800, 480, true, true) end
-    smudge.text(400, 10, "DESK STAND", 10, true, "center", fg)
-    smudge.text(776, 10, is_dark and "Landscape Dark" or "Landscape Stand", 8, false, "right", fg)
-
-    -- Left Card (Clock + Progress + Year Overview)
-    smudge.rounded_rect(left_x, top_y, card_w, card_h, 8, is_dark)
-    smudge.rounded_rect(left_x, top_y, card_w, card_h, 8, false, fg)
-
-    local date_str = string.format("%s, %s %d", (DAYS[dt.wday] or "Today"):sub(1,3), (MONTHS[dt.month] or ""):sub(1,3), dt.day)
-    smudge.text(left_x + 14, top_y + 10, date_str, 8, true, "left", fg)
-    local batt_pct = (smudge.get_battery and smudge.get_battery()) or 100
-    smudge.text(left_x + card_w - 14, top_y + 10, string.format("%s • %d%%", ampm_str, batt_pct), 8, true, "right", fg)
-    smudge.line(left_x + 10, top_y + 30, left_x + card_w - 10, top_y + 30, fg)
-
-    draw_clock_cards(left_x + 14, top_y + 38, card_w - 28, 116, hour_str, min_str, "", is_dark, false)
-    smudge.line(left_x + 10, top_y + 160, left_x + card_w - 10, top_y + 160, fg)
-
-    smudge.text(left_x + 14, top_y + 170, "DAY PROGRESS", 8, true, "left", fg)
-    smudge.text(left_x + card_w - 14, top_y + 170, string.format("%d%%", day_pct), 8, true, "right", fg)
-    draw_bar(left_x + 14, top_y + 194, card_w - 28, 8, day_pct, is_dark)
-    smudge.line(left_x + 10, top_y + 210, left_x + card_w - 10, top_y + 210, fg)
-
-    local yr_pct = math.floor((doy / total_days) * 100)
-    local days_left = total_days - doy
-
-    smudge.text(left_x + 14, top_y + 220, "YEAR PROGRESS", 8, true, "left", fg)
-    smudge.text(left_x + card_w - 14, top_y + 220, string.format("%d%%", yr_pct), 8, true, "right", fg)
-    draw_bar(left_x + 14, top_y + 244, card_w - 28, 8, yr_pct, is_dark)
-    smudge.line(left_x + 10, top_y + 260, left_x + card_w - 10, top_y + 260, fg)
-
-    local qtr = math.floor((dt.month - 1) / 3) + 1
-    local wk = math.floor((doy - 1) / 7) + 1
-    smudge.text(left_x + 14, top_y + 270, string.format("Day %d of %d", doy, total_days), 8, false, "left", fg)
-    smudge.text(left_x + card_w - 14, top_y + 270, string.format("%d days left in %d", days_left, dt.year), 8, false, "right", fg)
-    smudge.text(left_x + 14, top_y + 294, string.format("Quarter %d of 4", qtr), 8, false, "left", fg)
-    smudge.text(left_x + card_w - 14, top_y + 294, string.format("Week %02d of 52", wk), 8, false, "right", fg)
-    smudge.line(left_x + 10, top_y + 318, left_x + card_w - 10, top_y + 318, fg)
-
-    local season = (dt.month >= 3 and dt.month <= 5) and "Spring" or (dt.month >= 6 and dt.month <= 8) and "Summer" or (dt.month >= 9 and dt.month <= 11) and "Autumn" or "Winter"
-    smudge.text(left_x + math.floor(card_w / 2), top_y + 334, string.format("%s Station", season), 10, true, "center", fg)
-    smudge.text(left_x + math.floor(card_w / 2), top_y + 366, "Ambient e-Ink Desk Stand", 8, false, "center", fg)
-
-    -- Right Card (Calendar + Month Progress)
-    smudge.rounded_rect(right_x, top_y, card_w, card_h, 8, is_dark)
-    smudge.rounded_rect(right_x, top_y, card_w, card_h, 8, false, fg)
-
-    smudge.text(right_x + math.floor(card_w / 2), top_y + 10, string.format("%s %d", string.upper(MONTHS[dt.month] or ""), dt.year), 10, true, "center", fg)
-    smudge.line(right_x + 10, top_y + 40, right_x + card_w - 10, top_y + 40, fg)
-
-    local day_names = {"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
-    local col_w = math.floor((card_w - 20) / 7)
-    local grid_left = right_x + 10
-    for i = 1, 7 do
-        smudge.text(grid_left + (i - 1) * col_w + math.floor(col_w / 2), top_y + 46, day_names[i], 8, true, "center", fg)
+    local by = is_land and 432 or 746
+    local bh = 38
+    local bw = is_land and 146 or 98
+    local gap = is_land and 16 or 10
+    local total_w = 4 * bw + 3 * gap
+    local start_x = math.floor((w - total_w) / 2)
+    for i = 1, 4 do
+        local bx = start_x + (i - 1) * (bw + gap)
+        smudge.rounded_rect(bx, by, bw, bh, 6, true, bg)
+        smudge.rounded_rect(bx, by, bw, bh, 6, false, fg)
+        smudge.text(bx + math.floor(bw / 2), by + 11, labels[i], 10, true, "center", fg)
     end
-    smudge.line(right_x + 10, top_y + 66, right_x + card_w - 10, top_y + 66, fg)
-
-    local start_col = first_wday(dt.year, dt.month)
-    local num_days = days_in_mo(dt.year, dt.month)
-    local day_num = 1
-    for row = 0, 5 do
-        local row_top = top_y + 72 + (row * 24)
-        for col = 1, 7 do
-            if (row == 0 and col < start_col) or day_num > num_days then
-                -- empty
-            else
-                local cx = grid_left + (col - 1) * col_w + math.floor(col_w / 2)
-                if day_num == dt.day then
-                    local hl_w, hl_h = math.min(col_w - 4, 30), 20
-                    local hl_x = cx - math.floor(hl_w / 2)
-                    local hl_y = row_top + 2
-                    smudge.rounded_rect(hl_x, hl_y, hl_w, hl_h, 5, true, fg)
-                    smudge.text(cx, hl_y + 3, tostring(day_num), 8, true, "center", not fg)
-                else
-                    smudge.text(cx, row_top + 4, tostring(day_num), 8, false, "center", fg)
-                end
-                day_num = day_num + 1
-            end
-        end
-    end
-
-    smudge.line(right_x + 10, top_y + 222, right_x + card_w - 10, top_y + 222, fg)
-
-    local total_mo_days = days_in_mo(dt.year, dt.month)
-    local mo_pct = math.floor((dt.day / total_mo_days) * 100)
-
-    smudge.text(right_x + 14, top_y + 230, string.format("%s PROGRESS", string.upper(MONTHS[dt.month] or "")), 8, true, "left", fg)
-    smudge.text(right_x + card_w - 14, top_y + 230, string.format("%d%%", mo_pct), 8, true, "right", fg)
-    draw_bar(right_x + 14, top_y + 254, card_w - 28, 8, mo_pct, is_dark)
-    smudge.line(right_x + 10, top_y + 270, right_x + card_w - 10, top_y + 270, fg)
-
-    smudge.text(right_x + 14, top_y + 280, string.format("Day %d of %d in %s", dt.day, total_mo_days, MONTHS[dt.month] or ""), 8, false, "left", fg)
-    smudge.text(right_x + card_w - 14, top_y + 280, string.format("%d days left", total_mo_days - dt.day), 8, false, "right", fg)
-    smudge.text(right_x + 14, top_y + 304, string.format("Week %02d of 52", wk), 8, false, "left", fg)
-    smudge.text(right_x + card_w - 14, top_y + 304, string.format("%d weeks remaining", 52 - wk), 8, false, "right", fg)
-    smudge.line(right_x + 10, top_y + 328, right_x + card_w - 10, top_y + 328, fg)
-
-    smudge.text(right_x + math.floor(card_w / 2), top_y + 344, string.format("%s Season (Month %d of 3)", season, ((dt.month - 1) % 3) + 1), 8, false, "center", fg)
-
-    smudge.text(400, 460, "[Back] Exit    •    [OK] 12/24H    •    [<] Style -    •    [>] Style +", 8, false, "center", fg)
 end
 
 function on_init()
@@ -322,6 +170,8 @@ function on_init()
     load_data()
     local dt = smudge.get_date and smudge.get_date()
     if dt then last_min, last_hour = dt.min, dt.hour end
+    last_interact_ms = (smudge.millis and smudge.millis()) or (os.time() * 1000)
+    buttons_visible = true
 end
 
 function on_exit()
@@ -331,6 +181,12 @@ function on_exit()
 end
 
 function on_update()
+    local now = (smudge.millis and smudge.millis()) or (os.time() * 1000)
+    if buttons_visible and (now - last_interact_ms >= BUTTON_TIMEOUT_MS) then
+        buttons_visible = false
+        if smudge.request_update then smudge.request_update() end
+    end
+
     local dt = smudge.get_date and smudge.get_date()
     if not dt then return end
     if dt.min ~= last_min then
@@ -370,21 +226,18 @@ function on_draw()
         ampm_str = (dt.hour >= 12) and "PM" or "AM"
         disp_hr = dt.hour % 12
         if disp_hr == 0 then disp_hr = 12 end
-    else
-        ampm_str = "24H"
     end
     local hour_str = string.format("%02d", disp_hr)
     local min_str = string.format("%02d", dt.min)
-
     local date_header = string.format("%s, %s %d", (DAYS[dt.wday] or "Today"):sub(1,3), (MONTHS[dt.month] or ""):sub(1,3), dt.day)
 
     if theme_style == 1 then
         smudge.header("Desk Stand", date_header)
         draw_clock_cards(card_x, 86, card_w, 130, hour_str, min_str, ampm_str, false, false)
-        smudge.text(card_x, 226, "DAYLIGHT PROGRESS", 8, false, "left", true)
-        smudge.text(card_x + card_w, 226, string.format("%d%%", day_pct), 8, false, "right", true)
-        draw_bar(card_x, 252, card_w, 8, day_pct, false)
-        draw_calendar(cx, 276, card_w, 324, dt.year, dt.month, dt.day, false, false)
+        smudge.text(card_x, 230, "DAYLIGHT PROGRESS", 8, false, "left", true)
+        smudge.text(card_x + card_w, 230, string.format("%d%%", day_pct), 8, false, "right", true)
+        draw_bar(card_x, 256, card_w, 8, day_pct, false)
+        draw_calendar(cx, 280, card_w, 320, dt.year, dt.month, dt.day, false, false)
         draw_year_stats(cx, 616, card_w, 92, dt.year, doy, total_days, false)
 
     elseif theme_style == 2 then
@@ -467,9 +320,9 @@ function on_draw()
         draw_landscape_view(theme_style == 7, dt, hour_str, min_str, ampm_str, doy, total_days, day_pct)
     end
 
-    if theme_style <= 5 then
-        local b2_label = is_24h and "12-Hour" or "24-Hour"
-        smudge.button_hints("Exit", b2_label, "Style -", "Style +")
+    if buttons_visible then
+        local is_dark = (theme_style == 4 or theme_style == 7)
+        draw_buttons(w, h, is_dark)
     end
 
     if needs_full_refresh then
@@ -480,11 +333,18 @@ end
 
 function on_button(btn, pressed)
     if not pressed then return end
+    last_interact_ms = (smudge.millis and smudge.millis()) or (os.time() * 1000)
+
     if btn == "btn1" or btn == "back" then
         if smudge.prevent_sleep then smudge.prevent_sleep(false) end
         if smudge.set_orientation then smudge.set_orientation("portrait") end
         smudge.exit()
-    elseif btn == "btn2" or btn == "confirm" then
+        return
+    end
+
+    buttons_visible = true
+
+    if btn == "btn2" or btn == "confirm" then
         is_24h = not is_24h
         save_data()
         if smudge.request_update then smudge.request_update() end
@@ -503,45 +363,63 @@ end
 
 function on_touch(action, tx, ty)
     if action ~= "tap" and action ~= "click" then return end
+    last_interact_ms = (smudge.millis and smudge.millis()) or (os.time() * 1000)
+
+    if not buttons_visible then
+        buttons_visible = true
+        if smudge.request_update then smudge.request_update() end
+        return
+    end
+
     local w, h = 480, 800
     if smudge.get_bounds then w, h = smudge.get_bounds() end
 
-    if theme_style >= 6 and w >= 800 then
-        if tx < 400 then
+    local is_land = (theme_style >= 6 and w >= 800)
+    local in_btn_zone = is_land and (ty >= 415) or (ty >= 730)
+    if in_btn_zone then
+        local b_idx = is_land and (tx < 235 and 1 or (tx < 400 and 2 or (tx < 565 and 3 or 4)))
+                               or (tx < 132 and 1 or (tx < 240 and 2 or (tx < 348 and 3 or 4)))
+        if b_idx == 1 then
+            if smudge.prevent_sleep then smudge.prevent_sleep(false) end
+            if smudge.set_orientation then smudge.set_orientation("portrait") end
+            smudge.exit()
+        elseif b_idx == 2 then
             is_24h = not is_24h
             save_data()
             if smudge.request_update then smudge.request_update() end
+        elseif b_idx == 3 then
+            theme_style = (theme_style == 1) and NUM_STYLES or (theme_style - 1)
+            save_data()
+            if smudge.request_update then smudge.request_update() end
         else
-            theme_style = theme_style + 1
-            if theme_style > NUM_STYLES then theme_style = 1 end
+            theme_style = (theme_style == NUM_STYLES) and 1 or (theme_style + 1)
             save_data()
             if smudge.request_update then smudge.request_update() end
         end
         return
     end
 
-    if ty <= 135 then
+    if is_land then
+        if tx < 400 then
+            is_24h = not is_24h
+            save_data()
+            if smudge.request_update then smudge.request_update() end
+        else
+            theme_style = (theme_style == NUM_STYLES) and 1 or (theme_style + 1)
+            save_data()
+            if smudge.request_update then smudge.request_update() end
+        end
+        return
+    end
+
+    if ty <= 220 then
         is_24h = not is_24h
         save_data()
         if smudge.request_update then smudge.request_update() end
         return
     end
-    if ty >= h - 70 and tx < math.floor(w / 2) then
-        theme_style = theme_style - 1
-        if theme_style < 1 then theme_style = NUM_STYLES end
-        save_data()
-        if smudge.request_update then smudge.request_update() end
-        return
-    end
-    if ty >= h - 70 and tx >= math.floor(w / 2) then
-        theme_style = theme_style + 1
-        if theme_style > NUM_STYLES then theme_style = 1 end
-        save_data()
-        if smudge.request_update then smudge.request_update() end
-        return
-    end
-    theme_style = theme_style + 1
-    if theme_style > NUM_STYLES then theme_style = 1 end
+
+    theme_style = (theme_style == NUM_STYLES) and 1 or (theme_style + 1)
     save_data()
     if smudge.request_update then smudge.request_update() end
 end

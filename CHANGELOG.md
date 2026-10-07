@@ -26,6 +26,7 @@
   - **Landscape Dark**: High-contrast inverted dark mode for landscape desk stand placement.
 - Enhanced **Hourglass** (`apps/hourglass/`): eliminated rigid flat sand cutoffs across the glass by adding a natural parabolic funnel crater in the top bulb, flowing sand completely through the neck channel with a tapered conical nozzle tip, slenderizing the neck waist (`neck_w = 22`, `neck_h = 10`), rendering a continuous falling sand stream that stays visible during pauses, and building a conical bottom sand mound with animated landing bounce particles, all while maintaining the cute facial expressions and zero-allocation performance on ESP32-C3.
 - Replaced the quotes section in Desk Stand with bi-directional style cycling buttons (`[Style -]` and `[Style +]`) alongside `[12-Hour]` / `[24-Hour]` time format toggling.
+- Added a 5-second auto-hide timer to button hints in Desk Stand (`apps/dashboard/`) for a clean, ambient, distraction-free display. Touching the screen anywhere or pressing any hardware button reveals the button bar for 5 seconds. Restored the bottom button bar across landscape styles with high-contrast rounded cards.
 - Eliminated redundant and duplicated information across Desk Stand layouts: removed duplicate digital time text from Minimal Studio, removed duplicated clock time and day-of-year counters from landscape styles, and refined vertical progress bar spacing to prevent text-outline collisions.
 
 ### Fixed
