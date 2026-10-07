@@ -68,12 +68,13 @@
     {
       "id": "wordle",
       "name": "Wordle",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "author": "Mumfee",
       "description": "5-letter word deduction game with on-screen keyboard and statistics",
       "files": [
         "manifest.json",
         "main.lua",
+        "words.bin",
         "icon.raw"
       ]
     },

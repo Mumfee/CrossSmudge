@@ -28,6 +28,11 @@
 - Replaced the quotes section in Desk Stand with bi-directional style cycling buttons (`[Style -]` and `[Style +]`) alongside `[12-Hour]` / `[24-Hour]` time format toggling.
 - Added a 5-second auto-hide timer to button hints in Desk Stand (`apps/dashboard/`) for a clean, ambient, distraction-free display. Touching the screen anywhere or pressing any hardware button reveals the buttons for 5 seconds. Kept the exact appearance of standard system button tabs (`smudge.button_hints`), and added native landscape button hint rendering to `LuaRunner` so button tabs align with the active theme in both portrait and landscape.
 - Eliminated redundant and duplicated information across Desk Stand layouts: removed duplicate digital time text from Minimal Studio, removed duplicated clock time and day-of-year counters from landscape styles, and refined vertical progress bar spacing to prevent text-outline collisions.
+- Upgraded **Wordle** (`apps/wordle/`) to **v1.1.0** in the App Store catalog (`apps/catalog.json`):
+  - Expanded secret word bank to a full 3,103 5-letter binary word dictionary (`words.bin`) generated from the complete word list.
+  - Implemented random-access offset reading support in `smudge.read_file(filename, [len], [offset])` in `LuaRunner`, allowing zero-RAM secret word lookups directly from flash/SD.
+  - Implemented full game state persistence across app exits and device sleep (`wordle_state.dat`), saving secret word, all past guesses with tile evaluations, in-progress typed letters, and keyboard cursor position so players can resume where they left off.
+  - Fixed duplicate letter evaluation in `evaluate_guess` where surplus letters in a guess would erroneously mark valid secret letters as absent on the keyboard.
 
 ### Fixed
 

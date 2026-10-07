@@ -191,6 +191,13 @@ SDK.
 - Branch names should use repo-style prefixes such as `feat/`, `fix/`, `docs/`, `refactor/`, `test/`, or `chore/`.
 - Suggested commit messages should follow `<type>: <short summary>`, using types like `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, or `perf`.
 
+## App Store Releases
+
+- **Never update or publish an app to the App Store without explicit user instruction:**
+  - Do NOT modify `apps/catalog.json` or bump version numbers in `manifest.json` unless the user explicitly instructs you to publish or release an app update to the App Store.
+  - Do NOT push app updates to GitHub unless explicitly requested.
+  - When investigating bugs or answering user questions about an app, only diagnose the issue or propose changes locally—never automatically publish.
+
 ## Changelog
 
 When new features are added or issues are fixed, make sure to add an entry to `CHANGELOG.md` with the user-facing description of the change. Types of changes should have their own section.

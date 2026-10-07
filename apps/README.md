@@ -385,8 +385,8 @@ CrossSmudge provides key-value persistence, full sandboxed file operations, and 
   Reads a previously saved string. Returns `default_string` if not found.
 - **`smudge.file_exists(relative_path)`**  
   Returns `true` if a file exists inside the application's directory.
-- **`smudge.read_file(relative_path)`**  
-  Reads and returns the complete contents of a file inside the app folder as a string.
+- **`smudge.read_file(relative_path, [maxBytes], [offset])`**  
+  Reads and returns contents of a file inside the app folder as a string. Supports optional `maxBytes` (default 65536) and byte `offset` (default 0) for random access / binary seeks without loading entire files into memory.
 - **`smudge.write_file(relative_path, content_string, [append])`**  
   Writes `content_string` to a file in the app directory. If `append` is `true`, appends to existing content; otherwise overwrites or creates the file. Returns `true` on success.
 - **`smudge.list_files([dir_relative_path])`**  

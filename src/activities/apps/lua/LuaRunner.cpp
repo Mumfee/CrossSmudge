@@ -1129,8 +1129,8 @@ int LuaRunner::l_buttonHints(lua_State* L) {
         TouchRegistry::getInstance().add(Rect{x, pageH - buttonHeight, buttonWidth, buttonHeight}, i,
                                          TouchRegistry::Button);
         renderer.fillRoundedRect(x, pageH - buttonHeight, buttonWidth, buttonHeight, cornerRadius, Color::White);
-        renderer.drawRoundedRect(x, pageH - buttonHeight, buttonWidth, buttonHeight, 1, cornerRadius, true, true,
-                                 false, false, true);
+        renderer.drawRoundedRect(x, pageH - buttonHeight, buttonWidth, buttonHeight, 1, cornerRadius, true, true, false,
+                                 false, true);
         const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, hintLabels[i]);
         const int textX = x + (buttonWidth - 1 - textWidth) / 2;
         renderer.drawText(SMALL_FONT_ID, textX, pageH - buttonHeight + textYOffset, hintLabels[i]);
@@ -1195,6 +1195,7 @@ int LuaRunner::l_readFile(lua_State* L) {
   }
   const char* path = luaL_checkstring(L, 1);
   size_t maxBytes = (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) ? static_cast<size_t>(lua_tointeger(L, 2)) : 65536;
+  size_t offset = (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) ? static_cast<size_t>(lua_tointeger(L, 3)) : 0;
 
   std::string fullPath = path;
   if (path[0] != '/') {
@@ -1210,7 +1211,20 @@ int LuaRunner::l_readFile(lua_State* L) {
     }
   }
 
-  size_t sz = file.size();
+  size_t totalSize = file.size();
+  if (offset >= totalSize) {
+    file.close();
+    lua_pushliteral(L, "");
+    return 1;
+  }
+
+  if (offset > 0 && !file.seekSet(offset)) {
+    file.close();
+    lua_pushnil(L);
+    return 1;
+  }
+
+  size_t sz = totalSize - offset;
   if (sz > maxBytes) sz = maxBytes;
 #if !defined(SIMULATOR) && !defined(BOARD_HAS_PSRAM)
   // Ensure we don't exhaust ESP32-C3 internal DRAM reading huge files
