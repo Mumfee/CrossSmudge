@@ -2,14 +2,42 @@
 -- Faithful reproduction of WordleActivity.h with on-screen keyboard, reset modal, auto-advance & dithering
 
 local words = {
-    "ABOUT", "ALERT", "ARGUE", "BEACH", "BRAIN", "BREAD", "CHAIR", "CLEAN",
-    "CLOCK", "CRANE", "DANCE", "DREAM", "DRIVE", "EARTH", "FLAME", "GHOST",
-    "GRACE", "GREEN", "HEART", "HOUSE", "LIGHT", "LUNCH", "MUSIC", "NIGHT",
-    "OCEAN", "PAINT", "PLANT", "POWER", "RADIO", "RIVER", "ROUND", "SCALE",
-    "SMILE", "SPACE", "STONE", "TABLE", "TRAIN", "WATER", "WHITE", "WORLD",
-    "BLOOM", "CANDY", "CHARM", "CLIFF", "CROWN", "EAGLE", "FROST", "HONEY",
-    "MAGIC", "NOBLE", "PEARL", "QUEEN", "RIVER", "STORM", "TIGER", "VALLEY"
+    "ABOUT", "ALERT", "APPLE", "ARGUE", "ARROW", "BASIC", "BEACH", "BIRTH",
+    "BLACK", "BLIND", "BLOOM", "BOARD", "BRAIN", "BRAVE", "BREAD", "BRICK",
+    "BROWN", "BUILD", "CABIN", "CABLE", "CANDY", "CAUSE", "CHAIN", "CHAIR",
+    "CHARM", "CHEST", "CHIEF", "CLEAN", "CLIFF", "CLOCK", "CLOUD", "COAST",
+    "COVER", "CRANE", "CROWD", "CROWN", "DAILY", "DANCE", "DELTA", "DRAFT",
+    "DREAM", "DRIFT", "DRINK", "DRIVE", "EAGLE", "EARTH", "FAITH", "FIELD",
+    "FINAL", "FIRST", "FLAME", "FLASH", "FLOAT", "FLOOR", "FLOUR", "FOCUS",
+    "FORCE", "FRESH", "FRONT", "FROST", "FRUIT", "GHOST", "GIANT", "GLASS",
+    "GLOBE", "GRACE", "GRAIN", "GRAPE", "GRASS", "GREAT", "GREEN", "GROVE",
+    "GUARD", "GUIDE", "HAPPY", "HEART", "HEAVY", "HONEY", "HORSE", "HOTEL",
+    "HOUSE", "IMAGE", "INDEX", "IVORY", "JEWEL", "JUDGE", "JUICE", "KNIFE",
+    "LABEL", "LARGE", "LASER", "LEMON", "LIGHT", "LIMIT", "LODGE", "LOGIC",
+    "LUCKY", "LUNCH", "MAGIC", "MAPLE", "MARCH", "MEDAL", "METAL", "MODEL",
+    "MONEY", "MONTH", "MOTOR", "MOUNT", "MUSIC", "NIGHT", "NOBLE", "NORTH",
+    "NOVEL", "NURSE", "OASIS", "OCEAN", "OLIVE", "ONION", "ORBIT", "ORDER",
+    "PAINT", "PANEL", "PARTY", "PEACE", "PEACH", "PEARL", "PILOT", "PIXEL",
+    "PLANE", "PLANT", "PLATE", "PLAZA", "POINT", "POLAR", "POWER", "PRIDE",
+    "PRIME", "PRIZE", "PULSE", "QUEEN", "QUEST", "QUICK", "QUIET", "RADAR",
+    "RADIO", "RANCH", "RANGE", "RAPID", "RIDGE", "RIVER", "ROBOT", "ROCKY",
+    "ROUND", "ROUTE", "ROYAL", "SCALE", "SCENE", "SHADE", "SHARK", "SHARP",
+    "SHEEP", "SHEET", "SHELF", "SHELL", "SHINE", "SHIRT", "SHOCK", "SHORE",
+    "SIGHT", "SKILL", "SLATE", "SLEEP", "SMILE", "SMOKE", "SNAKE", "SOLAR",
+    "SOLID", "SOUND", "SOUTH", "SPACE", "SPARK", "SPEED", "SPICE", "SPOON",
+    "SPORT", "STAGE", "STAND", "STEEL", "STICK", "STILL", "STONE", "STORM",
+    "SUGAR", "SWEET", "SWORD", "TABLE", "TASTE", "THEME", "TIGER", "TOWER",
+    "TRACK", "TRAIL", "TRAIN", "TRIAL", "TRUCK", "TRUTH", "UNCLE", "UNITY",
+    "VALUE", "VAPOR", "VITAL", "VOICE", "WASTE", "WATCH", "WATER", "WHEAT",
+    "WHEEL", "WHITE", "WORLD", "YOUTH", "ZEBRA"
 }
+
+-- Ensure strictly 5-letter words only
+local valid_words = {}
+for _, w in ipairs(words) do
+    if #w == 5 then table.insert(valid_words, w) end
+end
+words = valid_words
 
 local secret = "CRANE"
 local guesses = {} -- array of {guess = "WORDS", check = {2, 0, 1, 0, 2}}
@@ -28,7 +56,8 @@ local k_keys = {
 }
 
 local function new_game()
-    secret = words[math.random(1, #words)]
+    secret = words[math.random(1, #words)] or "CRANE"
+    if #secret ~= 5 then secret = "CRANE" end
     guesses = {}
     current_guess = ""
     in_game = true

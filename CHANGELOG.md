@@ -37,6 +37,7 @@
   - Released Desk Stand v1.0.2 in the on-device App Store catalog (`apps/catalog.json`).
 - Fixed full screen refresh flickering during style transitions in Desk Stand and Lua applications: updated `LuaRunner` (`l_fullRefresh`) to defer full e-ink display refreshes until after `on_draw` renders the new layout into the framebuffer, eliminating stale-buffer flashes.
 - Fixed Desk Stand landscape layout clipping and overlap on physical devices by switching the display renderer to 800x480 (`smudge.set_orientation("landscape")`), providing full two-column side-by-side cards with clean left tab insets and automatic portrait restoration on exit.
+- Fixed Wordle word bank containing the 6-letter word "VALLEY" and duplicate "RIVER" in `apps/wordle/`, which caused impossible games where the 5-letter board could never match the secret word. Replaced with valid 5-letter words ("VITAL", "SOLAR"), expanded the curated 5-letter word bank to 221 words, added runtime length filter safeguards, and released Wordle v1.0.1 in the App Store catalog (`apps/catalog.json`).
 - Fixed calendar day highlight and clock 24H/AM/PM badge clipping in Desk Stand: replaced undersized square boxes with properly padded rounded pills centered around the glyph baseline to eliminate digit truncation.
 
 ### Removed

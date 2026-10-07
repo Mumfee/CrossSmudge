@@ -68,7 +68,7 @@
     {
       "id": "wordle",
       "name": "Wordle",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "Mumfee",
       "description": "5-letter word deduction game with on-screen keyboard and statistics",
       "files": [
