@@ -1,0 +1,8 @@
+{
+  "id": "chess",
+  "name": "Chess",
+  "version": "1.0.0",
+  "author": "Mumfee",
+  "description": "Play chess against an onboard AI engine or locally with a friend, with crisp 1-bit pieces, move hints, and full touch & button controls",
+  "entry": "main.lua"
+}

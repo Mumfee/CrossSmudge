@@ -2,6 +2,8 @@
 
 ### Added
 
+- Added *Chess* (`apps/chess/`) to the on-device App Store catalog (`apps/catalog.json`): a complete, standalone chess application designed for 1-bit e-ink displays and strictly optimized to run within ESP32-C3 hardware limits (under 75 KB DRAM). Features crisp custom 36x36 1-bit piece sprites rendered via direct-from-disk sprite masks, a mathematically verified rules engine with packed integer move representation, a built-in Alpha-Beta Minimax AI with customizable difficulty levels (Easy, Medium, Hard), support for playing as White or Black against AI or Pass & Play with a friend, an in-game Game Menu with Undo and Hint capabilities, 4-button hardware navigation with cursor targeting and legal move dot markers, direct touchscreen tap-to-move support, and full game state persistence across exits and sleep.
+
 - Added *Stopwatch* (`apps/stopwatch/`): a retro pixel cartoon stopwatch application featuring a charming handheld stopwatch character with animated mechanical crown plunger, blinking/workout facial expressions, digital LCD window (`MM:SS.cc`), real-time second sweep indicator, and a full lap split recording card beneath displaying lap numbers, split times, cumulative elapsed times, and best lap highlights with persistent timing data.
 - Added *Solitaire* (`apps/solitaire/`): classic 7-column Klondike Solitaire card game optimized for e-paper with draw-1 and draw-3 modes, auto-move logic, touch tap-to-move, and full button navigation.
 - Added *Water Tracker* (`apps/watertracker/`) to the on-device App Store catalog (`apps/catalog.json`): a responsive, cute daily hydration tracking application featuring animated pixel cup water levels, cup facial expressions, 14-day history archive with daily completion badges, configurable volume units (`ml`, `cups`, `oz`, `gallons`, `L`), automatic banner timeouts, and multi-device display scaling across ESP32-C3 and ESP32-S3 e-paper readers.
@@ -37,6 +39,15 @@
 
 ### Fixed
 
+- Fixed input latency, unresponsive controls, button mapping, and out-of-memory errors in *Chess* (`apps/chess/`):
+  - Updated hardware controls per device layout: mapped bottom front buttons (Buttons 3/4) to Up and Down, and top side buttons to Left and Right, matching on-screen button hints (`[Menu] [Select] [Up] [Down]`).
+  - Fixed sluggish menu navigation by rendering the game menu overlay directly onto the active framebuffer without clearing the screen or reloading 96 piece sprite files from SD card, reducing menu cursor latency from ~500 ms to under 2 ms.
+  - Implemented fast partial board redrawing for cursor movement and piece selection, redrawing only the affected squares instead of full-board redraws for instantaneous responsiveness.
+  - Decoupled player move rendering and AI thinking: player moves and `"AI thinking..."` status immediately render on the display, followed by a 150 ms delay before alpha-beta search begins so players see their move before AI computation.
+  - Implemented directional valid-move navigation: when a piece is selected, pressing Up, Down, Left, or Right navigates the cursor to the nearest legal move in that spatial direction on the board (instead of cycling moves in arbitrary move-generator array order), with smooth wrap-around along the active axis.
+  - Centered board layout and coordinates dynamically using device metric helpers (`smudge.get_bounds` and `smudge.get_metrics`) with clean double-bordered square cursor.
+  - Optimized memory footprint to strictly stay under the 76,800-byte ESP32-C3 hardware DRAM limit (`SMUDGE_X3_CONSTRAINTS=1`): modular chunk loading order, elimination of string churn, and zero-allocation move generation during search.
+  - Fixed application icon to an upright, solid black knight.
 - Fixed out-of-memory error on ESP32-C3 hardware when launching Desk Stand (`apps/dashboard/`) after updating from the App Store:
   - Eliminated runtime `dofile("styles.lua")` compilation peak by merging all layouts back into a single streamlined `main.lua`, using `local` static tables and functions to avoid global environment churn and redundant AST allocations.
   - Released Wi-Fi stack memory (`WiFi.mode(WIFI_OFF)`) in `AppStoreActivity::onExit()` so all ~50 KB of network DRAM is immediately restored to the system heap before launching applications.
