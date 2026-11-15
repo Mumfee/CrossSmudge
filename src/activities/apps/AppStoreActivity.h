@@ -9,9 +9,12 @@
 #include <vector>
 
 #include "Logging.h"
+#include "Memory.h"
 #include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "components/TouchActionButtons.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
@@ -118,54 +121,29 @@ class AppStoreActivity : public Activity {
 
     switch (state_) {
       case State::CHECK_WIFI: {
+        if (TouchHeaderBackButton::wasTapped(mappedInput, wifiHeaderRect())) {
+          finish();
+          return;
+        }
         if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-          startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
-                                 [this](const ActivityResult&) {
-                                   if (isWifiConnected()) {
-                                     state_ = State::FETCHING_CATALOG;
-                                     requestUpdateAndWait();
-                                     fetchCatalog();
-                                   } else {
-                                     state_ = State::CHECK_WIFI;
-                                     requestUpdate();
-                                   }
-                                 });
+          beginWifiSelection();
           return;
         }
         int tx = 0, ty = 0;
-        if (mappedInput.wasScreenTapped(tx, ty)) {
-          int w = renderer.getScreenWidth();
-          int h = renderer.getScreenHeight();
-          const auto& m = UITheme::getInstance().getMetrics();
-          if (ty > h - m.buttonHintsHeight) {
-            if (tx < w / 2) {
-              finish();
-              return;
-            } else {
-              startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
-                                     [this](const ActivityResult&) {
-                                       if (isWifiConnected()) {
-                                         state_ = State::FETCHING_CATALOG;
-                                         requestUpdateAndWait();
-                                         fetchCatalog();
-                                       } else {
-                                         state_ = State::CHECK_WIFI;
-                                         requestUpdate();
-                                       }
-                                     });
-              return;
-            }
-          }
+        if (mappedInput.hasTouch() && mappedInput.wasScreenTapped(tx, ty) &&
+            TouchActionButtons::indexAt(wifiActionLayout(), tx, ty) == 0) {
+          beginWifiSelection();
+          return;
         }
         if (isWifiConnected()) {
           state_ = State::FETCHING_CATALOG;
-          requestUpdateAndWait();
-          fetchCatalog();
+          requestUpdate();
         }
         break;
       }
 
       case State::FETCHING_CATALOG:
+        requestUpdateAndWait();
         fetchCatalog();
         break;
 
@@ -820,18 +798,61 @@ class AppStoreActivity : public Activity {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
 
+  Rect wifiSafeRect() const {
+    int top, right, bottom, left;
+    renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+    return Rect{left, top, renderer.getScreenWidth() - left - right, renderer.getScreenHeight() - top - bottom};
+  }
+
+  Rect wifiHeaderRect() const {
+    const auto safe = wifiSafeRect();
+    const auto& m = UITheme::getInstance().getMetrics();
+    return Rect{safe.x, safe.y + m.topPadding, safe.width, TouchHeaderBackButton::height(m, mappedInput)};
+  }
+
+  TouchActionButtons::Layout wifiActionLayout() const {
+    const auto safe = wifiSafeRect();
+    const auto& m = UITheme::getInstance().getMetrics();
+    return TouchActionButtons::vertical(
+        Rect{safe.x + m.contentSidePadding, safe.y + safe.height / 2 + 30,
+             safe.width - 2 * m.contentSidePadding, TouchActionButtons::kDefaultHeight},
+        1);
+  }
+
+  void beginWifiSelection() {
+    // ActivityManager owns the picker beyond this loop iteration.
+    auto picker = makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput);
+    if (!picker) {
+      LOG_ERR("STORE", "Could not allocate Wi-Fi picker");
+      return;
+    }
+    startActivityForResult(std::move(picker), [this](const ActivityResult&) {
+      state_ = isWifiConnected() ? State::FETCHING_CATALOG : State::CHECK_WIFI;
+      // Let the normal loop render the loading screen and fetch after the child returns.
+      requestUpdate();
+    });
+  }
+
   void renderNoWifi() {
-    int w = renderer.getScreenWidth();
-    int h = renderer.getScreenHeight();
+    const auto safe = wifiSafeRect();
     const auto& m = UITheme::getInstance().getMetrics();
 
     renderer.clearScreen();
-    GUI.drawHeader(renderer, Rect{0, m.topPadding, w, m.headerHeight}, "App Store", "Offline");
+    if (mappedInput.hasTouch()) {
+      TouchHeaderBackButton::draw(renderer, wifiHeaderRect(), "App Store", false, 0, "Offline");
+    } else {
+      GUI.drawHeader(renderer, Rect{0, m.topPadding, renderer.getScreenWidth(), m.headerHeight}, "App Store", "Offline");
+    }
 
-    renderer.drawCenteredText(UI_12_FONT_ID, h / 2 - 40, "Wi-Fi Not Connected", true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(SMALL_FONT_ID, h / 2 - 10, "Connect to Wi-Fi to browse community apps.", true);
+    const int centerY = mappedInput.hasTouch() ? safe.y + safe.height / 2 : renderer.getScreenHeight() / 2;
+    renderer.drawCenteredText(UI_12_FONT_ID, centerY - 40, "Wi-Fi Not Connected", true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(SMALL_FONT_ID, centerY - 10, "Connect to Wi-Fi to browse community apps.", true);
 
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "Connect Wi-Fi", "", "");
+    if (mappedInput.hasTouch()) {
+      const char* labels[] = {tr(STR_CONNECT_WIFI)};
+      TouchActionButtons::draw(renderer, wifiActionLayout(), labels, 0);
+    }
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_CONNECT_WIFI), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
 

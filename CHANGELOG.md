@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Fixed
+
+- Restored a visible, tappable Connect Wi-Fi button and Back control on the App Store offline screen for touch devices. Canceling Wi-Fi setup allows retrying; a successful connection loads the catalog after returning to the store.
+
 ## [v1.6.5.3] - 2026-10-06
 
 ### Added
