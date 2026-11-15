@@ -200,7 +200,7 @@
     {
       "id": "watertracker",
       "name": "Water Tracker",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "Mumfee",
       "description": "Daily hydration tracker with a cute water cup that fills as you drink",
       "files": [

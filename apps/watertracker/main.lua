@@ -597,6 +597,9 @@ function on_button(btn)
 end
 
 function on_touch(action, tx, ty)
+    if smudge.get_device and smudge.get_device() == "sticky" then
+        action, tx, ty = ty, action, tx
+    end
     if action ~= "tap" and action ~= "click" then return end
     if show_history then
         if ty > 700 or ty < 80 then
