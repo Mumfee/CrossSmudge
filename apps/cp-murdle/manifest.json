@@ -1,0 +1,9 @@
+{
+  "id": "cp-murdle",
+  "name": "CP Murdle",
+  "version": "0.1.0",
+  "author": "CrossPlay contributors; Lua port",
+  "description": "64 source-generated logic cases across four tiers, grid notes and accusations.",
+  "entry": "main.lua",
+  "min_api": 2
+}

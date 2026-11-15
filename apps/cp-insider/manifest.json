@@ -1,0 +1,9 @@
+{
+  "id": "cp-insider",
+  "name": "CP Insider",
+  "version": "0.1.0",
+  "author": "CrossPlay contributors; Lua port",
+  "description": "Local hidden-role party game for 4-8 players. Complete 560-word deck.",
+  "entry": "main.lua",
+  "min_api": 2
+}

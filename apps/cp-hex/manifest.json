@@ -1,0 +1,9 @@
+{
+  "id": "cp-hex",
+  "name": "CP Hex",
+  "version": "0.1.0",
+  "author": "CrossPlay contributors; Lua port",
+  "description": "11x11 connection game. Local two-player and shortest-path computer opponent.",
+  "entry": "main.lua",
+  "min_api": 2
+}

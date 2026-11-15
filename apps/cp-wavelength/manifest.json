@@ -1,0 +1,9 @@
+{
+  "id": "cp-wavelength",
+  "name": "CP Wavelength",
+  "version": "0.1.0",
+  "author": "CrossPlay contributors; Lua port",
+  "description": "Hidden-target party game with original spectrum deck, practice and team end-call scoring.",
+  "entry": "main.lua",
+  "min_api": 2
+}

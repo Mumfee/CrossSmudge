@@ -1,0 +1,9 @@
+{
+  "id": "cp-calculator",
+  "name": "CP Calculator",
+  "version": "0.1.0",
+  "author": "CrossPlay contributors; Lua port",
+  "description": "Local CrossPlay port. Read PARITY.md for exact limitations on stock firmware.",
+  "entry": "main.lua",
+  "min_api": 2
+}

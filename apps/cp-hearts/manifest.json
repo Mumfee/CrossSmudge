@@ -1,0 +1,9 @@
+{
+  "id": "cp-hearts",
+  "name": "CP Hearts",
+  "version": "0.1.0",
+  "author": "CrossPlay contributors; Lua port",
+  "description": "Four-seat Hearts with passing, moon scoring, saved matches and heuristic opponents.",
+  "entry": "main.lua",
+  "min_api": 2
+}

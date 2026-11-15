@@ -1,3 +1,13 @@
+## [Unreleased]
+
+### Added
+
+- Added local Jaipur, Sea Salt, Toy Battle, Murdle and Go Lua adaptations with saved play, explicit opponent/content differences and stock-Lua memory-cap tests. The local collection now has 18 adaptations plus four unchanged equivalents; eleven titles remain blocked. Catalog publication awaits parent push and upstream review.
+
+- Added local Insider, Forehead, Checkers, Wavelength, Hearts, Hex and Battleship Lua adaptations with checked saves and capped runtime tests. Hearts, Hex and Battleship document their smaller opponent strategies. Prepared catalog entries for the 13 working local adaptations; official store availability awaits upstream maintainer merge. The full 33-title collection remains incomplete.
+
+- Added six local CrossPlay Lua ports for stock v1.6.5.3: Minesweeper, Connect Four, Knucklebones, Yahtzee, decimal Calculator, and app-local Notes. Packages use separate `cp-*` IDs and checked two-slot saves. Per-package parity notes distinguish supported local features from missing Nearby, phone-transfer, sleep-screen, and original presentation features. These are not a complete 33-title collection or an App Store release.
+
 ## [v1.6.5.3] - 2026-10-06
 
 ### Added

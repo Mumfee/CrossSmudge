@@ -1,0 +1,9 @@
+{
+  "id": "cp-jaipur",
+  "name": "CP Jaipur",
+  "version": "0.1.0",
+  "author": "CrossPlay contributors; Lua port",
+  "description": "Trading, camel herds, token sales and multi-round matches with a heuristic opponent.",
+  "entry": "main.lua",
+  "min_api": 2
+}

@@ -1,0 +1,9 @@
+{
+  "id": "cp-seasalt",
+  "name": "CP Sea Salt",
+  "version": "0.1.0",
+  "author": "CrossPlay contributors; Lua port",
+  "description": "58-card local Sea Salt with duo effects, Stop/Last Chance and saved matches.",
+  "entry": "main.lua",
+  "min_api": 2
+}

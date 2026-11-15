@@ -1,0 +1,7 @@
+Create note1.md through note8.md with your real text in this app folder.
+Maximum 3072 bytes and 97 lines each; oversized input is refused, not truncated.
+Markdown tasks: - [ ] Milk or - [x] Eggs. UTF-8 is retained.
+Open the card menu and choose Import from note file, then Confirm.
+Imports stay unchanged; edits live in note-N-a.dat/note-N-b.dat journals.
+Export the journal payload after its first newline if you need edited text.
+Back up journals before replacing or removing the app folder.

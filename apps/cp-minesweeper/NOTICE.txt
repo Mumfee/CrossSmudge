@@ -1,0 +1,10 @@
+CrossPlay -> stock CrossSmudge Lua port
+
+Rules and behavior derived from CrossPlay by Mario Ruiz and contributors.
+Original author notices and MIT license are in LICENSE-CrossPlay.txt.
+CrossSmudge project license is in LICENSE-CrossSmudge.txt.
+Lua port and package integration are local task work, not an upstream release.
+No original artwork, private puzzle banks, native engine binaries, network
+credentials, or decNumber implementation are included. Calculator arithmetic
+is a new bounded decimal-string implementation, tested against the original
+calculator/decNumber through a separate host-only test oracle.
