@@ -4,6 +4,7 @@
 #include <HalStorage.h>
 
 #include <algorithm>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
@@ -31,6 +32,7 @@ class AppStoreActivity : public Activity {
     catalogUrl_ = "https://raw.githubusercontent.com/Mumfee/CrossSmudge/main/apps/catalog.json";
     baseUrl_ = "https://raw.githubusercontent.com/Mumfee/CrossSmudge/main/apps/";
     selectedIndex_ = 0;
+    lastIconWorkMs_ = millis();
     errorTitle_ = "Network Error";
     errorMessage_.clear();
     lastFailedAppIndex_ = -1;
@@ -170,7 +172,11 @@ class AppStoreActivity : public Activity {
         break;
 
       case State::CATALOG_READY:
-        handleCatalogInput();
+        if (handleCatalogInput()) {
+          lastIconWorkMs_ = millis();
+        } else {
+          fetchVisibleIcon();
+        }
         break;
 
       case State::APP_DETAIL:
@@ -246,6 +252,7 @@ class AppStoreActivity : public Activity {
     bool isInstalled = false;
     std::string installedVersion;
     bool hasIcon = false;
+    bool iconAttempted = false;
     uint8_t iconData[128] = {0};
   };
 
@@ -258,6 +265,7 @@ class AppStoreActivity : public Activity {
   std::vector<CatalogApp> apps_;
   int selectedIndex_ = 0;
   bool cancelDownload_ = false;
+  unsigned long lastIconWorkMs_ = 0;
 
   std::string currentDownloadingFile_;
   int currentFileNum_ = 0;
@@ -296,63 +304,137 @@ class AppStoreActivity : public Activity {
 #endif
   }
 
-  void loadAppIcon(CatalogApp& app, bool allowDownload = false) {
-    app.hasIcon = false;
-    std::string iconPath1 = "/.crosssmudge/applications/" + app.id + "/icon.raw";
-    std::string iconPath2 = "/.smudge/applications/" + app.id + "/icon.raw";
-    std::string cachePath = "/.crosssmudge/cache/icons/" + app.id + ".raw";
-
-    HalFile f;
-    if (Storage.openFileForRead("STORE", iconPath1.c_str(), f) ||
-        Storage.openFileForRead("STORE", iconPath2.c_str(), f) ||
-        Storage.openFileForRead("STORE", cachePath.c_str(), f)) {
-      size_t readBytes = f.read(app.iconData, sizeof(app.iconData));
-      f.close();
-      if (readBytes == sizeof(app.iconData)) {
-        app.hasIcon = true;
-        return;
+  static bool safeAppId(const std::string& id) {
+    if (id.empty() || id.size() > 64) return false;
+    for (unsigned char c : id) {
+      if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+            c == '-' || c == '_')) {
+        return false;
       }
     }
+    return true;
+  }
+
+  bool readAppIcon(CatalogApp& app, const std::string& path, const uint8_t* expected = nullptr) {
+    // Storage shares SPI with the display. Publish only complete, validated pixels.
+    RenderLock lock(*this);
+    HalFile file;
+    if (!Storage.openFileForRead("STORE", path.c_str(), file)) return false;
+    uint8_t pixels[128];
+    const bool valid = file.size() == sizeof(pixels) && file.read(pixels, sizeof(pixels)) == sizeof(pixels);
+    const bool closed = file.close();
+    if (!valid || !closed || (expected && memcmp(expected, pixels, sizeof(pixels)) != 0)) {
+      LOG_ERR("STORE", "Invalid icon: %s", path.c_str());
+      return false;
+    }
+    memcpy(app.iconData, pixels, sizeof(pixels));
+    app.hasIcon = true;
+    return true;
+  }
+
+  void loadAppIcon(CatalogApp& app, bool allowDownload = false) {
+    if (!safeAppId(app.id)) {
+      LOG_ERR("STORE", "Invalid catalog app ID");
+      return;
+    }
+    {
+      RenderLock lock(*this);
+      app.hasIcon = false;
+    }
+    // Paths/URL are bounded by the 64-byte ID limit; allocated only on this cold
+    // path, never during render. Reuse the existing 128-byte per-app pixel store.
+    if (readAppIcon(app, "/.crosssmudge/applications/" + app.id + "/icon.raw") ||
+        readAppIcon(app, "/.smudge/applications/" + app.id + "/icon.raw")) return;
+    const std::string cachePath = "/.crosssmudge/cache/icons/" + app.id + ".raw";
+    if (readAppIcon(app, cachePath)) return;
 
 #if defined(SIMULATOR)
-    std::string hostPath = "apps/" + app.id + "/icon.raw";
+    const std::string hostPath = "apps/" + app.id + "/icon.raw";
     FILE* hf = fopen(hostPath.c_str(), "rb");
     if (!hf) hf = fopen(("../" + hostPath).c_str(), "rb");
-    if (!hf) hf = fopen(("/var/home/brady/C/crosssmudge/" + hostPath).c_str(), "rb");
     if (hf) {
-      size_t r = fread(app.iconData, 1, sizeof(app.iconData), hf);
+      uint8_t pixels[128];
+      const bool valid = fread(pixels, 1, sizeof(pixels), hf) == sizeof(pixels) && fgetc(hf) == EOF && !ferror(hf);
       fclose(hf);
-      if (r == sizeof(app.iconData)) {
+      if (valid) {
+        RenderLock lock(*this);
+        memcpy(app.iconData, pixels, sizeof(pixels));
         app.hasIcon = true;
         return;
       }
     }
 #endif
 
-    if (allowDownload && isWifiConnected()) {
-      Storage.ensureDirectoryExists("/.crosssmudge");
-      Storage.ensureDirectoryExists("/.crosssmudge/cache");
-      Storage.ensureDirectoryExists("/.crosssmudge/cache/icons");
-      std::string iconUrl = baseUrl_ + app.id + "/icon.raw";
-      HttpDownloader::DownloadOptions options;
-#if defined(FREEINK_NET_WOLFSSL)
-      options.transport = HttpDownloader::Transport::WOLFSSL;
-#endif
-      if (HttpDownloader::downloadToFile(iconUrl, cachePath, nullptr, nullptr, "", "", options) == HttpDownloader::OK) {
-        if (Storage.openFileForRead("STORE", cachePath.c_str(), f)) {
-          size_t readBytes = f.read(app.iconData, sizeof(app.iconData));
-          f.close();
-          if (readBytes == sizeof(app.iconData)) {
-            app.hasIcon = true;
-          }
-        }
+    if (!allowDownload || app.iconAttempted || !isWifiConnected()) return;
+    app.iconAttempted = true;  // At most one network attempt per app per catalog session.
+    // Keep network I/O outside the render lock. The bounded stack response avoids
+    // an unbounded download/file and a separate heap allocation for tiny icons.
+    uint8_t pixels[128];
+    size_t received = 0;
+    HttpDownloader::DownloadOptions options;
+    options.bufferSize = sizeof(pixels);
+    // ESP_HTTP attaches the CA bundle. Do not use the insecure WolfSSL fallback.
+    options.transport = HttpDownloader::Transport::ESP_HTTP;
+    const auto err = HttpDownloader::streamUrl(
+        baseUrl_ + app.id + "/icon.raw",
+        [&](const uint8_t* data, size_t size) {
+          if (size > sizeof(pixels) - received) return false;
+          memcpy(pixels + received, data, size);
+          received += size;
+          return true;
+        }, nullptr, "", "", options);
+    if (err != HttpDownloader::OK || received != sizeof(pixels)) {
+      LOG_ERR("STORE", "Icon download failed: %s (%d, %zu bytes)", app.id.c_str(), err, received);
+      return;
+    }
+    {
+      RenderLock lock(*this);
+      if (!Storage.ensureDirectoryExists("/.crosssmudge") || !Storage.ensureDirectoryExists("/.crosssmudge/cache") ||
+          !Storage.ensureDirectoryExists("/.crosssmudge/cache/icons")) {
+        LOG_ERR("STORE", "Could not create icon cache");
+        return;
       }
+      HalFile file;
+      if (!Storage.openFileForWrite("STORE", cachePath.c_str(), file)) {
+        LOG_ERR("STORE", "Could not open icon cache");
+        return;
+      }
+      const bool written = file.write(pixels, sizeof(pixels)) == sizeof(pixels);
+      const bool synced = file.sync();
+      const bool closed = file.close();
+      if (!written || !synced || !closed) {
+        LOG_ERR("STORE", "Could not write icon cache");
+        Storage.remove(cachePath.c_str());
+        return;
+      }
+    }
+    if (!readAppIcon(app, cachePath, pixels)) {
+      LOG_ERR("STORE", "Could not verify icon cache");
+      RenderLock lock(*this);
+      Storage.remove(cachePath.c_str());
     }
   }
 
   void ensureAppIcon(CatalogApp& app) {
-    if (app.hasIcon) return;
-    loadAppIcon(app, true);
+    if (!app.hasIcon && !app.iconAttempted) loadAppIcon(app, true);
+  }
+
+  void fetchVisibleIcon() {
+    // Input always gets a loop between requests. Synchronous connect/read can still
+    // block until the transport timeout; input is not polled inside that transport.
+    if (state_ != State::CATALOG_READY || !isWifiConnected() || millis() - lastIconWorkMs_ < 250 ||
+        mappedInput.isPressed(MappedInputManager::Button::Back)) return;
+    const auto layout = catalogLayout();
+    const int start = selectedIndex_ / layout.rowsPerPage * layout.rowsPerPage;
+    const int end = std::min(static_cast<int>(apps_.size()), start + layout.rowsPerPage);
+    for (int i = start; i < end; ++i) {
+      auto& app = apps_[i];
+      if (app.hasIcon || app.iconAttempted) continue;
+      ensureAppIcon(app);
+      lastIconWorkMs_ = millis();
+      if (app.hasIcon) requestUpdate();
+      return;
+    }
   }
 
   void fetchCatalog() {
@@ -437,15 +519,21 @@ class AppStoreActivity : public Activity {
 
     apps_.clear();
     JsonArray appList = doc["apps"].as<JsonArray>();
+    apps_.reserve(appList.size());
     for (JsonObject obj : appList) {
       CatalogApp app;
       app.id = obj["id"] | "";
+      if (!safeAppId(app.id)) {
+        LOG_ERR("STORE", "Skipping invalid catalog app ID");
+        continue;
+      }
       app.name = obj["name"] | app.id.c_str();
       app.version = obj["version"] | "1.0.0";
       app.author = obj["author"] | "Unknown";
       app.description = obj["description"] | "";
 
       JsonArray files = obj["files"].as<JsonArray>();
+      app.files.reserve(files.size());
       for (const char* f : files) {
         if (f) app.files.push_back(f);
       }
@@ -460,6 +548,7 @@ class AppStoreActivity : public Activity {
 
     state_ = State::CATALOG_READY;
     selectedIndex_ = 0;
+    lastIconWorkMs_ = millis();
     requestUpdate();
   }
 
@@ -487,77 +576,83 @@ class AppStoreActivity : public Activity {
     app.installedVersion = "";
   }
 
-  void handleCatalogInput() {
+  bool handleCatalogInput() {
     int count = static_cast<int>(apps_.size());
-    if (count == 0) return;
 
-    const int rowsPerPage = 8;
+    const auto layout = catalogLayout();
+    const int rowsPerPage = layout.rowsPerPage;
     int pageStart = (selectedIndex_ / rowsPerPage) * rowsPerPage;
 
-    if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
-        mappedInput.wasReleased(MappedInputManager::Button::Down) ||
-        mappedInput.wasReleased(MappedInputManager::Button::PageForward)) {
+    if (count > 0 && (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
+                      mappedInput.wasReleased(MappedInputManager::Button::Down) ||
+                      mappedInput.wasReleased(MappedInputManager::Button::PageForward))) {
       selectedIndex_ = (selectedIndex_ + 1) % count;
       requestUpdate();
-      return;
-    } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
-               mappedInput.wasReleased(MappedInputManager::Button::Up) ||
-               mappedInput.wasReleased(MappedInputManager::Button::PageBack)) {
+      return true;
+    } else if (count > 0 && (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
+                             mappedInput.wasReleased(MappedInputManager::Button::Up) ||
+                             mappedInput.wasReleased(MappedInputManager::Button::PageBack))) {
       selectedIndex_ = (selectedIndex_ - 1 + count) % count;
       requestUpdate();
-      return;
+      return true;
     }
 
     auto swipe = mappedInput.wasSwipe();
-    if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Left) {
+    if (count > 0 && (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Left)) {
       selectedIndex_ = (selectedIndex_ + 1) % count;
       requestUpdate();
-      return;
-    } else if (swipe == MappedInputManager::SwipeDir::Down || swipe == MappedInputManager::SwipeDir::Right) {
+      return true;
+    } else if (count > 0 && (swipe == MappedInputManager::SwipeDir::Down || swipe == MappedInputManager::SwipeDir::Right)) {
       selectedIndex_ = (selectedIndex_ - 1 + count) % count;
       requestUpdate();
-      return;
+      return true;
     }
 
-    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (count > 0 && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       state_ = State::APP_DETAIL;
       ensureAppIcon(apps_[selectedIndex_]);
       requestUpdate();
-      return;
+      return true;
     }
 
     // Touch handling
     int tx = 0, ty = 0;
     if (mappedInput.wasScreenTapped(tx, ty)) {
-      int w = renderer.getScreenWidth();
-      int h = renderer.getScreenHeight();
-      const auto& m = UITheme::getInstance().getMetrics();
-
-      if (ty > h - m.buttonHintsHeight - 20) {
-        if (tx < w / 4) {
+      if (tx < layout.left || tx >= layout.right || ty < layout.headerY || ty >= layout.bottom) return true;
+      if (ty >= layout.controlsY) {
+        int action = -1;
+        for (int i = 0; i < 4; ++i) {
+          const int x = layout.left + (layout.right - layout.left) * i / 4;
+          const int end = layout.left + (layout.right - layout.left) * (i + 1) / 4;
+          if (tx >= x && tx < end - 2) action = i;
+        }
+        if (action < 0) return true;
+        if (action == 0) {
           finish();
-          return;
-        } else if (tx < w / 2) {
+          return true;
+        } else if (count == 0) {
+          return true;
+        } else if (action == 1) {
           state_ = State::APP_DETAIL;
           ensureAppIcon(apps_[selectedIndex_]);
           requestUpdate();
-          return;
-        } else if (tx < 3 * w / 4) {
+          return true;
+        } else if (action == 2) {
           selectedIndex_ = (selectedIndex_ - 1 + count) % count;
           requestUpdate();
-          return;
+          return true;
         } else {
           selectedIndex_ = (selectedIndex_ + 1) % count;
           requestUpdate();
-          return;
+          return true;
         }
       }
 
-      int startY = m.topPadding + m.headerHeight + 6;
-      int rowH = 56;
+      const int startY = layout.startY;
+      const int rowH = layout.rowH;
       for (int i = pageStart; i < count && i < pageStart + rowsPerPage; ++i) {
         int ry = startY + (i - pageStart) * rowH;
-        if (tx >= 16 && tx <= w - 16 && ty >= ry && ty <= ry + rowH - 4) {
+        if (ty >= ry && ty < ry + rowH - 4) {
           if (selectedIndex_ == i) {
             state_ = State::APP_DETAIL;
             ensureAppIcon(apps_[selectedIndex_]);
@@ -565,10 +660,12 @@ class AppStoreActivity : public Activity {
             selectedIndex_ = i;
           }
           requestUpdate();
-          return;
+          return true;
         }
       }
+      return true;
     }
+    return false;
   }
 
   int getDetailActionButtonY() const {
@@ -835,36 +932,77 @@ class AppStoreActivity : public Activity {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
 
-  void renderCatalog() {
-    int w = renderer.getScreenWidth();
-    int h = renderer.getScreenHeight();
+  struct CatalogLayout {
+    int left, right, headerY, startY, rowH, rowsPerPage, footerY, controlsY, bottom;
+  };
+
+  CatalogLayout catalogLayout() const {
     const auto& m = UITheme::getInstance().getMetrics();
+    int top, right, bottom, left;
+    renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+    // Physical hints rotate to the button edge; intersect that reservation with
+    // bezel bounds instead of assuming the screen's bottom is always usable.
+    const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouch());
+    left = std::max(left, safe.x) + 16;
+    right = std::min(renderer.getScreenWidth() - right, safe.x + safe.width) - 16;
+    bottom = std::min(renderer.getScreenHeight() - bottom, safe.y + safe.height) - 6;
+    const int headerY = std::max(top, safe.y) + m.topPadding;
+    const int startY = headerY + m.headerHeight + 6;
+    const int rowH = std::max(56, renderer.getLineHeight(UI_10_FONT_ID) + renderer.getLineHeight(SMALL_FONT_ID) + 20);
+    const int controlsY = bottom - std::max(44, renderer.getLineHeight(SMALL_FONT_ID) + 16);
+    const int footerY = controlsY - renderer.getLineHeight(SMALL_FONT_ID) - 8;
+    const int rows = std::max(1, (footerY - 6 - startY) / rowH);
+    return {left, right, headerY, startY, rowH, rows, footerY, controlsY, bottom};
+  }
 
-    renderer.clearScreen();
-    char subBuf[64];
-    snprintf(subBuf, sizeof(subBuf), "%zu Apps Available", apps_.size());
-    GUI.drawHeader(renderer, Rect{0, m.topPadding, w, m.headerHeight}, "App Store", subBuf);
-
-    int startY = m.topPadding + m.headerHeight + 6;
-    int rowH = 56;
-    int count = static_cast<int>(apps_.size());
-    const int rowsPerPage = 8;
-    int pageStart = (selectedIndex_ / rowsPerPage) * rowsPerPage;
-
-    for (int i = pageStart; i < count && i < pageStart + rowsPerPage; ++i) {
-      const auto& app = apps_[i];
-      int y = startY + (i - pageStart) * rowH;
-      bool isSelected = (i == selectedIndex_);
-
-      if (isSelected) {
-        renderer.fillRoundedRect(16, y, w - 32, rowH - 4, 6, Color::Black);
-      } else {
-        renderer.drawRoundedRect(16, y, w - 32, rowH - 4, 1, 6, true);
+  // Fit bounded UTF-8 buffers without allocating a string on every paint.
+  void fitCatalogText(char* text, int font, int width, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const {
+    size_t length = strlen(text);
+    // snprintf may end in the middle of a multi-byte character even when the
+    // resulting byte buffer is narrower than the available screen space.
+    for (size_t i = 0; i < length;) {
+      const auto c = static_cast<unsigned char>(text[i]);
+      const size_t bytes = c < 0x80 ? 1 : (c >= 0xc2 && c < 0xe0 ? 2 : (c < 0xf0 ? 3 : 4));
+      bool complete = c < 0x80 || (c >= 0xc2 && c <= 0xf4);
+      if (i + bytes > length) complete = false;
+      for (size_t j = 1; complete && j < bytes; ++j) {
+        complete = (static_cast<unsigned char>(text[i + j]) & 0xc0) == 0x80;
       }
+      if (!complete) {
+        text[i] = '\0';
+        length = i;
+        break;
+      }
+      i += bytes;
+    }
+    while (length && renderer.getTextWidth(font, text, style) > width) {
+      do {
+        --length;
+      } while (length && (static_cast<unsigned char>(text[length]) & 0xc0) == 0x80);
+      text[length] = '\0';
+    }
+  }
 
-      // 32x32 App Icon
-      int iconX = 26;
-      int iconY = y + 8;
+  void renderCatalog() {
+    const auto& m = UITheme::getInstance().getMetrics();
+    const auto layout = catalogLayout();
+    renderer.clearScreen();
+    GUI.drawHeader(renderer, Rect{layout.left, layout.headerY, layout.right - layout.left, m.headerHeight},
+                   tr(STR_STORE_TITLE));
+
+    const int count = static_cast<int>(apps_.size());
+    const int pageStart = selectedIndex_ / layout.rowsPerPage * layout.rowsPerPage;
+    for (int i = pageStart; i < count && i < pageStart + layout.rowsPerPage; ++i) {
+      const auto& app = apps_[i];
+      const int y = layout.startY + (i - pageStart) * layout.rowH;
+      const bool isSelected = i == selectedIndex_;
+      if (isSelected) {
+        renderer.fillRoundedRect(layout.left, y, layout.right - layout.left, layout.rowH - 4, 6, Color::Black);
+      } else {
+        renderer.drawRoundedRect(layout.left, y, layout.right - layout.left, layout.rowH - 4, 1, 6, true);
+      }
+      const int iconX = layout.left + 10;
+      const int iconY = y + (layout.rowH - 4 - 32) / 2;
       if (app.hasIcon) {
         if (isSelected) {
           renderer.drawIconInverted(app.iconData, iconX, iconY, 32, 32);
@@ -874,40 +1012,47 @@ class AppStoreActivity : public Activity {
       } else {
         renderer.drawRoundedRect(iconX, iconY, 32, 32, 1, 4, !isSelected);
       }
-
-      // App Name
-      char titleBuf[64];
-      snprintf(titleBuf, sizeof(titleBuf), "%s", app.name.c_str());
-      renderer.drawText(UI_10_FONT_ID, 68, y + 8, titleBuf, !isSelected, EpdFontFamily::BOLD);
-
-      // Author & Version
-      char authBuf[64];
-      snprintf(authBuf, sizeof(authBuf), "by %s  •  v%s", app.author.c_str(), app.version.c_str());
-      renderer.drawText(SMALL_FONT_ID, 68, y + 28, authBuf, !isSelected);
-
-      // Status badge on the right
-      const char* statusStr = "[ Install ]";
-      if (app.isInstalled) {
-        if (app.installedVersion != app.version) {
-          statusStr = "[ Update ]";
-        } else {
-          statusStr = "[ Installed ]";
-        }
-      }
-      int sw = renderer.getTextWidth(SMALL_FONT_ID, statusStr, EpdFontFamily::BOLD);
-      renderer.drawText(SMALL_FONT_ID, w - 32 - sw - 10, y + 18, statusStr, !isSelected, EpdFontFamily::BOLD);
+      const char* status = !app.isInstalled ? tr(STR_STORE_INSTALL)
+                           : app.installedVersion != app.version ? tr(STR_UPDATE) : tr(STR_INSTALLED);
+      char statusBuf[64];
+      snprintf(statusBuf, sizeof(statusBuf), "%s", status);
+      fitCatalogText(statusBuf, SMALL_FONT_ID, (layout.right - layout.left) / 3, EpdFontFamily::BOLD);
+      const int statusWidth = renderer.getTextWidth(SMALL_FONT_ID, statusBuf, EpdFontFamily::BOLD);
+      const int statusX = layout.right - 10 - statusWidth;
+      const int textX = iconX + 42;
+      const int textWidth = std::max(0, statusX - 10 - textX);
+      char text[96];
+      snprintf(text, sizeof(text), "%s", app.name.c_str());
+      fitCatalogText(text, UI_10_FONT_ID, textWidth, EpdFontFamily::BOLD);
+      renderer.drawText(UI_10_FONT_ID, textX, y + 8, text, !isSelected, EpdFontFamily::BOLD);
+      snprintf(text, sizeof(text), "%s  •  v%s", app.author.c_str(), app.version.c_str());
+      fitCatalogText(text, SMALL_FONT_ID, textWidth);
+      renderer.drawText(SMALL_FONT_ID, textX, y + 10 + renderer.getLineHeight(UI_10_FONT_ID), text, !isSelected);
+      renderer.drawText(SMALL_FONT_ID, statusX, y + (layout.rowH - 4 - renderer.getLineHeight(SMALL_FONT_ID)) / 2,
+                        statusBuf, !isSelected, EpdFontFamily::BOLD);
     }
-
-    // Page indicator and prompt below list
-    int totalPages = std::max(1, (count + rowsPerPage - 1) / rowsPerPage);
-    int curPage = (selectedIndex_ / rowsPerPage) + 1;
-    char pageBuf[64];
-    snprintf(pageBuf, sizeof(pageBuf), "Page %d of %d  •  %d Apps", curPage, totalPages, count);
-    int footY = startY + (rowsPerPage * rowH) + 12;
-    renderer.drawCenteredText(SMALL_FONT_ID, footY, pageBuf, true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(SMALL_FONT_ID, footY + 18, "Press Confirm or Tap to view details", true);
-
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "Details", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+    char page[64];
+    snprintf(page, sizeof(page), tr(STR_STORE_PAGE), selectedIndex_ / layout.rowsPerPage + 1,
+             std::max(1, (count + layout.rowsPerPage - 1) / layout.rowsPerPage), count);
+    fitCatalogText(page, SMALL_FONT_ID, layout.right - layout.left);
+    renderer.drawText(SMALL_FONT_ID,
+                      layout.left + (layout.right - layout.left - renderer.getTextWidth(SMALL_FONT_ID, page)) / 2,
+                      layout.footerY, page, true);
+    // Explicit logical actions stay visible on touch devices, where theme hints
+    // are suppressed. Drawing and hit testing use these same quarter-width cells.
+    const char* actions[] = {tr(STR_BACK), tr(STR_STORE_DETAILS), tr(STR_DIR_UP), tr(STR_DIR_DOWN)};
+    for (int i = 0; i < 4; ++i) {
+      const int x = layout.left + (layout.right - layout.left) * i / 4;
+      const int end = layout.left + (layout.right - layout.left) * (i + 1) / 4;
+      renderer.drawRoundedRect(x, layout.controlsY, end - x - 2, layout.bottom - layout.controlsY, 1, 4, true);
+      char label[64];
+      snprintf(label, sizeof(label), "%s", actions[i]);
+      fitCatalogText(label, SMALL_FONT_ID, end - x - 10);
+      renderer.drawText(SMALL_FONT_ID, x + (end - x - renderer.getTextWidth(SMALL_FONT_ID, label)) / 2,
+                        layout.controlsY + (layout.bottom - layout.controlsY - renderer.getLineHeight(SMALL_FONT_ID)) / 2,
+                        label, true);
+    }
+    const auto labels = mappedInput.mapLabels(actions[0], actions[1], actions[2], actions[3]);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
 

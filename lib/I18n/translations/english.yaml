@@ -845,3 +845,8 @@ STR_LONG_PRESS_HOME_SHORTCUT: "Long-Press Home"
 STR_DOUBLE_TAP_HOME_SHORTCUT: "Double Tap Home"
 STR_CUSTOM_BOOTSCREEN: "Custom Boot Screen"
 STR_TAP_HIDE_STATUS_BAR: "Tap to Hide Status Bar"
+
+STR_STORE_TITLE: "App Store"
+STR_STORE_INSTALL: "Install"
+STR_STORE_DETAILS: "Details"
+STR_STORE_PAGE: "Page %d of %d  •  %d Apps"

@@ -1,3 +1,10 @@
+## [Unreleased]
+
+### Fixed
+
+- App Store now fetches missing icons for the visible catalog page and caches validated icons for reuse without reinstalling apps.
+- App Store lists fit the available screen space in portrait and landscape, with bounded text and visible touch navigation.
+
 ## [v1.6.5.3] - 2026-10-06
 
 ### Added
