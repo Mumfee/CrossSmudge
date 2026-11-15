@@ -248,7 +248,7 @@
     {
       "id": "solitaire",
       "name": "Solitaire",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "Mumfee",
       "description": "Classic 7-column Klondike Solitaire card game optimized for e-paper",
       "files": [

@@ -39,6 +39,8 @@
 
 ### Fixed
 
+- Fixed Solitaire v1.0.1 touch input on reTerminal Sticky: tapping cards now deals, selects, and moves cards; reset confirmation buttons match their drawn bounds, and taps in tableau gaps or below cards are ignored. Other devices retain their existing input behavior and saved games remain compatible.
+
 - Fixed input latency, unresponsive controls, button mapping, and out-of-memory errors in *Chess* (`apps/chess/`):
   - Updated hardware controls per device layout: mapped bottom front buttons (Buttons 3/4) to Up and Down, and top side buttons to Left and Right, matching on-screen button hints (`[Menu] [Select] [Up] [Down]`).
   - Fixed sluggish menu navigation by rendering the game menu overlay directly onto the active framebuffer without clearing the screen or reloading 96 piece sprite files from SD card, reducing menu cursor latency from ~500 ms to under 2 ms.

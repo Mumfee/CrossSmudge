@@ -1,7 +1,7 @@
 {
   "id": "solitaire",
   "name": "Solitaire",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Mumfee",
   "description": "Classic Klondike Solitaire with crisp 1-bit cards, touch & button play, and auto-complete",
   "entry": "main.lua"

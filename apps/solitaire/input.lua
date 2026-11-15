@@ -143,16 +143,19 @@ function on_swipe(dir)
 end
 
 function on_touch(action, tx, ty)
+    local sticky = type(smudge.get_device) == "function" and smudge.get_device() == "sticky"
+    -- Sticky firmware supplies coordinates before the event; preserve other devices.
+    if sticky then action, tx, ty = ty, action, tx end
     if action ~= "tap" and action ~= "click" then return end
 
     if show_reset_confirm then
-        local dw = math.min(w - 48, 380)
-        local dh = 150
+        local dw = sticky and math.min(w - 40, 420) or math.min(w - 48, 380)
+        local dh = sticky and 156 or 150
         local dx = math.floor((w - dw) / 2)
         local dy = math.floor((h - dh) / 2)
         local bw = math.floor((dw - 36) / 2)
-        local bh = 34
-        local by = dy + 92
+        local bh = sticky and 36 or 34
+        local by = dy + (sticky and 96 or 92)
         local b1_x = dx + 12
         local b2_x = dx + dw - bw - 12
 
@@ -247,8 +250,10 @@ function on_touch(action, tx, ty)
         local col = math.floor((tx - margin) / slot_step) + 1
         if col >= 1 and col <= 7 then
             local pile = tableau[col]
+            if sticky and tx > margin + (col - 1) * slot_step + card_w then return end
 
             if #pile == 0 then
+                if sticky and ty > tab_y + card_h then return end
                 if sel_zone > 0 then
                     execute_move(2, col)
                 end
@@ -269,6 +274,7 @@ function on_touch(action, tx, ty)
                 cy = cy + step
             end
 
+            if sticky and ty > cy + card_h then return end
             local tapped_card = pile[tapped_idx]
             if tapped_card and card_u(tapped_card) then
                 if sel_zone > 0 then
