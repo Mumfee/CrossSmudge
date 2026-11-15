@@ -236,7 +236,7 @@
     {
       "id": "hourglass",
       "name": "Hourglass",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "Mumfee",
       "description": "Expressive countdown timer with dynamic sand funnel physics and cute expressions",
       "files": [

@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Fixed
+
+- Fixed touch controls on reTerminal Sticky in Hourglass 1.0.1; other devices retain their existing behavior.
+
 ## [v1.6.5.3] - 2026-10-06
 
 ### Added
