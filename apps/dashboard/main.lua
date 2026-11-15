@@ -486,6 +486,9 @@ function on_button(btn, pressed)
 end
 
 function on_touch(action, tx, ty)
+    if smudge.get_device and smudge.get_device() == "sticky" then
+        action, tx, ty = ty, action, tx
+    end
     if action ~= "tap" and action ~= "click" then return end
     last_interact_ms = (smudge.millis and smudge.millis()) or (os.time() * 1000)
     if not buttons_visible then
